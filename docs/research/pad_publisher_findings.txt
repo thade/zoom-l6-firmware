@@ -1,0 +1,129 @@
+L6 VERIFIED EXTRA-CAPTURE RESULTS TO SOUND PADS
+4 October 2026
+
+Result
+The compiled manager's completed-result ring now feeds the compiled pad publisher.
+An offline six-take test assigns the newest four additional pre-master WAVs to
+pads 1 through 4, in order, using original stock assignment/catalogue control
+flow and the existing strict settings adapter. Every source WAV remains intact.
+The processed MASTER and clean input files are neither moved nor substituted.
+
+Eleven new groups pass. Relevant regressions also pass: 343 groups across 26
+suites on the current two ELFs, including historical negative controls. See
+pad_publisher_regression.json for the exact inventory and build hashes.
+Stock image SHA-256 remains:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+
+This is a boundary integration test, not installed firmware or a complete RTOS
+simulation. No L6, real SD card or device firmware was written.
+
+Implementation
+src/capture/pad_publisher.c adds manager_publish_pads(manager,state,
+port). The caller supplies persistent, zeroed, non-overlapping publication State
+and a valid Port table. These remain valid across calls and must not be used by
+another publisher. State currently occupies 17,244 synthetic bytes; its real
+memory placement and stack budget have not been established.
+
+manager_visit_results holds the manager's existing atomic try-lock throughout
+the synchronous worker callback. It permits publication only at M_RESET, after
+the completed take's verification and transport shutdown, before preparation
+of another active capture. Cancelled, busy, armed and other manager states return
+BUSY without invoking the visitor. Reset, result copying and a second visitor
+cannot compete while publication performs file work. This manager lock does NOT
+exclude ordinary recording, stock pad readers, card changes or rescans.
+
+The visitor passes the manager's entire newest-first ring snapshot to the shared
+publication body, checking nonzero, descending session IDs. Completion provenance
+comes from the manager rather than fabricated ordinary-MASTER close/postprocess
+flags. The trusted internal od_publish_completed_paths entry is not a generic
+UI import API: its caller must establish completed-file provenance. The existing
+od_promote entry retains its ordinary-MASTER eligibility checks for older tests.
+
+The shared publisher validates source paths for termination and duplicates,
+revalidates stereo 48 kHz float32 RIFF containers, exclusively creates unique
+pad-specific destination copies, rereads and compares their bytes, inserts
+catalogue entries, applies stock assignments, checks path/loaded-state/options,
+and verifies a grouped settings write. Existing pad options remain unchanged.
+Copies use ODxxxxxxxx.WAV; captured sources use OD_xxxxxxxx.WAV, avoiding name
+collision between these two producers. Existing destination collisions fail
+without overwriting. Explicit later retries advance the publication serial.
+
+Only successful publication commits publisher history. Repeating the same
+snapshot performs no file/settings IO. Consuming the whole snapshot also handles
+publication delayed across several completed takes: it selects the latest four,
+not just the most recent result plus an outdated publisher history. Older source
+files are preserved even when their manager metadata has left the four-slot ring.
+
+Failure and scheduling contracts
+Port.enter must positively acquire and retain exclusion of ordinary recording,
+playback/render accesses, outstanding stream reads/seeks, rescans and card-mode
+changes until Port.leave. The manager's extra-capture fence cannot substitute
+for this. The fixture defaults to an unacknowledged renderer fence and refuses
+publication. Playback active, outstanding readers, or missing fence confirmation
+all return BUSY before filesystem/assignment side effects. No automatic pad-stop
+command is issued to make progress.
+
+A worker must call manager_publish_pads at M_RESET before calling manager_step
+again. BUSY retains that boundary for a later attempt. OK or SKIPPED permits
+continued reset/preparation. Other errors require an explicit retry/skip/stop
+policy; no production task, wakeup or error UI is registered by this stage.
+A caller that continues manager_step on BUSY would miss that publication window.
+This ordering is supplied by the test harness, not enforced by a new manager
+state or a real device scheduler. Ordinary recording/card exclusion also remains
+an external requirement even while the optional manager is paused.
+
+The existing publisher attempts rollback of every attempted assignment plus
+settings after an assignment or save failure. Tests verify late loader failure
+and short/error settings writes restore prior assignments/history. An explicit
+retry can publish the retained result. Uncertain file close or failed rollback
+latches a publisher fault and prevents automatic reuse. Cancellation checkpoints
+preserve the result for a later explicit attempt. Partial/orphan copied files and
+catalogue entries may remain; nothing deletes original recordings.
+
+Settings are still updated in place. This is not power-loss atomicity, a durable
+history journal, or reboot reconstruction. Copying each retained song into its
+pad-specific directory can require four full-song copies per pass; available
+space, directory growth and latency remain practical issues. This stage does not
+claim the zero-copy/direct-pad solution is finished.
+
+How this simulation works
+1. ManagerRig runs the compiled capture/manager code with generated audio and
+   bytearray files until the real compiled manager reaches M_RESET.
+2. The harness transfers that manager RAM, ELF globals and completed file bytes
+   into a separate StockRig CPU. It does not invent a completed result or turn a
+   processed MASTER into an extra capture.
+3. That CPU executes the compiled visitor and publisher, original stock pad
+   validator/loader control flow, catalogue routines and filesystem wrappers.
+   The strict compiled stock adapter verifies assignments and settings.
+4. SD driver effects, parser outputs, audio-engine work and exclusion/fence
+   confirmation remain modeled. No actual sound is rendered by this test.
+
+The two-CPU transfer avoids conflating the existing capture public-filesystem
+fixture with the stock pad fixture's lower-level driver handles. It also limits
+what is proved: there is no continuously shared RTOS, queue/renderer execution,
+hardware timing, real flash/SD throughput, or concurrent card-removal test.
+A separate peer-CPU probe confirms that manager reset and result reads return
+BUSY while the publisher holds the manager latch during IO. This is controlled
+interleaving, not exhaustive preemption coverage.
+
+Verification
+New groups cover six sequential publications, duplicate idempotence, default
+unbound fence and playback/readers deferral, manager reentry, late loader failure
+and retry, settings failure and retry, uncertain-close fault, source corruption,
+cooperative cancellation, invalid manager phases, and delayed latest-four history.
+
+Reproduce from repository root with the existing analysis environment:
+  /tmp/l6-re-tools/bin/python tools/firmware/build_extra_capture.py
+  /tmp/l6-re-tools/bin/python tools/firmware/build_overdub_prototype.py
+  /tmp/l6-re-tools/bin/python tests/emulation/verify_pad_publisher.py
+Both builds are separate emulator ELFs, not flashable L6 images.
+
+Next concrete investigation
+Recover and bind the real pad-renderer fence/rearm boundary, using the already
+located AudioProcess whole-callback path as a candidate. Establish that every
+reader of the old sample/buffers has finished, future accesses are excluded, and
+outstanding file work is accounted for before assignment unloads a pad. The
+capture callback fence currently tested with a synthetic DSP body does not prove
+that sampler contract. Then enforce publication/rearm ordering in the worker.
+Physical memory placement, update packaging and recovery remain separate gates
+before any hardware firmware experiment.

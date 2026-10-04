@@ -1,0 +1,95 @@
+Reload completion manager — offline prototype, 2026-10-04
+
+Result
+The ARM prototype now drives a planned reload through final verification and
+producer retirement automatically. Main's ordinary receive path and the traced
+mode-5 startup drain both poll the new completion manager. Successful settings
+readback no longer needs a Python call to rl_verify/rt_retire. Failure retains
+protection and the original error evidence; no repair write or reset is attempted.
+
+This is a reload completion manager. The earlier capture SessionManager still
+needs an explicit handoff from its publication owner to construct this manager's
+plan and maintain the required external exclusion. That handoff is not claimed
+by this result, and no executable firmware patch has been installed or produced.
+
+Files
+src/overdub/reload_manager.[ch]
+src/overdub/reload_ownership.[ch]
+src/overdub/reload_transport.[ch]
+src/overdub/reload_compact.[ch]
+src/overdub/work_ownership.[ch]
+tests/emulation/verify_reload_manager.py
+analysis/reload_manager_verification.json
+analysis/reload_manager_regression.json
+
+Intended result and checks
+- RmPlan is 6,436 bytes: four 548-byte intended Pad records and a 4,244-byte
+  expected L6PADSETTING.ZST image. It is supplied BEFORE original producer work
+  and copied into the manager, independently of subsequent live state/cache.
+- Start validates the expected stock header and consistency between intended
+  runtime paths/mode/level and serialized settings fields. The adjacent runtime
+  byte at CONFIG+0x329 is outside this settings file and checked in RAM only.
+- A continuous caller-owned exclusion port is required from plan creation until
+  DONE. It is explicitly modeled here, not inferred from a busy light or ledger.
+- A coordinator manager lease prevents another reload or destructive queue
+  cleanup from entering during this planned reload. A separate managed producer
+  entry presents the same permanent manager token; ordinary producers are BUSY.
+- Original producer, assignment worker, UI reload and settings writer still run.
+  Their earlier attributed I/O failures remain grounds for rejection even if
+  final runtime state looks correct.
+- Seal waits for both branches, their producer returns and every attributed
+  descendant. The session becomes OWN_SEALED, rejecting further child admission.
+  Its storage reservation remains alive. No metadata lock spans stock/file calls.
+- Four stock snapshots must match intended paths, loaded/assigned state, handles,
+  mode, native level and the adjacent option byte.
+- Read-only stock PUBLIC open/info/read/close wrappers check the saved file's
+  exact 0x1094 length and all expected bytes, including header and retained tail.
+  Only unused UTF-16 padding after each intended path terminator is ignored.
+  Neither the comparison cache nor current RAM supplies the expected file image.
+- Readback is 34 reads of at most 128 bytes in one synchronous Main-task
+  poll. It is bounded in bytes, not guaranteed in wall time or audio latency.
+  Every successful open gets one close attempt, including failure paths.
+  Open/read errors, short reads, length mismatch, corruption and close errors
+  are terminal. There is no create/save/repair path in verification.
+- Successful evidence survives metadata contention under the sealed owner and
+  retained external exclusion; retries do not repeat file I/O. The manager
+  calls rl_verify, rt_retire, then releases its coordinator lease. DONE permits
+  a new plan with a fresh ticket. FAILED has no reset or forced-release route.
+
+Main integration
+The optional rc_bind_manager binding is permanent and must precede activation.
+Main retries its retained task continuation, polls the completion manager, and
+services owned reload events while the manager is waiting. Ordinary controls
+wait until the managed operation completes. The mode-5 path can launch a
+prepared plan before closing admission, then drain, verify, retire and perform
+its existing setup/clear/continuation exactly once. A saturated UI queue uses
+the prior retained-delivery mechanism, preserving the same tickets.
+
+Offline verification
+19 new test groups cover automatic Main completion, a prepared mode transition,
+full queues, immutable plan copying, six runtime mismatch variants, four saved
+corruption positions, truncated/oversize/missing settings, five I/O failures,
+unused path padding, delayed descendants, original writer failure, loss of the
+external exclusion before/during checking, competing reloads, metadata contention,
+sealed-child rejection, repeat passes/stale tickets and rejected input plans.
+The new tests never supply a successful final verdict from Python. Python does
+supply the intended pre-operation plan, queue scheduling, exclusion assertion,
+filesystem-driver effects, synthetic settings input and audio-engine boundaries.
+
+Limitations and next step
+- Readback demonstrates modeled filesystem bytes and runtime state, not audible
+  playback, physical SD persistence or power-loss atomicity.
+- Reload serialization does not establish exclusion of all recorder/card/USB,
+  playback or pad-setting actors. The required external exclusion is a port,
+  and all real asynchronous descendants still need native attribution.
+- Public-wrapper return checks are complete for this new read-only verifier;
+  earlier ignored errors in original worker/UI code still need their existing
+  broader boundary audit. The settings-input reader remains a fixture.
+- Native task hooks, RAM placement, boot/recovery and installation remain open.
+- Next: construct the immutable plan from the guarded publication result and
+  bind its existing shutdown/publication ownership to this manager, retaining
+  that exclusion until verified completion or a latched fault.
+
+Stock Reference/L6_v1.10_E/L6.BIN SHA256 remains
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb.
+No mixer communication, SD-card writes or firmware flashing occurred.

@@ -1,0 +1,83 @@
+CURRENT SCOPE UPDATE — 3 October 2026
+The user clarified that the ordinary processed master must remain alongside the
+input files, with an ADDITIONAL pre-master stereo file for the pad. Replacement,
+move and copy proposals below are historical, not the current design. See
+docs/research/extra_capture_findings.txt for the separate-writer investigation.
+
+L6 DIRECT PAD RECORDING VERSUS COPYING THE MASTER
+3 October 2026
+
+Question
+Could the overdub workflow automatically record to a sound pad instead of copying
+a finalized ordinary master into a pad folder?
+
+Stock feature
+Yes, the L6 already offers REC + pad to record a mixed stereo file, then assigns
+the new file when the destination pad is pressed to stop. The manual says an
+existing assigned file is not overwritten by this operation.
+Official source: https://zoomcorp.com/manuals/l6-en/
+Section: Using the L6 to record audio files and assign them to sound pads.
+
+Critical constraint established in this pass
+Original mask selector 0x80008990 calls setting getter 0x80006190. With an ordinary
+negative target and setting zero it returns 0x0fff, enabling logical inputs 0..11.
+With a nonzero setting it selects 0x0c00. Independently of that setting, ANY
+nonnegative recording target forces 0x0c00, selecting only logical channels 10/11.
+These are the stereo master pair; input channels 0..9 are excluded.
+
+The ordinary/pad preparation path 0x80002df8 passes its target to this selector
+at 0x80002e96, then passes the resulting mask to 0x8000b540 at 0x80002e9a.
+The latter updates the stream-selection bytes at 0x801f8c68..0x801f8c73.
+The start path and target share the normal RecPlayCtl machinery, so this is a
+special mode of the recorder, not evidence of an independent second recorder.
+
+tests/emulation/verify_pad_record_mode.py executes the original selector and per-stream
+selection instructions with synthetic metadata helpers. Ten cases cover the
+ordinary target and all four pad targets under both setting values. Every pad
+case selects only 10 and 11. This does not emulate audio/file writes or prove
+that overriding the mask would be sufficient for simultaneous stem recording.
+Report: analysis/pad_record_mode_verification.json.
+
+Implication
+Simply automating REC + pad would drop the clean input stems required by this
+project. Merely changing the global recording target or its mask is insufficient:
+the target also affects naming, post-processing/move paths and assignment.
+That complete path would need adaptation and verification.
+
+Revised preferred design to investigate
+Keep normal multitrack capture, with one writer for each existing stream. Give
+the stereo master a new unique destination in a chosen pad directory from the
+start, while retaining channel-file destinations in the take folder. After the
+master is finalized and verified, insert and assign that same file using stock
+catalogue/assignment machinery. This would eliminate the large post-record copy
+without running two independent recorders or writing duplicate masters.
+
+This is a proposed change, not implemented behavior. Naming and split-file
+handling, take metadata, ordinary last-recording playback, post-processing and
+failure recovery must tolerate the master's different location. If an additional
+MASTER.WAV must also remain in each take folder, a second copy or a redesigned
+reference scheme is still needed; a single file cannot satisfy two paths merely
+by changing the pad index.
+
+Another possible approach is to extend the existing pad-recording mode to retain
+the input tracks and preserve their ordinary destinations. Its master-only mask
+is now understood, but the broader post-processing effects remain to trace.
+
+Play the previous master from a different pad while writing the new file. Do not
+replace its loaded assignment until playback/file activity is safely finished.
+A rotating destination pad (rather than physically shifting every previous take
+between PAD folders) could further reduce file movement, at the cost of changing
+which physical pad holds the newest take. No such workflow change is assumed yet.
+
+Both designs still require safe finalization and pad reassignment. The ownership,
+catalogue and session work remains relevant; most of the copy machinery could
+be omitted. Neither design by itself adds a pre-compression recording source.
+That remains a separate audio-tap modification. Previous-pad inclusion in stock
+pad-record mode is not newly verified by the mask tests or the manual wording.
+
+Follow-up: initial destination and Work lifecycle, same date
+See docs/research/recording_writer_findings.txt. The actual open path uses 0x80022bb8
+-> 0x80023640 and a shared Work subdirectory; 0x80022c80 builds the later final
+path. Direct master-to-pad capture needs consistent master-specific handling of
+both stages and later post-processing. The ordinary writer successfully carried
+a modeled pre-master snapshot into an exact float32 WAV in the new offline tests.

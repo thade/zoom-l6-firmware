@@ -1,0 +1,141 @@
+L6 PLAYBACK SESSION COORDINATOR: OFFLINE ARM PROTOTYPE
+3 October 2026
+
+Result
+Implemented a compiled session coordinator that retains admission across pad
+playback, gaps between refills, stop and retrigger. Its no-argument callback runs
+from the original AudioSubProcess registry and calls the guarded original scan.
+All scan/refill children inherit the session owner, keeping promotion excluded.
+
+Nineteen new test groups pass. The seven preceding suites were rerun against
+the rebuilt ELF and also pass: eight suites, 165 groups in total. These include
+the earlier negative controls, not 165 demonstrations of installation readiness.
+The stock image is unchanged; no device communication or flash image is produced.
+
+The key unresolved boundary is deliberately explicit: a real renderer fence
+must prevent further access to old pad buffers and join existing accesses.
+The default adapter returns BUSY and never releases ownership. Successful fence
+and rearm operations in the tests are simulated. This stage implements and tests
+the coordinator around that contract; it does not recover the device contract.
+
+Files
+src/overdub/playback_session.h and playback_session.c
+src/overdub/work_ownership.h and work_ownership.c
+tests/emulation/verify_playback_session.py
+analysis/playback_session_verification.json
+
+Ownership and admission
+The coordinator occupies 28 bytes and its port table another 28 bytes, in
+addition to the existing 780-byte ledger. One OWN_SESSION root covers a cohort
+of up to four pads. A four-bit mask records pads started through the coordinator.
+It is an ownership record, not a sampled copy of the hardware active flags.
+
+Before the first stock start/restart mutation, start reserves and claims the
+session. Each additional pad and retrigger reuses that owner. A retrigger never
+drops it during the stock fade, stream disable, pending drain or re-enable.
+If promotion already owns the gate, start returns BUSY before original mutations.
+An unloaded pad or invalid pad creates no reservation. A full ledger also blocks
+start before original side effects.
+
+The operation latch serializes start, stop, callback and quiesce. It is acquired
+with one atomic try, not a spin or blocking mutex. The latch stays held while
+the current stock operation executes, possibly yielding; competing coordinator
+calls immediately return BUSY. Workers and the audio renderer must never need
+this latch to make progress. This can skip refill scans, so a verified retry and
+latency policy is still required before device use.
+
+The stock adapters execute 0x80002c60 for start/retrigger and 0x80018350 for stop,
+then check the relevant audio-active word. A start's visible active state is not
+proof that its file seek succeeded or that audio sounded correctly. The tests
+model the seek and fade progress. Unknown start, stop or rearm outcomes retain
+the owner and latch the gate fault; automatic recovery is not implemented.
+
+The no-argument od_emulator_session_callback ignores incidental dispatcher
+registers and calls the coordinator at fixed fixture address 0x21003a00.
+The coordinator calls od_emulator_stream_scan(owner). That scan reserves its own
+child, and each published refill becomes a child of the scan. Thus the complete
+chain remains attributed to the long-lived session root.
+
+Stop and quiesce are separate
+Stop runs the original sound-stop path and clears its ownership-mask bit only
+after the adapter confirms audio-active is zero. It never releases the root.
+Natural EOF does not clear the ownership mask automatically; explicit stop and
+quiesce remain required. This conservative behavior avoids inventing a renderer
+completion hook that has not been verified.
+
+Quiesce requires all mask bits clear. It then enters a closing state that rejects
+new starts and scans across retries. An in-progress coordinator operation cannot
+overlap this transition because of the operation latch.
+
+The port fence receives the unique session ticket as its epoch and must return
+both success and that exact acknowledged epoch. A missing or stale epoch latches
+a fault. BUSY retains the closing state and owner for retry. The acknowledgement
+must mean that new renderer accesses are prevented, existing accesses have
+completed, and file-stream production is disabled. Merely copying the epoch into
+the acknowledgement is insufficient on a device; the test explicitly simulates
+the stronger contract.
+
+After acknowledgement, the stock quiet adapter checks every pad's audio-active,
+stream-enabled and pending fields. All must be zero. A new atomic ledger operation,
+od_own_finish_session, additionally requires the correct running session kind,
+accepted submission, no producer completion yet, no gate fault and no children.
+Only then does it mark both obligations complete and retire the owner.
+
+This prevents a misleading clear pending flag from overriding outstanding child
+tickets. Conversely, a set pending flag with no tracked child also blocks release.
+Unknown queue submission remains owned even after sound stop and renderer fence.
+Ledger-lock contention during retirement leaves the fenced session intact for
+retry; it does not release admission or reopen starts.
+
+The acknowledged fence persists after root retirement, across promotion, until
+a subsequent start rearms it. Rearm is called with the previous fenced epoch and
+the newly reserved session owner, before original start. This ensures protection
+exists before reopening renderer access. An uncertain rearm faults and retains
+the new reservation. The default unbound rearm adapter does not claim success.
+
+Verification
+19 groups execute compiled ARM code covering:
+- registered no-argument callback through original task, scan and worker;
+- reservation retained between refills and throughout stock retrigger;
+- two pads sharing a session, with both stopped before release;
+- default unbound fence staying BUSY and inhibiting new starts/scans;
+- delayed fence acknowledgement, exact epoch matching and stale rejection;
+- pending children despite a clear flag, and pending flags without children;
+- fresh-session rearm under a new owner and rearm failure retention;
+- failed start/stop, promotion exclusion, unloaded/invalid/idle requests;
+- competing coordinator operations during the original fade wait;
+- unexpected audio reactivation preventing release;
+- full ledger, retirement lock contention, unknown undelivered submission,
+  and distinction between retryable fence BUSY and a contradictory failure.
+
+Concurrent-operation tests use an independent emulator CPU and a snapshot of
+shared state to probe the held latch without corrupting the running CPU stack.
+They are not instruction-level preemption tests. Fade progress, critical sections,
+RTOS delivery, file-seek completion and renderer acknowledgement remain modeled.
+No natural-EOF renderer execution or physical audio validation is claimed.
+
+Installation and startup requirements
+Every relevant start/stop/callback path must use this coordinator. Unmodified
+direct callers, initial preload paths, unload, USB/card changes and assignment
+must not bypass it. The callback returns BUSY while idle, so startup preload and
+promotion-owned loading require deliberate separate attribution; blindly
+installing this callback would not preserve all stock behavior.
+
+The fixture must be zeroed before participants start, with ledger and port pointers
+set. Adopting existing playback or queued work midway through operation is not
+implemented. Do not reset a live coordinator/ledger. The fixed addresses are
+emulator allocations, not verified spare device RAM.
+
+Next concrete device boundary
+Static task-table inspection identifies AudioProcess entry 0x80010939 in descriptor
+0x800a1bec, with task-handle storage 0x80446d78. Its loop waits on the handle at
+0x8044692c, then calls 0x80010698. That routine invokes an indirect callback from
+0x20015e10 at 0x8001078c and later signals AudioSubProcess through the handle at
+0x80446930 near 0x80010886. This is a candidate route for locating an acknowledged
+end-of-audio-block fence. Its callback identity, all readers, interrupt/DMA
+lifetimes and safe exclusion mechanism remain to be traced and tested.
+
+Recover that boundary and bind a real fence/rearm protocol before claiming
+continuous-playback safety on the device. Recorder close/segment capture,
+USB/card readiness, installation memory, update packaging and bootloader recovery
+also remain separate prerequisites for a flashable implementation.

@@ -1,0 +1,133 @@
+L6 ADDITIONAL PRE-MASTER STEREO RECORDER
+3 October 2026
+
+Authoritative workflow clarification
+Keep EVERY existing recording output: clean input files and the normal processed
+MASTER in the take folder. Add a DIFFERENT stereo file in a sound-pad folder,
+capturing the mix before master level/compression. That extra mix includes prior
+pad playback and the new contributions. Never move, duplicate or replace the
+normal MASTER as a substitute for this separate signal.
+
+Earlier replacement-master and move/copy proposals are superseded by this scope.
+Their source-location, sample-scaling and file-API observations remain useful;
+their proposed master-only destination changes are not the current design.
+"Pre-master" still includes channel/pad levels and mix processing before that
+point; it is not a set of dry inputs or a mix independent of pad gain.
+
+Result
+An isolated compiled ARM prototype captures an owned, normalized, interleaved
+stereo snapshot, then a separate consumer writes batches through the original
+filesystem API. Eleven offline test groups pass. Alongside it, original firmware
+functions produce all seven ordinary recording files with independent expected
+payloads: two mono input files, four stereo input files and the stereo master.
+The eighth file receives the pre-master mix, while the original master retains
+the tested master-gain adjustment. The compressor body is not executed here.
+
+No source MASTER is moved, copied or overwritten. No device access, firmware
+patch, flashable image or installed audio hook is involved. The existing overdub
+prototype ELF and stock L6.BIN remain unchanged. The new ELF is separate.
+
+Files
+  src/capture/capture.c
+  src/capture/emulator.ld
+  src/capture/capture.elf
+  tools/firmware/build_extra_capture.py
+  tests/emulation/verify_extra_capture.py
+  analysis/extra_capture_verification.json
+
+Why not just enable another stock stream?
+Original stream setup 0x80037ca0 returns immediately for indices above 11.
+Original handle getter 0x800374f0 returns zero for index 12. Original ring reader
+0x80018fd0 emits silence for an out-of-range index instead of addressing another
+ring. New tests execute all three behaviors. Many arrays, masks, loops and
+shutdown paths are twelve-channel-specific. The unused second index of a stereo
+pair is already audio data, not a spare independent capture route.
+
+Therefore a separate narrow writer is a better prototype boundary than expanding
+all stock stream structures. This is a design choice, not proof that extending
+the stock recorder is impossible. The stock WAV/file APIs operate on handles and
+can be reused without claiming stream index 12.
+
+Compiled prototype behavior
+- One audio producer copies 64 L/R float samples into its own ring and multiplies
+  them by the verified 2^-31 internal-to-WAV scale. It never calls the filesystem.
+- It publishes the completed block with release ordering. One file consumer reads
+  with acquire ordering and retains ownership until a synchronous write returns.
+- The consumer writes up to eight contiguous blocks (4 KiB) at a time through
+  0x800622b0. It checks BOTH status and transferred byte count before recycling
+  the buffer. Ring-wrap boundaries may create shorter batches.
+- An overrun, short write, write error or conservative file-size limit latches
+  an extra-capture fault. It does not rewrite the ordinary recorder's error word.
+  Captured blocks are never silently overwritten to keep up.
+- Capture must be quiesced before stop; a real producer fence is NOT bound.
+  Successful readiness requires stop, all queued samples written, nonempty audio
+  and no fault. Readiness permits finalization only, not pad assignment.
+- The caller must explicitly keep the ordinary audio/record path running if this
+  optional capture faults. One test demonstrates the ordinary master writer still
+  works afterward under that calling policy. Shared storage failure could of
+  course affect both; no physical isolation or timing guarantee is claimed.
+
+Test coverage
+1. Index 12 rejected/zero-filled by original stock setup/getter/reader.
+2. Eighteen audio blocks through original pad rendering and mixing, new compiled
+   capture, original master gain/staging, original twelve-channel ring enqueue,
+   original stream readers/producers/queue callbacks/file worker, and original
+   WAV headers/finalizers. All eight in-memory files have exact independent
+   float32 payloads. Input staging comes from the fixture, not ADC processing.
+3. Extra snapshots remain intact when the original mix buffer is overwritten
+   before deferred writes. Original master and input buffers are unaffected.
+4. Capacity exhaustion preserves all 128 owned blocks, faults the extra take,
+   and prevents it qualifying for successful finalization. Ordinary master
+   writing can continue in the fixture.
+5. Three hundred blocks with uneven draining exercise buffer wrap and final
+   partial batches, with no lost, duplicated or reordered samples.
+6. Short-write and IO failures retain buffer ownership and disqualify the take.
+7. Stopped/empty takes and the conservative size-limit boundary are rejected.
+
+Limits of this evidence
+Tests schedule calls serially and model filesystem operations, queue delivery,
+request metadata and start/stop quiescence. Atomic operations execute, but these
+are not exhaustive interrupt/preemption tests. Pad and live mixes use original
+DSP windows; compressor/effects, alternative callbacks and real ADC input are
+excluded. The timing/location of the new audio-hook call is supplied by the
+harness. Headers and finalizers execute separately using stock shared metadata
+state; this does not prove those helpers are reentrant during ordinary start/stop.
+File handles are synthetic: unique exclusive creation in a pad folder, checked
+close/readback, filesystem durability, pad assignment and split files remain to
+implement. No real-time performance or CPU/memory capacity claim is made.
+
+Resource arithmetic (not measured device headroom)
+At 48 kHz, float32, with all 12 existing channels:
+  ordinary sample writes: 2,304,000 bytes/s
+  extra stereo writes:      384,000 bytes/s
+  combined sample writes: 2,688,000 bytes/s (~16.7% extra)
+This excludes filesystem overhead, existing reads from the backing pad, metadata
+and stop-time post-processing. Extra payload storage is 23.04 MB/minute.
+The prototype has 128*512 = 65,536 sample-buffer bytes, plus 24 bytes of state.
+At 64 frames/block this is ~170.7 ms of completely empty-to-full buffering.
+It does NOT guarantee tolerance of a 170.7 ms stall under normal occupancy.
+A one-second extra ring would need ~384 KB; five seconds ~1.92 MB. Available
+contiguous device RAM and usable placement are not established. Synthetic
+0x10010000 code and 0x22000000 state addresses must not be used as device maps.
+
+Next concrete integration work
+1. Add the additional file's lifecycle: create a unique file in the destination
+   pad folder, prepare its private metadata/buffer, start at the agreed ordinary
+   recording boundary, then stop capture and drain it before finalization/close.
+   Keep ordinary master and stem paths, handles and post-processing intact.
+2. Serialize shared WAV-header helpers or use private equivalent header state;
+   bind scheduling and storage admission so the extra writer cannot starve the
+   existing recorder. Verify queue/buffer ownership under delayed completion.
+3. Only after checked finalization/close/readback should the new pad file become
+   eligible for catalogue insertion/assignment. An extra failure must leave the
+   prior backing assignment intact. Reuse the earlier pad lifetime findings.
+4. Confirm capture start/stop alignment, all relevant mix contributions, actual
+   memory availability, SD latency/headroom and recovery before hardware trials.
+
+Follow-up: additional-file lifecycle
+See docs/research/extra_lifecycle_findings.txt. The separate ELF now includes unique
+pad-path creation, private WAV metadata, explicit arm/start/stop phases, draining,
+checked finalization/close/reopen and bounded full readback. Eleven new groups
+pass. Original WAV parser accepts the header. Capture state adds a 4-byte payload
+checksum (65,564 bytes total); directory operations are still modeled. Actual
+record-event/fence bindings and pad assignment remain unimplemented.

@@ -1,0 +1,232 @@
+L6 ON-DEVICE OVERDUB INVESTIGATION — 2 OCTOBER 2026
+
+ASSESSMENT
+
+A targeted firmware addition remains technically plausible. We now have tested
+calling contracts for the stock filesystem wrappers, a candidate insertion point
+after recording post-processing, and a more specific flash/bootloader map.
+This is evidence for a design, not a working firmware modification. No patched
+L6.BIN has been produced, copied to an SD card or installed. This investigation
+used the downloaded stock binary and offline emulation; it sent no device commands.
+
+The Mac tests already established the audio-routing requirement: replayed backing
+appears in the cumulative master while the new input-channel files stay clean.
+That is no longer a prerequisite needing another generic audio test. Levels and
+count-in/alignment are outside this investigation.
+
+NEW EVIDENCE
+
+30 offline checks execute original stock instructions with synthetic RAM and
+intercepted RTOS, filesystem-driver and SPI effects. They cover wrapper dispatch,
+error returns, short transfer counts, access modes, exclusive-create behavior,
+end-of-file handling, master/segment naming, finalization ordering, startup-table
+parsing, flash range selection and flash read command construction.
+
+These are NOT 30 hardware tests and do NOT emulate complete SD-card operation,
+power-loss durability, audio, the bootloader or a complete custom copying routine.
+Report: analysis/firmware_workflow_verification.json
+Reproduce: /tmp/l6-re-tools/bin/python tests/emulation/verify_firmware_workflow.py
+The emulator needs the previously approved unsandboxed environment for its host
+CPU cache-information query. It does not access the L6.
+
+1. FILESYSTEM ABI
+
+The stock driver table begins at runtime 0x800a0b28. Dispatch through this table
+connects the public wrappers to implementations in the same image:
+
+Operation       Public wrapper   Driver          Table offset
+open            0x8005ffe8       0x800604e8       +0x18
+close           0x8005c1f8       0x8005c388       +0x1c
+read            0x80060620       0x80060818       +0x20
+write           0x800622b0       0x800624a8       +0x24
+rename/move     0x80060a18       0x80060c48       +0x38
+file info       0x8005ef40       0x8005f0a0       +0x6c
+
+Interfaces, using 32-bit ARM values and UTF-16 paths:
+  status open(handle_out_pointer, path, flags, attribute_or_permission_argument)
+  status read(handle, buffer, requested_bytes, transferred_bytes_out_pointer)
+  status write(handle, buffer, requested_bytes, transferred_bytes_out_pointer)
+  status close(handle)
+
+Zero denotes success in the tested paths; failures are nonzero 32-bit values.
+The open wrapper clears its output handle when the driver fails. Read/write
+wrappers preserve both the driver's status and its actual transferred count.
+A successful status does not guarantee the requested byte count was transferred.
+
+Observed access modes: flags & 3 = 0 read, 1 write, 2 read/write. This is supported
+by stock call sites, mode storage at handle+1 and read/write rejection paths.
+Existing source WAVs are opened with flags=0, fourth argument=0x100. Stock settings
+creation uses flags=0x101, fourth argument=0x80. The fourth argument's full meaning
+has not been recovered; these are observed stock values, not invented POSIX names.
+
+Important: 0x101 is NOT an exclusive-create setting. At 0x80060530, bit 0x400
+changes the create helper's existing-target policy. Flags 0x501 select write +
+create + reject-existing. We executed the stock flag decoding and the stock
+create helper's existing-target rejection; the latter returns 0xffffd75b before
+reaching the directory creation/replacement operation. Successful creation on a
+real filesystem remains untested.
+
+Important: the actual stock read driver at EOF returns 0xffffd759 (-10407) and
+sets transferred bytes to zero. Do not implement a desktop-style loop that treats
+every nonzero result as corruption, or one that assumes EOF always means success.
+Prefer copying a validated, known file length with bounded reads and explicit
+short-read/short-write handling. The file-info driver returns size at out+0,
+current position at out+4, and two additional fields; those first two meanings
+are directly visible at 0x8005f0a0. The complete wrapper still needs a dedicated
+emulation case before relying on it in custom code.
+
+The close wrapper propagates a driver status. The underlying close driver marks
+the handle free, updates dirty directory metadata and calls 0x80063490. This does
+not establish that all failures are surfaced or that data is durable after power
+loss. An on-device copy should be closed, reopened and verified before selection.
+
+The old ambiguous two-path operation is now much more firmly identified as
+rename/move. Its resolved driver manipulates FAT directory entries: e.g.
+0x800610ba copies 0x15 metadata bytes starting at entry+0x0b, then 0x80061134
+marks the old entry deleted with 0xe5. It is not a byte-preserving duplicate-file
+operation and must not replace the proposed copy step.
+
+2. RECORDING STOP AND HOOK CANDIDATE
+
+0x80034bc8 is the RecPlayCtl message worker. It marks a busy word at
+0x80578ec0, invokes the callback from its message at 0x80034c20, then clears that
+word at 0x80034c34. The stop callback is 0x8004ba40.
+
+The stop callback passes its signed target to 0x8000b698. A negative target means
+ordinary recording; pad-recording uses nonnegative targets. Preserve this value.
+
+With synthetic state selecting the active recording branch, the original shutdown
+instructions finalized and closed streams 0..11 in order. Stream 10 is the master.
+Only then did they call 0x800032b0, the post-processing function. We also checked
+that an inactive recorder skips this work and that post-processing is conditional
+on the stock flag at 0x801f8c48+0x0b.
+
+A candidate patch point is the BL at 0x8000b978 (file offset 0xab78), which calls
+0x800032b0. A wrapper could preserve the ordinary-recording context, execute that
+original function unchanged, then perform or schedule the master promotion.
+This keeps the addition after the existing post-processing and in task context.
+It is NOT a finalized patch site: success guards, project/segment state lifetime,
+all error branches, stack usage and scheduling still require validation.
+
+The synthetic failure check exposed an important limitation: a failed master
+close still reaches post-processing in this stock path. Merely reaching the hook
+is insufficient proof of a usable completed take. Independently validate the
+master and copied destination before changing a pad assignment.
+
+For an initial synchronous prototype, staying within RecPlayCtl would serialize
+its queued actions, but copy duration, watchdog behavior and concurrent sampler
+I/O need measurement. An asynchronous worker would additionally need an explicit
+promotion-busy state, an owned pathname/job buffer and record-start gating; the
+existing busy flag is cleared when the original callback returns.
+
+3. WHICH FILE TO COPY
+
+Executing the stock builder 0x80022c80 -> 0x800235d0 with logical stream 10 gives:
+  part 1: A:\RECORDER\<take>\MASTER.WAV
+  part 2: A:\RECORDER\<take>\MASTER_01.WAV
+  part 3: A:\RECORDER\<take>\MASTER_02.WAV
+
+The builder uses shared storage at 0x8060fd80. The directory string starts at
+0x8060ff80. A subsequent path request overwrites the returned master pathname;
+this is verified. Custom work must own a copied pathname, not retain this pointer.
+
+Do not assume the sampler output buffer used by the special pad-recording branch
+is populated for ordinary recording. The normal path must be tracked separately.
+The first prototype should explicitly support only a complete unsplit recording;
+segment detection must exclude MASTER_01.WAV and later segments, not silently
+promote just the first section of a song.
+
+4. FLASH MAP AND RECOVERY
+
+The factory checksum task at 0x80026dd0 calls 0x80023ac8 with named selectors.
+Executing its region selection up to the first flash read confirms:
+
+Name          Start       Length      End exclusive
+BOOT          0x000000    0x065000    0x065000
+MAIN          0x065000    0x285000    0x2ea000
+PANEL         0x2ea000    0x010000    0x2fa000
+AUDIOGUIDE    0x2fa000    0x100000    0x3fa000
+
+The read routine 0x8001aee8 takes (offset, destination, length). It rejects ordinary
+requests beyond 0x400000 and constructs command 0x0b, a three-byte address and a
+dummy byte, then receives data through 0x80032e60. For offset 0x065000 the emulated
+command bytes are 0b 06 50 00 00. This supports a 4 MiB serial-flash address-space
+model. It does NOT identify the physical chip model, voltage or access wiring.
+
+There is additional device data beyond the four checksum regions. For example,
+0x8001e6a8 reads 0x28 bytes from 0x3fa000. The purpose and full tail layout are not
+established. Any eventual backup should preserve the entire accessible flash,
+not just MAIN or the publicly downloadable image.
+
+The downloaded update has BOOT size zero. The mapped MAIN/PANEL/AUDIOGUIDE lengths
+match the package component spans, which corroborates the flash map. There is no
+bootloader image here to inspect for update acceptance, signatures, load lengths,
+rollback behavior or SD application-trial support.
+
+Zoom's official guide describes retrying an SD update after a failed update or
+failed startup. That is encouraging evidence of a stock retry path, not proof
+that recovery will work after an arbitrary custom image. We have neither tested
+that recovery nor demonstrated that the updater accepts changed firmware.
+https://zoomcorp.com/media/documents/L6_Firmware_Update_Guide_EN.pdf
+The support page still lists system version 1.10 when checked on this date:
+https://zoomcorp.com/en/us/digital-mixer-multi-track-recorders/digital-mixer-recorder/livetrak-l6-final/l6-support/
+
+The next installation-related evidence needed is a bootloader/full-flash dump,
+plus identification of the processor and storage. No verified existing USB/MIDI
+command for obtaining that dump has been found. Clear board/IC markings would
+let us select and evaluate a read-only hardware route rather than guessing at
+programmer voltages, pinouts or debug compatibility. Repeated matching reads,
+checking the MAIN bytes against the known stock image, and preserving device
+specific data would be required before relying on a backup.
+
+5. CODE STORAGE AND STARTUP MEMORY
+
+The runtime initializer 0x80001964 walks eight 16-byte entries between
+0x800a68dc and 0x800a695c. They specify source, destination, length and helper.
+Helpers are decompression 0x80001994, copying 0x80079498 and zeroing 0x800794a8.
+The verification JSON records all eight entries.
+
+Initialized/zeroed destinations include 0x801f5400..0x80960078,
+0x80bb9400..0x81f26000, low memory, 0x20000000..0x20018cb4, and
+0x20220000..0x2022d6dc. These are firmware address ranges, not measured chip RAM.
+
+The occupied main payload ends at runtime 0x800b6ae4, before the first table-
+initialized region at 0x801f5400. This is a candidate gap for investigation, not a
+proven code cave. The bootloader's load-length behavior and other uses of memory
+are unknown. Blindly appending code to the update's 0xff padding is not justified;
+it may not be loaded, or may overlap a runtime allocation outside this table.
+
+BOUNDED FIRST IMPLEMENTATION DESIGN
+
+First target: ordinary multitrack stop -> validated copy -> assign one pad.
+Four-pad history and synchronized record/play are later additions.
+
+- Capture ordinary-recorder context and an owned project/master pathname.
+- Run the original finalization/post-processing unchanged.
+- Confirm the completed master exists, is an unsplit compatible WAV, and has a
+  valid final size. Confirm the target pad/catalogue and required storage space.
+- Create a unique temporary destination using exclusive creation. Copy bytes in
+  bounded chunks, checking status AND transferred count on every operation.
+- Close both handles; reopen and compare the copied length/content. On failure,
+  retain the previous assignment and original recordings, and report failure.
+- Rename only the new temporary copy to its final pad filename, checking success.
+- Insert into the live pad catalogue (0x80008dd8); use existing validation and
+  assignment/persistence paths (0x80008bd0 / 0x8004b760), with outcome checking.
+- Declare ready only after assignment is verified. Account for an orphaned copied
+  file if a catalogue/assignment step fails or power is lost between steps.
+
+Remaining implementation work: full normal-master lifetime/success guard,
+file-info and rename failure semantics, temporary-file recovery, catalogue-full
+behavior, RAM/code placement, scheduler/stack budget, pad-mode preservation,
+read-back of assignment, and build/patch validation. Remaining hardware gate:
+backup/bootloader inspection and a demonstrated way to restore stock firmware.
+
+SOURCE AND ARTIFACTS
+
+Reference/L6_v1.10_E/L6.BIN, unchanged:
+SHA256 64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+Runtime = file offset + 0x80000e00 for this main image.
+tests/emulation/verify_firmware_workflow.py
+analysis/firmware_workflow_verification.json
+analysis/firmware_integration_disassembly.txt
+Earlier pad catalogue contracts: docs/research/record_to_pad_findings.txt

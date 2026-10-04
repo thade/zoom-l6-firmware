@@ -1,0 +1,154 @@
+Stock USB/card/recorder lifetime boundaries — 2026-10-04
+
+Result
+18 new offline audit groups identify concrete places where storage ownership
+must begin and where successful-looking completion cannot yet release it.
+This stage traces original firmware instructions; it does not replace the
+publication workflow's external_held port with stock status flags. That port
+remains explicitly unbound on the device.
+
+The strongest new finding for ordinary recording is that postprocessing has a
+further tail which REOPENS stream files after the main finalizer/close sequence.
+The first twelve closes are therefore not the end of the recorder's file use.
+USB uses a single shared command/parameter pair and an untagged acknowledgement,
+not a queue carrying distinct request identities. Card detach clears filesystem
+registration before stopping pad playback and forcing the recorder stop path.
+
+Evidence and scope
+  tests/emulation/verify_storage_lifetimes.py
+  analysis/storage_lifetimes_verification.json
+  analysis/storage_lifetime_disassembly.txt
+The tests execute original stock Thumb instructions with synthetic RAM. RTOS
+waits/signals, USB engine effects, card callback progress, and deeper per-file
+postprocessing effects are modeled. Deliberately injected return failures are
+negative controls, not reports of faults reproduced on the real mixer.
+No prototype C/ELF or L6.BIN changed in this audit. No mixer/SD access occurred.
+
+1. USB request handoff
+Producer 8003b7e0(selector, parameter) accepts selectors 0..10. The corresponding
+flags are 1,4,2,8,16,32,64,128,256,512,1024 (selectors 1 and 2 are reversed
+relative to simple bit shifting). It delays, enters its critical section, then
+stores the flag and parameter to 801f910c and 801f9110 at 8003b87a.
+It signals the handle at 801f9108 and waits indefinitely on the handle at
+801f9114. The returned result is that wait's result, not operation status.
+Selectors above 10 leave without submitting work.
+
+8003b8a0 writes 0x800 and zero to the same pair and signals/waits on those same
+handles. An injected signal failure does not suppress the following wait. An
+injected failed wait returns with the first request still in the pair. A later
+stop replaces that pair. This demonstrates that these fields do not retain two
+requests or a generation/ticket; it does not prove overlapping callers occur
+in the normal device scheduler.
+
+Worker 80045cf0 reads the pair at 80045d5e and clears it at 80045d62. For the
+six audited start profiles (flags 0x20..0x400), both successful and failed USB
+start attempts reach the same transition acknowledgement. Successful starts
+also reach later USB service after that acknowledgement. Stop flag 0x800 reaches
+80046d2c..80046d38: it calls 8003b558, clears the local active byte at 80212e00,
+and acknowledges even with an injected nonzero stop return. Whether the real
+callee defines a meaningful error return still needs its own contract audit.
+
+Required lifetime
+Reserve before the outer transition's first side effect, not merely before the
+low-level request store. Carry an immutable identity through both producer and
+worker, retain the enclosing host-access session while the host owns storage,
+and join stop/driver work, remount readiness and verified reload descendants
+before release. A shared acknowledgement or local active byte alone is not
+sufficient. Native completion of all USB/SD driver work remains unresolved.
+
+Coverage beyond the previously traced c220/c288 paths
+The alternate control entry 8000c2d8 also calls stop and either remounts or starts
+another USB profile, including release_card at c3a6 before requesting at c3bc.
+Its direct callers include 8002cdf6 and 8002d47e. Guarding only 8000c220 and
+8000c288 would miss this path. The complete bounded direct-call inventory is
+stored in the JSON; indirect and copied-RAM callers are not claimed exhaustive.
+
+2. Card detach starts mutating before it looks idle
+80062230('A') targets filesystem registration at 801f8f58. It clears 0x30 bytes
+starting at +4 before checking byte +0. If byte +0 is already zero it sets byte
++2 to 1 and returns 1, with no callback notification. If active, it invokes
+80036c98(0,1), then repeatedly delays 100 until byte +0 becomes zero, sets +2
+and returns 1. Active status without callback-driven progress stays in the wait.
+
+80036c98 uses a function pointer at 802350e4. With that pointer present and the
+observed detach arguments, it calls driver helper 80068508(0), then invokes the
+registered callback with (1,0). Callback completion must not be inferred merely
+from the helper returning. The test supplies a callback and separately schedules
+status progress; it does not pretend to have resolved the whole driver graph.
+
+Separate stock status writer 8004bd98(volume, auxiliary, status) writes status
+for volume 1 at 801f8f58 or volume 2 at +0x38. Status 2 also updates the adjacent
+auxiliary byte. This establishes field semantics, not complete callback routing
+or storage success/durability. No unsupported connection between this three-
+argument writer and the two-argument detach callback is asserted.
+
+Outer release 80009b18 calls 80062230 first, then busy/pad-stop/unload/reload
+operations, then forced transport cleanup 8000b2a8, and finally catalogue cleanup
+800088d0. Executing the outer release plus forced cleanup confirms the recorder
+stop sees the registration already cleared. The forced path calls 8000b698(-1),
+then more cleanup and clears backend-enabled byte 801f8c48+0x2c even if the
+modeled stop reports an error. This is sequencing evidence, not a stock bug claim.
+
+Required lifetime
+Admission must precede filesystem detach and cover every route which can mount,
+reset, remove or rescan the volume. The bounded scan found six direct detach
+call sites, six mount/setup call sites and seven high-level card-release call
+sites. The directory/setup route 80009938 adds another path outside the two USB
+wrappers. Polling one final volume bit would omit work already submitted or
+state already destroyed. Card-present detection is not a successful remount.
+
+3. Transport paths and ordinary recorder postprocessing
+Besides normal producer 8004b6d8 -> callback 8004b9a0, producer 8004b698 queues
+callback 8004b890 on the same RecPlayCtl queue. The alternate callback passes
+1 to common backend 8000b650 (normal start passes 0) and sets UI state 2 instead
+of 1. Its precise user-facing transport meaning is not established by this audit;
+it must not be described as a second record command merely from shared code.
+
+Callback 8004b910 uses the same stop backend as normal callback 8004ba40, and
+its pointer is assembled in several earlier transport-control routines. Card
+cleanup can also enter stop directly through 8000b2a8. All three tested queue
+producers overwrite their send result during mutex release. Admission at only
+the normal record producer or only callback return would miss these lifetimes.
+
+After the ordinary stop's twelve finalizer/close operations, 8000b978 calls
+800032b0(-1). The actual outer postprocessor examines up to twelve streams and
+calls per-file helper 80004868(stream, target, output_path) for eligible ones.
+The master is stream 10, with output-path slot 8060e504 + 10*522. A classifier
+above 1 skips this per-file helper but does not skip stream cleanup. Injected
+per-file failure does not prevent later streams and cleanup from running.
+
+A subtle tail matters: the path at 800035c4 calls 80022958, pops its frame at
+800035c8 and falls through the padding into 800035d0. Another path tail-branches
+there at 80003580. Stopping analysis at the frame pop would miss the tail.
+
+Original 800035d0..8000384e executes in two new probes. With one synthetic
+stream selected it obtains its path, OPENS it at 80003670 with flags 2 and
+attributes 0x180, parses it, and closes it. Parse rejection still reaches close;
+injected close error still reaches stream metadata cleanup and final update
+800047a0. Failed open avoids parse/close but still reaches the final update.
+The full valid-file parsing/catalogue update graph remains unaudited here.
+
+Required lifetime
+Own the whole admitted transport request/session before enqueue and first file
+side effects. Retain file-operation errors across the original callbacks and
+through 032b0, per-file processing and the 035d0 tail. Join stream producer and
+file-worker descendants, callback completion, header finalization, every later
+reopen/close and metadata work separately. An extra capture being verified does
+not establish that this ordinary-recorder session has finished its file use.
+
+Concrete next implementation target
+Implement an attributed, serialized USB/card transition before the OUTER side
+effects, retaining one session through host access and the remount/reload tree.
+Use the existing ownership ledger and tagged reload protocol, not the stock
+mailbox contents as identity. Its entry coverage must include c2d8 and direct
+mount/detach paths. Recorder ownership also needs to cover both transport
+callback families and the newly confirmed postprocessing tail. Do not replace external_held with a
+positive result until each participating path and its descendants are covered.
+
+Validation
+18 audit groups pass, including positive routing/control-flow checks and injected
+failure probes. Existing prototype build artifacts remain unchanged from the
+424-group publication workflow regression; that suite was not needlessly rerun
+because this stage changed only the independent audit and investigation notes.
+Firmware SHA256:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb

@@ -1,0 +1,116 @@
+L6 PLAYBACK SHUTDOWN AND EXCLUSIVE HANDOFF: OFFLINE PROTOTYPE
+4 October 2026
+
+Result
+Connected the compiled control drain and audio completion protocol to the
+playback session and ownership ledger. A permanent session hold now prevents
+new pad starts/retriggers and refill scans throughout shutdown, the interval
+between session retirement and exclusive ownership, and the publication window.
+Existing workers continue and must complete before the session can retire.
+
+19 new test groups pass; 264 relevant groups across 16 suites pass against the
+rebuilt prototype. See playback_shutdown_verification.json and
+playback_shutdown_regression.json for inventory, limitations and image hashes.
+The stock firmware, device and SD card have not been changed.
+
+Files and storage
+src/overdub/playback_shutdown.h and playback_shutdown.c
+src/overdub/playback_session.h and playback_session.c
+  Session gains a persistent held word: 32 bytes instead of 28.
+  Ordinary session behavior is preserved when held is zero.
+tests/emulation/verify_playback_shutdown.py
+  Shutdown state is 40 bytes plus an 8-byte port table. Emulator state bindings
+  at 21003c00 and nearby addresses are fixtures, not proposed device placement.
+
+Protocol
+1. Close control execution admission. Acquire a persistent playback hold after
+   any currently running session operation releases its operation latch.
+2. Join the already-admitted control command while audio continues. Do not stop
+   the audio task: a control handler can need it to complete a deferred copy.
+3. Stop every playing session pad through the original stop routine. Its fade
+   progress is modeled in these tests. The four-pad scope matches the existing
+   publisher, which can replace all four pad assignments; it does not preserve
+   playback of an unrelated pad during this all-pad publication cycle.
+4. Disable new stream production by an explicit emulator adapter clearing each
+   stock stream-enabled byte. Never clear pending flags to manufacture idle.
+   All scans must enter through the held session, so none can begin concurrently.
+5. Request a fresh callback completion epoch after those changes. Execute a
+   subsequent complete original callback before accepting its acknowledgement.
+6. Require all active, enabled and pending indicators to be quiet. Session
+   retirement separately joins the ownership ledger's scan/read descendants.
+   Even a cleared pending flag cannot override an outstanding child ticket.
+7. Acquire exclusive publication ownership from the ledger. The persistent
+   session hold covers the otherwise vulnerable interval after session
+   retirement if unrelated ledger roots still prevent exclusive acquisition.
+8. Return OK with the exclusive ticket still held. Starts and scans remain
+   blocked; control jobs remain parked. The future publisher must inherit this
+   ticket rather than acquire a second independent promotion owner.
+9. On explicit successful finish, join publication children, release exclusive
+   ownership, reopen control admission, then release the playback hold. A new
+   start acquires a fresh session owner and validates the previous fence before
+   the original restart re-enables playback/streaming. Reopen/unhold contention
+   retains progress for retry. A start arriving immediately after hold release
+   is valid even before finish clears its private cycle bookkeeping.
+
+An initially idle session still needs the hold, stream disable, fresh audio
+completion and quiet checks. Ordinary od_session_quiesce would otherwise return
+immediately with no owner; the combined coordinator covers that case explicitly.
+Missing audio waits. Changed callback identity, stale contradictory protocol
+state, external ownership faults or uncertain publication latch failure. An
+uncertain publication keeps exclusive ownership instead of releasing it on a
+timeout. There is no public recovery/reset operation for a live failed cycle.
+
+Evidence
+The new suite exercises original playback start/stop and stream scan/worker
+paths, with the compiled session, shutdown, control and ownership code. A separate
+audio emulator executes all original callback instructions on the audited paths.
+State transfer and scheduling points are explicit; this is not a complete RTOS.
+
+A queued stock worker can finish after new stream production has been disabled;
+its unfinished ticket blocks publication. An uncertain undelivered read remains
+owned even if flags are idle. Conversely, an unattributed pending flag also
+blocks release. Other ledger roots can finish while the persistent hold prevents
+new playback in the retirement-to-publication gap.
+
+During exclusive ownership, sample-buffer pages are marked inaccessible in the
+audio emulator. All four recovered callbacks run twice without reading the
+stopped sample buffers, while start and scan requests remain blocked. This is
+stronger than a past-completion acknowledgement alone. It covers the tested
+inactive paths, not every possible hidden/indirect reader.
+
+The stock effects handler is also paused inside its original lock wait. Shutdown
+holds new playback admission but leaves existing playback active until that
+handler returns. Only then does it stop playback and request audio completion.
+Two complete cycles verify new closure/owner epochs and explicit rearm.
+
+Scope and remaining integration
+This is a bound emulator adapter, not installed firmware. The default standalone
+playback fence/rearm adapters still deliberately return BUSY. The new suite
+explicitly binds its session to the combined implementation; it does not change
+production settings or pretend an unknown device fence is available.
+
+One manager exclusively owns hold/quiesce/unhold and control close/request/reopen
+for each cycle. Every playback start, scan and relevant control change must pass
+through those coordinators. Direct original callers outside those boundaries
+remain unbound. Raw low-level APIs are not a security boundary against a caller
+that violates the ownership contract. The stream disable adapter is new compiled
+logic at recovered state fields, not a newly discovered stock stop-all API.
+
+The ownership ledger excludes only attributed work. A generic card-root fixture
+proves that such work delays the handoff; real USB/card and ordinary-recorder
+entry/completion paths have not yet been attached. The capture manager's own
+finalization and the pad publisher are not invoked by this suite. Successful
+shutdown therefore does not yet authorize physical card writes or enable the
+automatic on-device workflow.
+
+Next: connect actual card/ordinary-recorder admission and completion evidence,
+then hand this retained exclusive ticket to the completed-capture publisher.
+Do not let the publisher acquire another promotion gate while this one is held.
+Verify file-operation children and uncertain write/close failures through finish.
+Actual UI/task hooks, register preservation, all-caller coverage, safe code/RAM
+placement, interrupt/cache/DMA behavior, storage timing, recovery and update
+packaging remain separate requirements before a device trial.
+
+Reproduce
+  /tmp/l6-re-tools/bin/python tools/firmware/build_overdub_prototype.py
+  /tmp/l6-re-tools/bin/python tests/emulation/verify_playback_shutdown.py

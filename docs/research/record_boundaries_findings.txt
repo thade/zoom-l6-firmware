@@ -1,0 +1,130 @@
+L6 HISTORY FLAGS, STOP BOUNDARIES AND MEMORY BUDGET
+3 October 2026
+
+Scope and result
+Further offline investigation of the additional pre-master stereo pad file,
+preserving all ordinary input files and the processed MASTER. Seven new test
+groups pass, including exact WAV payload checks after repeated ring wraps. No
+firmware image or device data has been modified.
+
+Reproduction: tests/emulation/verify_record_boundaries.py
+Evidence: analysis/record_boundaries_verification.json
+
+1. Qualification of the earlier history finding
+
+The 0.5-second and 2-second branches exist and execute when their flags are
+supplied by a test. They have NOT been established as selectable L6 features.
+The actual initialization path at 0x800026a0 calls 0x80010678 at 0x800026bc.
+That initializer clears all five bytes at 0x80570c10. Executing it, then the
+original start selector, chooses the current write position with NO lookback.
+Start selection changes only byte +2 to 1 in this test.
+
+The direct MOVW/MOVT references to 0x80570c10 found in the main linear
+disassembly are getters 0x80010638, 0x80010648, 0x80010658, 0x80010668,
+the five-byte clear 0x80010678 and the +2 setter 0x80010688. Raw full-address
+search found no literal pointers to any of the five flag bytes. Searches have
+not located setters for +0, +3 or +4 or a corresponding user-facing setting.
+This suggests retained generic/dormant code, but is not a proof: computed
+pointers, indirect writes or another execution context are not excluded.
+
+Consequently the normal initialized path is the first integration target. We
+must not claim the L6 normally prepends 0.5/2 seconds, and we need not assume
+those modes are active just because they can be exercised in synthetic state.
+The setup interval remains relevant even with zero lookback: ordinary files use
+the earlier saved cursor, not the current position at the later start callback.
+
+2. Stop position and exact final sample
+
+The stop callback 0x8004ba40 calls 0x80002460 -> 0x80018e70 and saves the
+returned cursor through 0x80006918 to 0x80443158. With byte 0x80570c12=1,
+as set by the original start selector, the getter returns B+0x53e4 (the current
+write cursor, B=0x20010a48). Tests include zero and positions near ring wrap.
+
+With byte +2=0 there is an alternate branch: it calculates forward distance
+from current write position to the previously selected cursor. If that is at
+most half the ring it returns the saved cursor; otherwise it sets +2 to 1 and
+returns the current position. Both sides and the half-ring equality boundary
+are tested, without assigning this state an unverified UI meaning.
+
+Backend 0x8000b698 later executes 0x80006168 -> 0x800382a8 at b732/b736.
+These load the saved endpoint and calculate file-frame limits for enabled
+streams. For stream i:
+  enabled mask: C+8
+  current source read cursor: C+0x20+4*i
+  consumed file frames: C+0x484+4*i
+  final file-frame limit: C+0x4e4+4*i
+  ring capacity: C+0x50
+  C = 0x8077ca30
+For valid cursors and less than one ring of outstanding audio:
+  limit = consumed_frames + ((saved_stop - read_cursor) modulo capacity)
+
+Instruction detail matters: the ADD of consumed_frames preserves flags from
+SUBS(stop, read), so the MI correction applies to the ring distance, even when
+the sum is already positive. Tests include prior consumed audio plus a wrapped
+distance, all twelve enabled bits, one enabled bit, and no enabled streams.
+
+The original producer 0x80038e60 clamps work to this limit at 0x80038f22...
+and takes the terminal flush path at 0x80039156 -> 0x800392a4. Actual original
+reader, producer, queued worker and WAV finalizer execute with modeled files.
+Tests save an endpoint, move the current audio cursor beyond it, execute the
+original backend's endpoint-loading window, and verify exact final payloads
+of 1, 17, 64 and 49 frames, including source-ring wrap. The final partial
+sector is written correctly. The endpoint is EXCLUSIVE: its sample is not
+included. Extra capture therefore needs a range [selected_start, saved_stop).
+
+An additional test removes the old fixture's request/consumption stubs:
+  0x800376a0 reads the actual per-stream cursor;
+  0x80037638 advances it modulo capacity and updates a 64-bit consumed count.
+Seventeen batches produce 1041 exact stereo frames across repeated laps of a
+synthetic 128-frame ring, finishing with 17 frames. This establishes arithmetic
+and writer behavior across wrap, not real-time or production-duration safety.
+
+Remaining boundary limitations
+The stopping snapshot happens when the queued stop callback executes, not
+necessarily at the physical button press. Matching the same snapshot is what
+keeps files aligned. These tests do not model arbitrary instruction-level
+preemption or prove a fence against an in-flight producer. A modulo cursor alone
+cannot identify which lap it refers to; additional capture needs a monotonic
+sample count/generation and ownership of retained samples. Delays of one or more
+full rings must be rejected or explicitly accounted for, not silently wrapped.
+Split-file and restart/pause behavior still need their own range contracts.
+
+3. Memory: what is established and what is not
+
+Executing original initialization window 0x800121a0..0x800121e4 confirms:
+  source ring base: 0x81429800
+  frames per channel: 240000 (5 seconds at 48000 Hz)
+  channel stride: 960000 bytes
+  twelve channel buffers: 11520000 bytes
+  exclusive end: 0x81f26000
+This end agrees exactly with the end of a startup-zeroed region. The known
+ordinary source rings are occupied; they are not extra-buffer space.
+
+The startup table has an apparent gap between destination regions:
+  [0x80960078, 0x80bb9400): 2462600 bytes (about 2.35 MiB).
+A matching five-second stereo float history would require 1920000 bytes,
+leaving 542600 bytes in that arithmetic interval before alignment/other state.
+A two-second history uses 768000 bytes; 0.5 seconds uses 192000 bytes. The
+existing extra writer queue is 65536 bytes, approximately 170.7 milliseconds.
+
+This is a CANDIDATE FOR FURTHER AUDIT, not a safe allocation. A bounded search
+for nearby MOVW/MOVT constructions found no address into that interval; that
+does not cover all addressing mechanisms, runtime allocations, stack/heap
+growth, bootloader use or physical RAM aliasing. Scanning arbitrary 32-bit
+words gives instruction bytes that resemble pointers and is not reliable free
+memory evidence. The firmware's addressed extent also does not identify the
+physical RAM chip or establish RAM beyond that extent.
+
+We have therefore not enlarged the prototype or assigned a device address.
+Even a proven five-second history needs CPU/cache-coherency, writer throughput
+and ownership checks. A history ring and the current SD write queue serve
+different purposes; any sharing must explicitly prevent overwrite during use.
+
+Next concrete implementation boundary
+Prototype a continuous pre-master history with monotonic sample labels. Connect
+range selection to the recovered saved start and exclusive stop; test setup
+delay, repeated wraps, stale/overwritten history and exact sample equality with
+ordinary recording. Keep the emulator's memory synthetic until the candidate
+region's ownership is established. Then bind actual audio/worker fences and pad
+reader exclusion. Default to withholding pad assignment if any required range
+is missing or any lifetime check is uncertain.

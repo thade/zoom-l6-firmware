@@ -1,0 +1,143 @@
+L6 RELOAD OWNERSHIP ACROSS WORKER AND UI CONTINUATION
+4 October 2026
+
+Result
+Added a compiled offline reload coordinator which retains one non-reused owner
+across original producer return, assignment-worker return, UI event publication,
+UI follow-up return, and attributed asynchronous descendants. It cannot release
+on the stock shared busy flag or generic completion event. A positive final
+postcondition is required after all descendants join; no default success exists.
+
+19 new groups pass, including execution of the original reload worker and the
+second UI reload under the proposed ownership protocol. The final regression
+inventory is 329 groups across 21 suites, with hashes in
+reload_ownership_regression.json. Counts include negative controls; they are not
+a hardware-readiness score. No stock firmware, device or SD card was modified.
+
+Implementation
+src/overdub/reload_ownership.h and reload_ownership.c
+  RlCoordinator is 392 bytes: permanent ledger pointer, short try-lock and eight
+  48-byte job records. Its 16-byte envelope contains magic, owner, child and role.
+  Initialize once before participants run; never reset a live coordinator/ledger.
+src/overdub/work_ownership.c and .h
+  New non-retiring session-drained query checks that a live session has no
+  children before final result verification can be accepted.
+tests/emulation/verify_reload_ownership.py
+  Compiled protocol tests plus explicit harness binding to original reload/UI.
+src/overdub/emulator.ld
+  Added an assertion that this offline ELF fits below the separate capture
+  fixture at 10010000. This is an emulator constraint, not device placement.
+
+Ownership sequence
+1. rl_begin reserves and admits an OWN_SESSION owner before the original reload
+   producer's first side effect. It may be a child of an already-owned USB/card
+   lifetime; finishing the reload will then leave that containing owner intact.
+   It reserves/offers the worker branch before any queue publication.
+2. The sender obtains the worker's envelope. The receiver must validate/claim it
+   before running stock code. Enqueue outcome is recorded separately from the
+   original producer's return. Both matter: a fast worker can finish while its
+   original submitting function is still running.
+3. While the worker is running, rl_prepare_ui reserves/offers a separate UI branch
+   under the same owner BEFORE its event is published. A fast UI is therefore
+   already attributed, even if it claims/completes before event-send returns.
+4. Worker/UI original bodies run outside the coordinator latch. Their actual
+   returns call rl_complete with their own envelopes. The worker cannot complete
+   without a reserved UI branch. Duplicate claims/returns and mismatched or old
+   envelopes do not execute/release another branch.
+5. All file/prefetch descendants must inherit the corresponding branch child.
+   The ledger keeps completed branches and their parent alive while those
+   descendants remain outstanding. Error observers can report against that
+   attributed envelope after the stock body returns, before relinquishing the
+   final descendant reference.
+6. rl_verify remains BUSY until producer, worker and UI have returned and all
+   descendant references are joined. A caller must then collect final intended
+   path/options/I/O evidence, not reuse a snapshot taken before those joins.
+   The API cannot establish the meaning/freshness of evidence supplied by an
+   incorrect caller; that is the still-unbound production adapter's contract.
+7. rl_finish only retires with positive verification and no retained error.
+   An unverified operation stays owned. A rejected verification or I/O error
+   faults the ledger and retains ownership. Rejection cannot be overwritten by
+   later verification success; a stock successful-looking result cannot erase
+   a recorded close error. There is no live reset, timeout release or automatic
+   recovery of an uncertain operation.
+
+Failure and capacity behavior
+An ambiguous send failure stays owned indefinitely if no receiver appears.
+Actual worker/UI completion can resolve an ambiguous delivery indication.
+Positive NOT_SENT evidence for a required branch faults the overall reload;
+this prototype does not pretend that an omitted reload/UI operation succeeded.
+A NOT_SENT assertion after a receiver has started is contradictory and faults.
+
+Malformed or stale envelopes return a rejection without touching newer jobs.
+A consumer must not execute their stock bodies. On metadata-lock BUSY, it must
+retain the dequeued envelope and retry; BUSY is not permission to discard it.
+No real task wakeup/retry scheduler is installed here.
+
+Eight job records are bounded by the shared sixteen-entry ledger as well. Each
+reload needs owner and worker entries, plus a UI entry and any I/O descendants.
+Exhaustion before initial admission blocks work. A resource failure after
+partial admission keeps the attributed references and faults rather than
+publishing an unowned event. Real capacity/backpressure and fair scheduling
+still need design; eight simultaneous full reloads are not promised.
+
+The short coordinator latch is never held across stock callbacks or file I/O.
+Metadata sequences which partly succeed and then lose ledger-lock access fail
+closed instead of pretending no reservation happened. This favors correctness
+over availability; production contention/retry policy remains unmeasured.
+
+Original-code integration evidence
+The harness admits a reload before running original 80008d68. It captures the
+stock queued message and pairs it with an immutable envelope at the proposed
+transport boundary. Before the original 80036290 worker dispatches 80049da0, the
+compiled protocol claims the worker envelope. At the original event transport
+boundary 8006e4b8, the compiled protocol reserves the UI branch, creates its tag
+and records submission. Original callback return at 800362b6 completes the
+worker branch, but publication remains blocked by the outstanding UI branch.
+
+The later UI claims its envelope, runs original event handler 8002d568 and the
+second unload/reload sequence, then completes only after return. The original
+callback and UI file events are observed while ledger promotion returns BUSY.
+A separate explicit postcondition check then permits retirement. The harness
+runs compiled metadata on an independent ARM CPU so it does not reset the live
+stock caller's registers during an intercepted boundary.
+
+An injected close failure in the second UI reload passes the stock final pad
+snapshots but is captured by the attributed close observer. Finishing then
+returns FAULT and retains ownership. A late WAV load rejection fails the intended
+path comparison and also retains ownership. File descendants deliberately left
+running block both verification and retirement even after both stock bodies
+return. Retiring this reload under a containing storage owner does not release
+that outer session.
+
+Scope and remaining installation work
+The envelope is a PROPOSED ABI. It is not a drop-in modification of the existing
+32-byte callback queue or 20-byte UI event. This test pairs immutable tags with
+messages in the harness and supplies task-local attribution explicitly. There
+is no installed queue decoder, UI adapter, side-table lookup or firmware patch.
+Production producer and receiver must change together after draining old queues;
+identical event words cannot safely recover identity by themselves.
+
+Stock file-driver, WAV-parser, settings, individual stop, prefetch/conversion,
+save and RTOS effects remain the established emulator models. The new close
+observer is harness-bound. Complete open/read/write/short-write/seek/finalizer/
+close/save instrumentation and real asynchronous attribution remain unfinished.
+The coordinator can retain reported evidence; it cannot detect an unobserved
+failure or an untracked task merely from flags.
+
+The parent USB/card and ordinary-recorder lifetime entry points are still not
+installed. Global publication therefore remains a guarded offline prototype.
+This stage closes the two-branch lifetime model; it does not establish complete
+device storage exclusion, timing, DMA/cache correctness, placement, recovery or
+firmware installation readiness. Extra-capture ELF is unchanged in this stage.
+
+Next concrete step
+Bind the tagged transport and task-local context to the recovered worker/event
+boundaries, with retained-envelope retry on BUSY and checked submission outcomes.
+Add the checked file-operation observers and propagate context into real read/
+seek/prefetch descendants. Then connect the containing card-session admission
+before USB/storage handover and verified return. Do not substitute stock busy=0
+or the completion event for the verified result/descendant join.
+
+Reproduce
+  /tmp/l6-re-tools/bin/python tools/firmware/build_overdub_prototype.py
+  /tmp/l6-re-tools/bin/python tests/emulation/verify_reload_ownership.py

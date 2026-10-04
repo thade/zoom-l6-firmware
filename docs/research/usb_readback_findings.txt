@@ -1,0 +1,115 @@
+L6 stock USB / flash-readback investigation — 2026-10-02
+
+Result
+No firmware-export command was found in the inspected normal-application USB
+control handlers, mass-storage command selector, or direct flash-reader callers.
+The original handlers reject vendor-specific USB control requests. The storage
+selector rejects READ BUFFER and all opcodes 0xc0..0xff. A service query exposes
+a 16-bit checksum, not the bytes used to calculate it.
+
+This is a bounded negative result, not proof that no readback is possible.
+The bootloader is absent from this update file. Its USB behaviour, ROM recovery
+entry, security settings, and any alternative/indirect paths remain unknown.
+Nothing was sent to the mixer or changed on it during this investigation.
+
+Input and reproduction
+Stock Reference/L6_v1.10_E/L6.BIN, SHA256:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+Main file-to-runtime bias: 0x80000e00.
+Verifier: tests/emulation/verify_usb_readback_paths.py
+Results: analysis/usb_readback_verification.json
+Run with the existing /tmp/l6-re-tools/bin/python analysis environment.
+On this Mac, Unicorn requires execution outside the restricted sandbox for
+host CPU/cache discovery; the script contains no USB/MIDI/device access.
+
+USB endpoint-zero request path
+0x80041008 gets the setup packet through 0x80042730, extracts request type
+(bmRequestType & 0x60) and recipient (& 0x1f), and routes interface/endpoint
+requests through the registered class's callback at table offset +4.
+Registry: 0x80213dbc. Interface map: 0x808e07d8. Endpoint map: 0x80214b6c.
+Resolver: 0x80042088. No device-recipient vendor callback was found here.
+
+Observed registration paths use these real callback tables:
+  MIDI        table 0x800a1f50, request handler 0x8004be50
+  audio       table 0x800a0768, request handler 0x8004d7f0
+  auxiliary   table 0x800a0774, request handler 0x8004e9c8
+  storage     table 0x800a0c14, request handler 0x80066c38
+The auxiliary registration's exact purpose has not been established.
+
+All four handlers reject vendor request type 0x40. The sentinel is 0xffff8a5b;
+the main dispatcher converts unsupported non-standard requests to error
+0xffff8acc and calls endpoint stall 0x80044868(direction, 1). Its final return
+value alone does NOT establish acceptance: the stall function can return zero.
+
+Offline verification ran all 256 vendor request codes, both directions, device/
+interface/endpoint recipients, and two value/length pairs (0/0, 0xffff/64),
+under each of the four synthetic class registrations: 12,288 setup cases.
+All reached the intercepted endpoint-stall call, made no intercepted transfer,
+and did not reach the known flash reader. These are synthetic dispatch cases,
+not physical USB tests. Interface/endpoint index was zero with valid synthetic
+mapping to each class; this is not exhaustive fuzzing of every setup field.
+
+A supported storage GET_MAX_LUN request (a1 fe 0000 0000 0001) successfully
+returned a synthetic LUN value of zero through the same dispatcher, with no
+stall. This positive control guards against a test harness that rejects all
+requests because its registration is invalid. Setup retrieval, USB transfer,
+and endpoint stall are intercepted; original routing and class code execute.
+
+Mass-storage command path
+0x80065650 reads command opcode at CBW+0x0f and CDB length at CBW+0x0e.
+It selects a handler using the jump table at 0x80065676. All 256 opcodes were
+checked offline with CDB length 16; handlers were selected but not executed.
+Accepted opcodes:
+00 03 04 08 0a 12 1a 1b 1d 1e 25 28 2a 2f 5a a0 a8 aa af
+Other opcodes, including 0x3b/0x3c and 0xc0..0xff, select 0x80064d01 (Thumb).
+The unsupported handler 0x80064d00 was separately executed with synthetic
+state: it sets failure byte state+0x2c and internal sense bytes 00 20 05 at
+sense+0x10. This check does not send any storage command to the real mixer.
+
+Four storage descriptors at 0x800a1298, 0x800a12b0, 0x800a12c8, 0x800a12e0
+share backend 0x80068378. Their selectors 088f/088e/088d/0860 have not been
+established as USB product IDs. Backend read/write branches lead through
+0x80068db0 / 0x80068e40 to indirect callbacks in the table at 0x801f5ff0.
+Nearby driver code accesses 0x402c0000-family SD-host registers, consistent
+with card storage. The callback-table initialization was NOT fully resolved
+in this pass; this is not an exhaustive proof of the storage backend's range.
+
+Known flash-reader callers
+Reader: 0x8001aee8, ABI (flash offset, destination pointer, byte length).
+Thirteen direct BL/B callers found in the main-code scan:
+  0x8001a2ac  voice catalogue header, offset 0x2fa000, length 0x1000
+  0x8001a7ae  voice sample data, catalogue-derived addresses/lengths
+  0x8001e6ba  fixed device/calibration blob, offset 0x3fa000, length 0x28
+  0x80023b66  checksum calculation, chunks of at most 0x8000
+  0x8002bc70  settings generation header, offset 0x3fb000
+  0x8002bc7e  alternate settings generation header, offset 0x3fd000
+  0x8002bd4c  selected settings payload, length 0x17c4, header offset +4
+  0x80039b1c  panel version trailer, offset 0x2f9ffc
+  0x80039c0a  panel update data, offset 0x2ea000 + chunk offset
+  0x80039c5c  panel verification reads from the same region
+  0x80046dc4  boot version trailer, offset 0x64ffc
+  0x80046dd8  voice version trailer, offset 0x3f9ffc
+  0x80046de6  panel version trailer, offset 0x2f9ffc
+These inspected consumers do not export arbitrary flash bytes to USB or a file.
+No aligned literal 0x8001aee9 was found in the update image. This is only a
+heuristic against ordinary function-pointer references; computed calls and
+other read mechanisms are not ruled out.
+
+Checksum query clarification
+0x80023ac8 walks BOOT [0,0x65000), MAIN [0x65000,0x2ea000), PANEL
+[0x2ea000,0x2fa000), and AUDIO [0x2fa000,0x3fa000), accumulating a byte sum at
+0x80578ea4. Task 0x80026dd0 initiates these region checks and marks completion.
+Getter 0x80023c38 copies the sum to its caller. Service command 0x10 selector 3
+at 0x80006e3c reads that value, loads its low 16 bits, and formats four hex
+characters when completion flag 0x806292b4 is 1; otherwise it returns '----'.
+It gives no byte-level readback and cannot reconstruct the bootloader.
+
+Implication / next useful work without opening the device
+This closes the obvious normal-USB readback avenue for the paths inspected.
+It does not change the feasibility of developing the overdub logic offline.
+Before any modified-image installation, establish update acceptance and a
+recoverable boot path. The next non-invasive lead is an official/service/older
+L6 package containing a non-empty BOOT section, or documentation of the L6's
+boot/update entry and recovery behaviour. Do not assume generic NXP ROM USB
+recovery is externally accessible merely because the application resembles
+an RT104x build. Do not guess vendor requests against the real device.

@@ -1,0 +1,120 @@
+L6 AUDIO BLOCK OWNERSHIP AND CURSOR PUBLICATION
+3 October 2026
+
+Result
+Added a separate compiled block-exchange experiment for the callback-to-worker
+handoff. Eight new offline groups pass alongside the preceding 50 groups.
+This narrows two integration contracts: when a pre-master block may be published,
+and how a worker can hold its samples without the producer overwriting them.
+It does not install hooks or make the existing history lifecycle concurrent.
+
+Sources and evidence
+  src/capture/block_exchange.c
+  tests/emulation/verify_block_exchange.py
+  analysis/block_exchange_verification.json
+
+The normal input recordings and processed MASTER are preserved. All execution
+is offline, with synthetic memory, modeled filesystem and explicit scheduling.
+The stock L6.BIN hash remains:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+
+Two distinct callback boundaries
+The candidate pre-master snapshot precedes gain/dynamics near 0x202269f8.
+The ordinary ring position advances later at 0x2022a748..0x2022a776, in blocks
+of 64 samples with modulo-capacity wrap. Stage captures private pre-master
+samples while the stock cursor still points to the block's initial position.
+Commit checks that the original path advanced exactly 64 samples, then publishes
+the corresponding completed interval. No worker claim succeeds before commit.
+
+The test executes original gain, staging and master ring-copy/advance windows
+between the proposed stage and commit calls. A claimed block retains the exact
+pre-gain samples while the original reader returns the gain-adjusted master.
+This is a harness-level binding to original instruction windows, NOT an installed
+trampoline or execution of the complete compressor/effects/audio task.
+
+Stage/commit observations require the known normal callback 0x2022a791, stable
+capacity and aligned cursor, and ring-copy state other than 2. Mismatched cursor,
+capacity, callback, disabled copying, duplicate stage or missing advancement
+latches a timeline fault. Ordinary processing continues independently in tests.
+An actual outer callback observer remains necessary: a pre-master hook confined
+to the normal path cannot notice an alternate callback which bypasses it.
+
+Slot ownership
+Each slot contains an atomic state, 64-bit first-sample label and 64 raw samples
+per stereo side. States are FREE, WRITING, READY and READING.
+
+The sole producer tries once to claim the next slot from FREE/READY to WRITING.
+It never waits or spins for a worker. The sole worker claims READY -> READING,
+checks the exact sample label and holds that state until its reads finish.
+Producer access to READING is refused, so the held samples cannot be overwritten.
+After release the slot becomes READY and may be reused on a later lap.
+
+If a worker holds the slot needed for a new block, that optional block is dropped
+and commit still advances the timeline with the ordinary recorder. A later claim
+for the dropped generation cannot accidentally return an older lap: it returns
+WAIT while the old lease is held, then MISSING after release. The ordinary path
+continues in this test. A production worker must turn a missing required block
+into optional-file failure; an automatic exchange-error/cancellation bridge has
+not been implemented here. No complete fail-safe device workflow is claimed.
+
+Only the owner of the exact claim may release it, after all reads. There is no
+timeout-based revocation. Multiple producers, arbitrary competing control calls,
+reinitialization while readers exist and reclaiming storage without a fence are
+outside the contract. The protocol does not by itself exclude pad playback.
+
+Coherent timeline snapshots
+Commit publishes low/high timestamp words and stock cursor under a version
+counter. Readers use atomic loads and accept only unchanged even versions. Odd,
+changed or exhausted versions are rejected; version wrap is deliberately refused.
+Tests inject a version change at an explicit instruction point between the first
+version load and payload reads. No torn timestamp is accepted in that case.
+This relies on coherent ordinary RAM and one publisher. Actual L6 cache mapping,
+DMA visibility and interrupt priorities are not established by emulator atomics.
+
+Mapping stock start/stop events
+exchange_resolve compares the event's current stock cursor with a coherent
+published cursor, then subtracts the selected cursor's ring distance from the
+published 64-bit sample count. Mismatched publication returns WAIT; ranges before
+the exchange origin or outside nominal retained capacity return MISSING. A valid
+arithmetic timestamp is not proof that every needed slot remains available;
+claims still have to validate each block's generation.
+
+Tests call the original start selector 0x80018f10 and stop getter 0x80002460 and
+resolve their results immediately. A conditional history-selection test uses the
+real selector's clamp to available audio; it does not assert that the half-second
+setting is exposed on the L6.
+
+Important negative result: a cached modulo cursor is not an event timestamp.
+A test captures start cursor 64 at sample 64, advances a complete synthetic ring,
+then shows the same numeric cursor resolving to sample 320. The original saved
+sample token remains 64. Therefore the production hook must capture a sample
+token synchronously with the stock selection/stop observation, before queuing
+later work. It must not reconstruct one later or blindly retry a cached event
+after an unbounded delay. A whole unobserved ring lap also cannot be detected
+from cursor positions alone; complete callback coverage is still an obligation.
+
+Positive file bridge
+A worker claims each block, copies it into the earlier serialized history
+prototype, then releases it. The existing range/file lifecycle produces a
+verified 721-frame pad-folder WAV with exact expected samples. This demonstration
+uses TWO buffers and harness-controlled scheduling. It verifies compatible sample
+representation and ownership order, not the final memory-efficient architecture.
+
+Resources
+Exchange metadata: 64 bytes. Slot: 528 bytes (512 audio, 16 metadata/alignment).
+The current allocator contract accepts power-of-two slot counts from 2 to 4096.
+4096 slots cost 2162688 bytes and retain 262144 frames (about 5.46 seconds at
+48 kHz), in addition to other queues/state. No device address is assigned.
+The prior startup gap remains only an audit candidate; numerical fit is not proof
+of ownership, accessibility, stack/heap safety or cache suitability.
+
+Next bounded integration
+Build emulator adapters at outer callback entry/mode observation, the pre-master
+snapshot, and after ordinary cursor advancement. Preserve live registers/FPU
+state and keep the ordinary path running when the optional stream faults.
+Capture start/stop sample tokens at the actual event sites, then deliver those
+tokens to the worker with explicit session identity. Connect missing-block and
+timeline failures to the existing optional-file cancellation path. Only after
+that should the serialized history duplication be replaced or its memory budget
+considered final. Real reader fences, RAM allocation and hardware recovery remain
+separate unresolved requirements.

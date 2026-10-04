@@ -1,0 +1,180 @@
+L6 REMAINING PAD READERS AND AUDIO-MODE AUDIT
+4 October 2026
+
+Result
+Found and executed a second original pad renderer in callback 0x800133e8. A guard
+at 0x20220ac8 alone would omit this route. Both paths run through the common
+AudioProcess indirect call at 0x8001078c and continuation at 0x8001078e.
+
+All four recovered callback targets now execute completely in synthetic fixtures.
+The normal callback includes all four original DSP stages and the recovered
+secondary callback target: no stage or math helper is substituted. Fourteen new
+audit groups pass. The existing 12 renderer-boundary groups and 9 pre-master tap
+groups also pass after the only shared test change: an optional CPU-model choice.
+Neither prototype ELF nor stock image/device/card is modified.
+
+This is stronger evidence for the common callback-return boundary, but not an
+all-reader proof or an installed acknowledgement. Runtime mode changes and
+secondary processing/parameter-work admission must be included in its contract.
+Default playback fence remains BUSY. We did not wire a success response based
+only on the newly passing fixtures.
+
+Firmware SHA-256:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+Evidence: tests/emulation/verify_pad_reader_audit.py
+          analysis/pad_reader_audit_verification.json
+
+Callback inventory
+The selector is at 0x20015e10 (DSP base 0x20010a48 + 0x53c8).
+  0x2022a790: normal four-stage chain. Reads pads in first stage 0x20220ac8.
+  0x800133e8: separate inlined pad renderer. Also reads all admitted pad buffers.
+  0x80010960: no pad-state or source-buffer accesses in tested configuration.
+  0x800124d8: no pad-state or source-buffer accesses in tested configuration.
+All run to the common continuation at 0x8001078e. No user-facing mode names are
+inferred solely from these addresses. A callback that skips pads does not clear
+their active state; switching to a pad-reading callback can resume those reads.
+
+The alternate renderer's source loads are 0x800134d0 (left) and 0x800134d8 (right).
+Its natural-end clear at 0x80013544 precedes state accesses at 0x80013562,
+0x80013566, 0x8001356a, 0x80013580 and 0x80013582. This parallels the normal
+renderer's early inactive flag. Injecting a control-side active clear after
+admission still leaves 128 source reads in the current 64-frame stereo block.
+The test verifies alternate short/exact/partial endings and looping.
+
+Static direct-call searches would miss this second renderer because its sample
+loop is inlined, not a call to 0x20220ac8. Searching DSP-state offset references,
+checking their actual base addresses, then executing the candidate exposed it.
+The search also found unrelated 0x5404 references with base 0x801f rather than
+0x2001; an immediate value alone is not a meaningful pad-state cross-reference.
+
+Mode selection is itself an admission problem
+Original 0x8000ca98 stores callback 0x80010961 in the selector; 0x8000cab0 stores
+0x800133e9. These small setters directly store the pointer and return. They do
+not perform a renderer/session join internally. Caller-level synchronization on
+hardware remains to be established; this is not a claim of a stock firmware bug.
+
+0x80002868 forwards to 0x8000cab0. Linear disassembly finds direct callers at
+0x80006cb4, 0x80006f7c, 0x80006fda and 0x8001d8fa. These are concrete next audit
+sites for mode admission. Startup separately selects a callback near 0x8001198a.
+The inventory does not prove there are no indirect/aliased stores elsewhere.
+
+A controlled interleaving changes the selector after 0x80010788 has loaded it,
+just before BLX at 0x8001078c. The current block still runs the previously loaded
+normal callback; the next block runs the replacement alternate renderer. Reading
+the selector at return would misidentify the callback that just completed.
+The injected write models a competing writer; no real RTOS preemption is claimed.
+
+Therefore a completion acknowledgement must retain the actual admitted callback
+identity and lifetime. Mode selection needs serialized admission/generation
+tracking across the request, completion, publication and rearm interval. A
+currently null or non-pad callback cannot be treated as permanent pad exclusion.
+The null path also reaches 0x8001078e without rendering a block at all.
+
+Later DSP and secondary callback
+The normal chain 0x2022a790 calls 0x20220ac8, 0x20224b90, 0x20220000 and tail-calls
+0x202263e0. In tested initialized fixtures, all observed pad-state/source accesses
+finish in the first stage. The later stages run their ORIGINAL instructions.
+
+0x20220000 additionally calls a pointer at DSP base + 0x630c (0x20016d54).
+The same slot is used by alternate callbacks at 0x800124f0 and 0x8001688e.
+Startup stores 0x2022a789 in it near 0x80011e9a..0x80011ea2. That thunk branches
+through 0x2022d64e to 0x8000e380. This full chain executes in the audit fixtures.
+
+0x8000e380 invokes parameter-work helpers 0x80023e98/0x80023f30 and other control
+helpers, then checks an effects-processor pointer at 0x8053d198. The baseline fixture has
+no active processor or queued parameter work; two added cases execute real
+producers and dispatch queued copies through the full audio callback. For example, 0x80023e98 copies
+words to a destination loaded from 0x80445308 when its count is nonzero; its
+possible producer destinations are not exhaustively traced in this stage.
+Consequently no-access results with idle effects cannot establish all-parameter
+alias freedom. Active processing, deferred writes and secondary-pointer changes
+remain explicit audit items, not implicitly trusted sources of quiescence.
+
+Protected-buffer check
+Pad 0 is rendered to natural EOF, while pad 1 keeps looping. Its source page is
+then made inaccessible in the emulator. All four full callbacks execute twice
+without accessing pad 0's page. The two pad-reading callbacks each continue to
+read pad 1. This extends the preceding protected-page check through actual later
+DSP and across known callback alternatives for this fixture.
+
+CPU-model limit resolved without instruction replacement
+The previous M-class Cortex-M7 fixture rejects the stock VCVT.F64.F32 instruction
+at 0x2022788e in the late DSP stage. The new test records that exact limitation,
+then uses Unicorn's ARM MAX model, which executes the conversion and following
+stock math helpers. No instructions are patched and no results substituted.
+The previously verified renderer's accesses, state and output match exactly on
+both models across five tested EOF/loop configurations.
+
+ARM MAX is a broad instruction-set fixture. It is not a chip identification,
+cycle/latency model, or proof of M-profile interrupt/exception/cache behavior.
+The two callback input pointers at DSP base + 0x63a0/+0x63a4 point to explicit
+synthetic buffers; the ten input delay rings remain synthetic too. This is not
+cold boot, a realistic effects/routing parameter sweep, or an audio-quality test.
+
+Implementation decision
+Keep the current unbound playback fence blocked. The common dispatcher remains
+the candidate installation scope; a normal-renderer-only hook is insufficient.
+A useful acknowledgement must combine:
+  1. Closed and accounted-for starts, retriggers, scans, mode changes and relevant
+     secondary/deferred parameter operations. Do not switch or stop an active
+     callback merely to manufacture acknowledgement.
+  2. Balanced entry/return ownership recording the actually loaded callback,
+     plus a non-reused requested/acknowledged epoch. Unexpected identity/change,
+     missing return, or absent progress must retain ownership or fault.
+  3. Renderer completion under that admission closure. Idle flags and a callback
+     that happens not to read pads are insufficient alone.
+  4. Stream-production disable and drain of every owned read/seek/worker child,
+     followed by existing card/ordinary-recorder exclusion for publication.
+  5. Explicit rearm under the new owner, preserving the fence until then.
+
+The capture-session callback hook already tracks its selected callback but is
+not a complete pad/mode guard. Do not silently reinterpret its successful
+capture shutdown as the all-reader protocol above.
+
+Recovered parameter-work producers
+0x8005b740 copies words through staging buffer 0x80445164 and descriptor
+0x80445308 {destination, word_count}. 0x8005b790 copies doublewords through
+staging buffer 0x804451f0 and descriptor 0x80445310 {destination, double_count}.
+Both first inspect 0x801f5f08. When it is nonzero they tail-call the direct copy
+helper 0x80001754. Otherwise they stage source bytes, publish destination/count,
+and spin until the audio-side consumer clears the count.
+
+Tests execute each original producer up to its pending poll, run the full normal
+callback on an independent peer CPU with the published descriptor/staging bytes,
+then transfer the completed destination and cleared descriptor back. The original
+producer resumes and returns. This proves the selected nonempty word/double copy
+routes without recursively running one emulator CPU or substituting memcpy.
+Scheduling and memory transfer remain explicit fixture operations.
+
+Both direct-copy bypasses are also executed and checked. The shared admission
+point is therefore each PRODUCER ENTRY, before its mode test, not just the queue
+or audio-side consumer. An ownership token would need to survive the entire
+synchronous call. Rejecting or waiting must preserve callers' expected semantics;
+blindly returning success without copying is not an acceptable hook.
+
+Startup code near 0x8001dc6a..0x8001dc8a constructs these two producer pointers and
+stores them at +0x2c/+0x30 of a table. A simple direct-call search found no callers:
+these are imported callbacks. Other low-half 0xb791 matches use high half 0x8003
+and are unrelated; address construction must be resolved before classifying them.
+The complete set of consumers of the import table and destinations is not yet
+proved, and no original failure/Busy ABI has been established for these copies.
+
+Next concrete work
+Design mode/parameter admission at the recovered selector setters and copy
+producer entries, accounting for the copy routines' void-like synchronous
+contract and busy waits. Trace their import-table consumers and the four known
+mode-switch callers to establish where deferral can happen without claiming a
+copy or mode change succeeded. Then connect callback acknowledgement through
+that admission boundary to the existing playback/stream ownership coordinator. Device
+interrupt/DMA access, RAM placement, recovery and firmware packaging remain
+separate prerequisites for installation.
+
+Reproduce
+  /tmp/l6-re-tools/bin/python tests/emulation/verify_pad_reader_audit.py
+  /tmp/l6-re-tools/bin/python tests/emulation/verify_pad_renderer_boundary.py
+  /tmp/l6-re-tools/bin/python tests/emulation/verify_uncompressed_tap.py
+
+Follow-up: control_admission_findings.txt recovers the actual import table, tests
+original parameter callers under shared-lock suspension, and establishes that
+failed-wait returns and selector-only deferral do not preserve their contracts.
+The default publication fence remains blocked pending complete control ingress.

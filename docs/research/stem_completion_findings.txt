@@ -1,0 +1,91 @@
+L6 ordinary channel-file completion: reuse of the stock recorder lifecycle
+2026-10-04
+
+Result
+The ordinary recorder supplies a concrete, useful lifecycle for our additional
+pre-master stereo file. It chooses a common final sample, drains queued audio,
+rendezvous with the last file-write attempt, finalizes each open WAV and closes
+it, then runs post-record processing. We should follow that lifecycle using the
+existing file APIs. A card-wide/USB stop is a separate ownership transition, not
+the ordinary per-file completion mechanism identified here.
+
+Six new offline groups passed in tests/emulation/verify_stem_completion.py. They execute
+original stop backend 0x8000b698, stop predicates, stream handle/length getters,
+WAV finalizer 0x8000ea08, recorder reset 0x800380d0 and postprocessing dispatcher
+0x800032b0. The fixture contains a mono stem (logical 0), stereo stem (logical 2)
+and master (logical 10). Public file operations use RAM files. Audio drain
+scheduling, recording metadata and the deeper per-file postprocessor are modeled.
+No complete hardware stop or Work-to-final filesystem transition is claimed.
+
+Normal sequence and evidence
+1. Stop callback 0x8004ba40 saves a sample endpoint. Backend 0x8000b698 passes it
+   through 0x800382a8 to establish stream limits. Earlier original-code tests
+   verify the exclusive endpoint and correct final partial-sector payload:
+   docs/research/record_boundaries_findings.txt.
+2. The stock producer stops at those limits and flushes remaining audio. Its
+   final-stream suffix calls 0x80037358, which takes/returns the same completion
+   token released by the file-access worker after its last write attempt. Only
+   then is the final stream-active bit cleared. This mechanism was executed in
+   docs/research/record_scheduler_findings.txt, with queues/OS behavior modeled.
+3. Backend stop polls 0x80037df0 until the active-stream mask is zero and the
+   producer busy byte is clear. The new test executes this predicate within the
+   original backend, with a two-step modeled scheduler: first streams drain,
+   then producer busy clears. No WAV finalizer is entered before both steps.
+4. For logical indices 0..11, the original backend obtains enabled file handles
+   through 0x80037e98 and recorded byte lengths through 0x80037e58. Each nonzero
+   handle gets WAV-size finalization followed by close. The new fixture verifies
+   correct RIFF/data lengths for mono and stereo files and unchanged audio bytes.
+5. Original reset 0x800380d0 clears stream enable bits and file-handle slots.
+   Postprocessing follows only after every selected file's close attempt. It
+   consults separate per-stream metadata; clearing stream handles does not by
+   itself erase the postprocessing eligibility information. Injected metadata
+   value 2 skips that stream's deep processing; values 0 and 1 admit it in this
+   fixture. These values are not assigned unverified user-interface meanings.
+6. Prior path analysis shows capture initially targets RECORDER/<take>/Work and
+   ordinary final names are in RECORDER/<take>. The deeper 0x80004868 function
+   has rename/move and audio-rewrite branches. This turn tests its dispatcher,
+   not all of those branches. See recording_writer_findings.txt and
+   firmware_integration_findings.txt for earlier path and filesystem evidence.
+
+What the stock sequence does not guarantee
+A completion token indicates a write attempt returned, not necessarily success.
+The file worker records short/error writes separately at 0x8077ca30+0x1e48.
+The new tests demonstrate that an existing nonzero value there does not prevent
+stop from finalizing/closing files and entering postprocessing; the reset leaves
+that error value intact. That does NOT establish whether other UI or recovery
+paths inspect it later.
+
+A failed mono-stem header write or mono-stem close also does not prevent the
+other files from closing or the postprocessing dispatcher from running. The
+header-write failure is injected at the public write API called by the actual
+WAV finalizer. Thus this observation applies to channel stems, not only the earlier injected
+master-close failure. Reaching postprocessing is useful ordering evidence, but
+not a successful-file certificate. This is not a claim that normal recordings
+are defective: failures are injected and the later deep processing is modeled.
+
+Design implication
+Reuse the stock filesystem APIs and match the recorder's sample-stop/drain/
+finalize/close order. Keep the extra file's error status and check it before pad
+assignment; a failed extra take should not replace the previous backing track.
+The existing offline extra-file lifecycle already follows this broad pattern
+with checked operations and readback. The remaining native work is connecting
+it to actual recorder task scheduling and completion, and to pad-reader/reload
+coordination. This audit does not install those connections.
+
+The stock stream count is fixed at twelve logical channels in many locations;
+stereo files consume paired channels. Earlier tests reject index 12. Reusing
+the lifecycle does not mean a thirteenth stream can simply be enabled. An extra
+stereo writer can use the same file layer without expanding every stock array.
+
+For this normal recording path, native recorder/file-worker integration is the
+more direct next target than extending USB teardown analysis. USB/card ownership
+still matters if USB mass-storage is activated, but is a distinct condition.
+Neither a normal file close nor a successful readback proves power-loss durability.
+
+Evidence
+analysis/stem_completion_verification.json: six passing groups.
+analysis/stem_completion_disassembly.txt: bounded static instruction windows;
+not every window is a complete function (the deep postprocessor extends beyond it).
+Firmware SHA256 remains:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+Only audit code/reports changed. No firmware patch, mixer connection or SD write.

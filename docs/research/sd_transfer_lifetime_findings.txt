@@ -1,0 +1,110 @@
+L6 v1.10 SD transfer lifetime audit
+=================================
+Date: 2026-10-04
+
+Result
+------
+The tested ordinary read/write paths hold the per-unit semaphore across the
+command, data wait, and final status work. They are synchronous at that boundary.
+However, acquiring that semaphore later is not proof of a successful transfer
+or an idle physical controller: timeouts release it, some error events are not
+checked, and subsequent stop/cleanup can report success without retaining them.
+The proposed checked USB worker must remain a modeled port for now.
+
+Evidence: tests/emulation/verify_sd_transfer_lifetime.py; 15 passing offline groups in
+analysis/sd_transfer_lifetime_verification.json. Original firmware instructions
+execute in Unicorn with synthetic RAM/MMIO and explicitly modeled OS/hardware
+boundaries. These are control-flow findings, not reproduced device faults.
+
+Recovered callbacks
+-------------------
+Executed the original startup decompressor at 0x80001994 on the record with
+source 0x800a6980, destination 0x801f5400, length 0x3780. This recovered the eleven
+SD driver callbacks at 0x801f5ff0, including read 0x80069c59, write 0x8006a7f9,
+command 0x8006a349, cleanup 0x8006a281 and teardown 0x8006a249. Callback addresses
+include the Thumb bit. They are recovered initialized data, not guessed targets.
+
+Transfer lifetime
+-----------------
+The registered callback 0x80068378 acquires the per-unit semaphore before
+dispatch and releases it on the tested success/error exits. Operation 2 calls
+0x80068db0; operation 3 calls 0x80068e40. The driver wrappers are 0x8006b1e0 and
+0x8006b248. Aligned direct transfers and bounce-buffer transfers were exercised
+with one, two and nine blocks, including word-offset and byte-offset buffers.
+
+Data waits use mask 0x185, ANY mode and timeout argument 5000 through 0x800328c0.
+Stopping emulation at a pending wait leaves the semaphore held. Returning a
+timeout produces driver result 17, propagates an outer error and releases the
+semaphore. A subsequent operation 6/submode 4 succeeds without remembering that
+failure. This proves neither cancellation nor hardware idle after timeout.
+
+Read retains the data result but ignores failure of its final status command.
+Write checks status readiness and fails on status error or after 6000 modeled
+poll/delay iterations. Driver result 19 disables the driver before unlocking.
+The outer callback normalizes detailed transfer errors to 0xffffd8ef.
+
+Data-event handling
+-------------------
+The actual event predicate at 0x800326c0 accepts any requested bit. Data drivers
+check the wait return code but do not validate the returned flags. Injecting
+flags 1, 0x80 or 0x100 can therefore produce data-path success. Two groups also
+execute the original command engine: the waits are command mask 0x183, data
+mask 0x185, then final-status mask 0x183, all under the same outer lock. A good
+later status response does not recover the injected data-error information.
+
+The original IRQ path 0x8006ea90/0x8006ea98 maps raw controller status to events:
+  0x000001 -> 0x02       0x000002 -> 0x04
+  0x000010 -> 0x10       0x000020 -> 0x08
+  0x010000 -> 0x80       0x020000 -> 0x01
+  0x200000 -> 0x01       0x100002 -> 0x04
+This links distinct controller status conditions to the accepted event bits.
+It does not establish that every injected event/status sequence is physically
+possible, nor that a mixer has suffered corruption. MMIO side effects remain
+modeled. No exact chipset identification follows from this audit.
+
+Post-acknowledgement cleanup
+---------------------------
+Operation 5 at 0x80069488 disables the driver and clears card state, then reaches
+the original cleanup callback 0x8006a280. It updates controller registers and
+samples/drains events, but returns zero even when the modeled readiness probe
+0x8006a760 returns 1. The physical meaning and sufficiency of this sequence are
+not established by synthetic MMIO.
+
+Operation 1 reaches 0x8006b050 and teardown callback 0x8006a248. Teardown checks
+the result of 0x80032218, but discards the results of 0x80032248 and event deletion
+0x80032210. It clears the event handle even on event-delete failure. A failed
+0x80032218 propagates failure and retains unit registration; event-delete failure
+alone can still yield success and registration removal. These checks concern
+the original callers; native RTOS cleanup implementations remain unverified.
+
+Limits and remaining work
+-------------------------
+No real SD data, DMA/cache coherence, MMIO side effects, scheduler progress,
+elapsed timeout duration, physical controller idle or persistence was tested.
+The auxiliary write-error diagnostic command 0x1c is rejected in failure
+fixtures. An initial all-commands-succeed fixture reached a bounce copy into
+the synthetic caller stack and an invalid return; its successful diagnostic
+path needs a separate command/packet-sizing audit and is not counted as verified.
+
+analysis/sd_transfer_direct_callers.json records a linear direct-call inventory.
+Other setup/read calls reach the lower read wrapper; indirect callers and all
+possible card ingress have not been exhausted. The lock conclusion applies to
+the tested registered read/write paths, not every possible SD access.
+
+Next, identify a native observation point that retains command/data errors for
+the complete ownership interval, then trace timeout cancellation/reset to a
+checked controller-idle condition. Include post-ack cleanup results before
+allowing remount and publication. The existing stop semaphore alone cannot
+supply that evidence. Do not bind the modeled checked-worker port to it.
+
+Artifacts and unchanged inputs
+-----------------------------
+Bounded original disassembly: analysis/sd_transfer_lifetime_disassembly.txt
+Previous stage: docs/research/usb_driver_lifetime_findings.txt
+Firmware SHA256:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+Prototype ELF SHA256:
+772148a796761b1039fc713239897f77b578dbf44b90660c3e189d8e249ed8bb
+Only offline audit tools and reports changed. No firmware patch, mixer access,
+SD write or native checked-stop integration was performed. The older 461-group
+regression tally does not include this audit or the preceding 17-group audit.

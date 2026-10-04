@@ -1,0 +1,139 @@
+L6 original final-write worker integrated with recorder stop
+2026-10-04
+
+Result
+The combined offline stop test now sends the last 64 frames of each ordinary
+file through the original source reader, stream producer, queued file worker and
+completion-token rendezvous. It no longer directly clears the active-stream
+mask to simulate successful draining. The original code clears that mask after
+its completion path runs.
+
+This exposed and fixed a prototype eligibility defect: a failed ordinary final
+write could still yield a verified extra file and manager result. The added
+checkpoint retains that failure for the extra take before the stock finalizers
+run and before the queued stop callback releases its owned request. An existing
+pad backing remains selected when this occurs.
+
+Nine focused groups and 164 groups across 16 affected regression suites pass.
+The 164 includes the nine new groups; do not add them again. Nothing was
+installed on the mixer or written to an SD card.
+
+Code and evidence
+src/capture/control_transport.c: ct_record_drained
+src/capture/emulator_hooks.S: emulator_recorder_drained_hook
+src/capture/capture.elf: rebuilt emulator-only prototype
+ tests/emulation/verify_recorder_stop_integration.py: enables the new checkpoint in its
+ original-backend fixture
+ tests/emulation/verify_recorder_file_worker.py: original producer/worker integration
+analysis/recorder_file_worker_verification.json
+analysis/recorder_file_worker_regression.json
+
+Actual firmware route exercised
+The ordinary stop callback/back end runs on the control CPU as before. At the
+stock stop's delay boundary, independent producer and file-worker emulator CPUs
+execute a controlled schedule using explicit shared-memory transfers:
+- The saved stop cursor drives 0x800382a8's original stream frame limits.
+- 0x80038e60 obtains the stream cursor/request through original 0x800376a0,
+  reads source-ring samples through the stock callback, forms complete sectors
+  or a final partial sector, and queues via 0x80037590.
+- The queue contains the original four-word message and a payload pointer.
+  The fixture reads the pointed-to bytes when the file worker consumes them,
+  not when the producer enqueues the message.
+- 0x80037380 resolves the stream handle and calls the public write API. Its
+  original short-write and error-latch instructions execute.
+- The worker releases the token at 0x804467f8 after the write attempt. The final
+  producer rendezvous 0x80037358 acquires/releases the same modeled token.
+- While the last write is withheld, original stop predicate 0x80037df0 returns
+  false on three repeated observations. The mask remains active. Only after the
+  worker acknowledgement and producer rendezvous does the producer clear it.
+- The original stop continues to WAV finalization, close and its postprocessing
+  dispatcher; then the existing compiled capture manager completes its fence.
+
+All seven ordinary file routes are exercised: two mono, four stereo input files
+and the stereo master. Previous audio and initial handles are seeded. The last
+64 samples actually traverse the reader/producer/worker chain, with byte-exact
+payload checks for successful files. The extra stereo file uses the same tested
+stop interval, including a take crossing the synthetic source-ring wrap.
+
+Failure found and fixed
+The stock worker records error at 0x8077ca30+0x1e48 = 0x8077e878:
+  successful API status with short transfer -> 0xffffd826
+  injected IO error -> 0xffffd825
+It still releases the completion token. Stock stop can therefore finish even
+though the write failed. Before this change the extra file could pass its own
+verification and be offered as a new result. A negative control disables only
+the new hook and still reproduces that behavior against the rebuilt prototype.
+
+The new emulator interception point is 0x8000b78c, after stock stream draining
+and before the first WAV finalizer. The register-preserving hook calls
+ct_record_drained, replays MOVS r0,#0 and resumes at 0x8000b78e (Thumb target
+0x8000b78f). The shared hook macro now accepts an optional C callee; its default
+remains bridge_hook for existing hooks.
+
+ct_record_drained enters the permanent control gateway and checks the current
+owned callback under the existing critical section. It requires a matching
+router/session/owner, held request, kind STOP, dispatched state, marked endpoint
+and negative ordinary-recording target. A nonzero stock file-write error then
+latches optional bridge error 33. It does not clear or overwrite the stock error,
+change ordinary files, skip normal cleanup or turn the condition into a transport
+lifetime failure. The manager subsequently reaches STOPPED with no new result.
+
+Sampling before finalization/cleanup matters. An explicit test clears the stock
+error during later modeled cleanup; the optional failure remains recorded. An
+unowned observation cannot cancel the capture or clear the ordinary error.
+
+Controlled interleavings and preservation
+The optional worker can finish verification while the original final disk write
+is still pending. The queued stop request remains held, so the bridge and manager
+withhold eligibility. If that disk write then fails, the new checkpoint revokes
+the extra file's eligibility before the request is released.
+
+Tests delay the final write for the ordinary master and for selected mono/stereo
+stems by changing the explicit producer order. These are controlled schedules,
+not claims about the firmware's normal order. Failed final writes on logical
+streams 0, 2 and 10 all block the extra result.
+
+For the master short/error cases, an existing BACKING.WAV is inserted through
+the stock catalogue, assigned through the stock adapter and saved. After the
+failure, publication is refused and its assignment, audio and saved settings
+remain unchanged. A failed ordinary WAV is not claimed to have correct contents
+or header size; unaffected ordinary files retain their expected audio.
+
+Limits and an exploratory schedule observation
+Kernel queue operations, token availability, task switching, filesystem IO and
+shared-memory visibility are modeled. This is original task-body execution on
+separate emulator CPUs, not a running RTOS or physical SD/DMA test. Deep per-file
+postprocessing remains intercepted; pad publication still uses modeled playback
+exclusion. No timing/headroom/cache/power-loss guarantee follows.
+
+Only the final write is deliberately delayed in the passing normal fixtures.
+An earlier exploratory schedule postponed each preceding file write until the
+next producer attempted a token acquisition. A queued staging address could then
+be reused and its bytes changed before consumption. We did not establish whether
+that schedule is allowed by the real scheduler, priorities or surrounding code.
+It is not a reproduced device defect, and it is not silently counted as passing.
+The final-write tests schedule earlier file writes before advancing to the next
+producer. General cross-stream staging-buffer lifetime remains an open audit.
+
+The new gate observes the stock file worker's error latch. It does not detect
+ordinary WAV-finalizer/close failures which are not reflected there, or lower
+SD error events which the driver incorrectly reports as success. Those earlier
+limitations remain. It also does not enforce that every possible native stop
+path passes the hook: only the tested owned ordinary stop path is bound here.
+
+Next practical boundary
+Audit real producer scheduling and staging-buffer reuse, including a slow write
+across stream changes, before claiming sustained multitrack operation. Then
+extend the retained-result policy to ordinary finalizer/close outcomes if those
+are to disqualify automatic pad replacement too. Device task registration,
+physical memory/CPU budget and recovery remain separate deployment work.
+
+Hashes
+Unchanged stock firmware:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+Previous extra-capture ELF:
+107422eb54a13f41a0a969d08771223b54fd664ae4f3306b27c4d0ca45a14cea
+Rebuilt extra-capture ELF:
+7c7b7ae48dcae55d32319e873434f5015c557712dc616117e0582df097a47e52
+Unchanged pad prototype ELF:
+772148a796761b1039fc713239897f77b578dbf44b90660c3e189d8e249ed8bb

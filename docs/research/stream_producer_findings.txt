@@ -1,0 +1,113 @@
+L6 STREAM PRODUCER OWNERSHIP: OFFLINE INTEGRATION
+3 October 2026
+
+Follow-up: playback_lifetime_findings.txt resolves the callback registration
+and AudioSubProcess dispatch described below, and demonstrates the remaining
+continuous-playback gap. This report documents the preceding producer stage.
+
+Result
+The actual four-pad stream scan now runs between compiled admission and
+completion wrappers in the emulator. Each refill receives a child ticket before
+the producer changes its requested-count and pending fields. Its message travels
+through the original send wrapper to the compiled decoder and original worker.
+The outer scan retains admission until both the scan and all children finish.
+Fifteen new groups pass; all five earlier suites also pass, for 131 total groups.
+
+This is emulator integration, not an installed firmware patch. The public
+L6.BIN remains unchanged. No device communication or SD-card writes occur.
+
+Implementation and evidence
+src/overdub/emulator_stream_producer.c
+src/overdub/work_ownership.h and work_ownership.c: added OWN_SCAN kind
+tests/emulation/verify_stream_producer.py
+analysis/stream_producer_verification.json
+
+Whole-scan boundary
+Original 0x80036508 scans four pads. It can change state before the enqueue
+block, including a flag around 0x800365b2. Guarding only the final pending store
+would be too late. od_emulator_stream_scan therefore admits the entire original
+routine, using either an ordinary root reservation or an explicitly supplied
+live parent ticket. An unrelated promotion prevents entry before stock writes.
+There is no global bypass for promotion-owned work.
+
+The compiled publication trampoline replaces execution from 0x8003664a, before
+the requested-count store at 0x8003664c and pending store at 0x80036654. It
+preserves the live scratch registers and original stack, obtains pad from r5,
+frames from r2, span from r9 and position from original sp+4, then resumes at
+0x800365d8. The replacement is an emulator interception, not patched image bytes.
+
+Per-pad scan state starts at 0x80735180 + pad*0x44; requested count is +0x20,
+pending is +0x1c. Reservation, offer and message encoding happen before either
+field is changed. Zero-work requests do not reserve a child. Entry rejection
+leaves the original scan untouched; child-capacity rejection leaves its
+requested/pending fields untouched, though earlier admitted scan work may occur.
+
+Submission evidence
+The default publisher calls original 0x800483f8. Its zero return maps to ACCEPTED;
+all other returns map to UNCERTAIN. The underlying 0x800763d8 blocking enqueue
+contract is not fully established, so an error cannot justify clearing pending.
+
+Only positive NOT_SENT evidence permits restoring the old requested count and
+clearing pending. The test supplies that evidence through a publisher which
+does not enqueue. Contradictory NOT_SENT evidence after worker claim/completion
+latches a fault before rollback, avoiding resurrection of stale state.
+
+An uncertain submission retains its child and admission until actual worker
+completion establishes delivery and completion. If no delivery arrives, it
+remains reserved; no timeout-based recovery is implemented. A worker completing
+inside the sender is also supported: the running scan and producer obligation
+prevent premature release while the sender returns and bookkeeping finishes.
+
+Post-publication bookkeeping failure latches a fault and retains ownership.
+The scan wrapper's BUSY result can mean partially admitted, still-pending work;
+it does not share the ledger APIs' no-change-on-lock-BUSY contract.
+
+Verification scope
+The 15 groups cover:
+- four-pad original scan, four child messages, original worker completion;
+- promotion blocking before entry, and explicitly inherited promotion admission;
+- worker completion during send without releasing the running scan;
+- definite rejection with field restoration and successful retry;
+- unknown submission without delivery, and with later worker completion;
+- unknown result after early completion without stale field restoration;
+- contradictory nonpublication evidence failing closed;
+- full ledger before entry, and child exhaustion after scan admission;
+- zero-work requests and already-pending pads;
+- entry and post-publication metadata lock contention.
+
+The stock queue wrapper, scan, decoder bridge and worker execute ARM code.
+The RTOS send/delivery, critical sections and scheduler are fixtures. Early worker
+execution uses a second emulator CPU with shared-region copy-in/out, not arbitrary
+instruction-level preemption. This suite exercises the worker's zero-source
+completion path; it does not emulate physical streaming audio or SD timing.
+An already-pending pad must already have its own owner before this integration
+is enabled. That test does not make untracked old requests safe.
+
+Next callback boundary recovered by static inspection
+Sampler initialization at 0x80009848 constructs callback 0x800366f1 and calls
+0x80002870 at 0x8000985c. The callback tail-branches from 0x800366f0 to scan
+0x80036508. Registration entry 0x80002870 branches to 0x800776b8, which jumps
+to 0x2022a909. The registration target's implementation and its invocation
+context still need tracing. The current harness invokes the new scan wrapper
+directly; callback registration is not yet replaced or verified end-to-end.
+Other direct stream callers remain: initial loads around 0x80009748 and prefetch
+0x80036360 call 0x800369a8 without passing through this scan.
+
+Remaining integration requirements
+- Trace callback registration and all direct/preload stream callers; establish
+  their task context and explicit parent ownership.
+- Track continuous pad playback, not only discrete refill jobs. An empty stream
+  queue between refills does not establish that reassignment is safe.
+- Bind USB/card session ownership through verified local readiness and deferred
+  pad reload completion, plus the remaining recorder/catalogue entry points.
+- Capture real finalized-master, segment and close status for promotion.
+- Assign verified device memory and preserve existing synchronization rules.
+  The gate excludes promotion from ordinary work; it does not serialize all
+  ordinary activities with one another.
+
+Ledger 0x21020000, producer context 0x21003900 and worker ticket 0x21003810 are
+arbitrary emulator addresses. Producer context must become suitably task-local.
+Both queue endpoints must adopt the ticket format together, with old messages
+drained or a fresh queue. Timing, stack/watchdog limits, fault recovery, power
+loss, persistent history, storage growth, packaging and device recovery remain
+unresolved. These checks do not establish that this is ready to flash.

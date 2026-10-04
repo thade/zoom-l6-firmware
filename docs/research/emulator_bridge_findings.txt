@@ -1,0 +1,144 @@
+L6 CALLBACK/EVENT ADAPTERS AND OPTIONAL-FILE CANCELLATION
+3 October 2026
+
+Follow-up: bridge_events_findings.txt supersedes the serialized-control and
+64-byte Bridge limitations below. The bridge now has a 224-byte state including
+an eight-event mailbox; the relevant suite totals 78 groups. Real scheduling
+and the external retirement fence remain unbound. This note preserves the
+preceding integration stage's evidence.
+
+Result
+The emulator now redirects seven original instruction sites through compiled ARM
+adapters. They connect pre-master sample capture, stock cursor publication and
+start/stop sample tokens to one extra-file worker. Missing required blocks and
+hook errors reach automatic optional-file cancellation. Eleven new groups pass;
+the preceding 58 relevant groups also pass, for 69 groups total.
+
+This is emulator PC interception, NOT a patched L6 image or installed hooks.
+Original firmware bytes and device/card data are unchanged. Full DSP bodies,
+actual SD operations, RTOS transport and arbitrary preemption are not simulated.
+
+Files
+  src/capture/emulator_bridge.c
+  src/capture/emulator_hooks.S
+  src/capture/exchange.h (shared block-exchange interface)
+  tests/emulation/verify_emulator_bridge.py
+  analysis/emulator_bridge_verification.json
+
+Hook sites and continuation behavior
+0x8001078a: outer callback observation before CBZ/BLX dispatch. The adapter
+            preserves the original null/non-null branch. Alternate or null
+            callbacks latch an optional-stream error even if they bypass the tap.
+0x202269f8: snapshot before master gain. Replay MOVW r0,#0x6220 and continue
+            at 0x202269fc.
+0x2022a776: commit after ordinary write-cursor advancement. Replay the original
+            available-frame counter store and continue at 0x2022a77a.
+0x80006908: start cursor setter. Resolve its r0 cursor into a sample token,
+            replay MOVW r2,#0xdc8 and continue through the original setter.
+0x80006918: stop cursor setter, with analogous token capture/continuation.
+0x8000b158: after recorder stream setup. Observe registration, replay the
+            original MOVW r0,#0x201 and subsequent original state store.
+0x80034fc0: rejected ordinary record request. Latch cancellation, replay
+            MOVS r0,#6 and continue to the original failure notification.
+
+Each adapter saves r0-r12, LR, all s0-s31 floating-point registers, APSR
+NZCVQ/GE flags and FPSCR. It aligns the stack for its inserted C call, restores
+the original stack, replays displaced instructions and jumps to the verified
+continuation. One explicit differential test seeds live integer/FP/status
+registers and compares the tap continuation with and without interception.
+The other adapter continuations are exercised by flow tests; this is not a
+proof of every exception/lazy-FPU context on real hardware.
+
+Test correction: Unicorn initializes FP status lazily on its first guest FP
+instruction. A direct host FPSCR seed before that initialization was lost even
+at VMRS. The register test now warms the original FP path before seeding status.
+With that emulator artifact removed, the full tested register snapshot matches.
+
+Responsibility split
+Audio hooks stage/commit exchange blocks or atomically latch a bridge error.
+They never touch Capture/Life or perform filesystem IO. They never wait for a
+worker-held block. The ordinary gain, staging and ring-advance windows continue
+even after the optional stream has failed.
+
+The file worker alone owns Capture, its queue and Life. It claims an exchange
+slot, copies the required subsection into the extra queue, releases the slot,
+then drains file IO. It does not hold the source slot during SD writes. This
+bridge reads the exchange directly, avoiding the second history buffer used by
+the earlier positive ownership experiment. Sample-range start/end and partial
+blocks are handled by the worker's 64-bit cursor and per-slot lengths.
+
+Control-event hooks and worker calls are SERIALIZED BY THE TEST HARNESS. This
+remains an explicit precondition. The start/stop token fields and admission flag
+are not a complete concurrent RTOS mailbox; real event transport is not bound.
+Audio error publication uses an atomic first-error latch. Pool initialization,
+session replacement and memory reclamation still require external quiescence.
+
+Start admission
+The start setter captures a token before original request approval. The worker
+therefore waits for a separate registration observation. The initial supported
+topology is ordinary target -1 with stream bits 0,1,2,4,6,8,10 (mask 0x557) and
+nonzero handles for all seven files. Other topologies conservatively fail the
+optional path; this is not a claim that other stock configurations are invalid.
+
+Registration does not prove the entire real SD path is healthy or that future
+ordinary writes will succeed. Fixtures supply stream handles/masks; the test
+does not run all original file-open and admission code. Full ordinary-recorder
+error propagation, storage ownership/USB exclusion and pending-work transport
+still need integration.
+
+An unresolved event snapshot is treated as a timeline failure. It is never
+silently retried against a later lap. A wrong worker session ID is rejected
+without modifying the active take. Each bridge instance has one immutable,
+caller-supplied nonzero session; safe event delivery and session lifetime on the
+device remain obligations rather than a proven queue protocol.
+
+Stop, finalization and cancellation
+Before stop, the worker takes available labeled blocks. After stop, it copies
+only [start, stop), including partial first/final blocks. If it has already
+passed the endpoint, it cancels instead of accepting extra audio. The existing
+range-pending marker prevents premature success; at the exact endpoint the
+worker stops Capture and advances the checked drain/finalize/readback lifecycle.
+
+Missing/stale generations, alternate/null modes, rejected ordinary requests,
+invalid registration, unresolved timestamps and short writes cause the worker
+to invalidate Capture and call the existing cancellation path. The optional
+file is closed and left unassigned. No ordinary file is removed or redirected.
+Cancellation remains subject to the lifecycle's checked-close semantics; a close
+failure is uncertainty, not proof that the handle remains safely retryable.
+
+Consumers of this bridge must use bridge_verified_path, which checks session,
+completion and the bridge error latch before returning the lifecycle path.
+Directly bypassing that gate is outside the adapter contract. A late error after
+verification can withhold bridge eligibility; it cannot undo a completed disk
+write or an assignment performed elsewhere. No pad assignment is performed here.
+
+Evidence
+- Original hook sites through compiled adapters yield a verified exact 704-frame
+  extra WAV after a delayed worker start and repeated ring wraps.
+- Tap continuation preserves seeded integer/FPU/status/stack state.
+- Missing master registration cancels the prepared optional file.
+- An original rejected request selects/stores its cursor, then reaches the
+  rejection hook and cancellation without beginning optional capture.
+- Overwritten required audio cancels the extra file while ordinary ring position
+  continues advancing on another block.
+- Alternate and null callback dispatch latch errors without file IO in hooks;
+  the worker subsequently closes the optional file.
+- A held source slot causes a detectable dropped generation and later automatic
+  cancellation, instead of using the old slot contents for the new generation.
+- Short write and unresolved event snapshot prevent eligibility.
+- A stale worker session request has no effect on the correct session, which
+  can still finish a valid file.
+
+Resource and deployment limits
+Bridge metadata is 64 bytes. Each trampoline saves 192 bytes before alignment
+padding and the called C function's stack frame. Stack headroom, CPU overhead,
+cache coherency and hardware interrupt behavior are unmeasured. The pool still
+has no established device allocation. No flashable image has been generated.
+
+Next concrete boundary
+Replace harness-serialized control events with bounded, session-owned transport
+from the real request/admission/stop hooks to the file worker. Test event ordering,
+queue saturation, cancellation during in-flight work, and teardown before session
+reuse. Bind scheduling/storage exclusion without blocking ordinary audio. Then
+integrate the earlier pad-reader exclusion and checked assignment path. Safe RAM
+placement and bootloader/recovery remain separate unresolved hardware constraints.

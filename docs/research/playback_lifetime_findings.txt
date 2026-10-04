@@ -1,0 +1,144 @@
+L6 CALLBACK DISPATCH AND CONTINUOUS PLAYBACK LIFETIME
+3 October 2026
+
+Follow-up: playback_session_findings.txt documents the compiled session
+coordinator and its tests. The device renderer fence remains unbound; successful
+release in that follow-up uses an explicitly simulated acknowledgement.
+
+Result
+Recovered and executed the original AudioSubProcess callback registry and task
+loop from a RAM-resident code block. The real callback dispatch now reaches the
+guarded stream producer and original worker in the emulator.
+
+Playback boundary checks expose an important integration gap: a completed refill
+is not a completed playback session. The current refill-only gate can admit
+promotion while a pad is still sounding. An ordinary audio stop also leaves
+streaming enabled and does not drain pending work. Continuous session admission
+and verified quiescence are still required; they are not installed by this work.
+
+15 new groups pass, bringing the seven-suite total to 146. Some are negative
+controls demonstrating an unsafe proposed integration, not proof of readiness.
+No ELF changes were needed this stage; the previous six reports match the same
+ELF. Stock L6.BIN and the physical mixer remain unchanged.
+
+Reproducible evidence
+tools/firmware/fw_window.py now understands the startup-copied RAM code mapping.
+tests/emulation/verify_playback_lifetime.py executes these selected stock paths.
+analysis/playback_lifetime_verification.json records the 15 groups.
+analysis/ram_audio_disassembly.txt contains the RAM block at runtime addresses.
+
+RAM mapping and callback task
+Startup table entry at 0x800a691c contains:
+  source 0x800a9408, destination 0x20220000, length 0xd6dc,
+  copy helper 0x80079498.
+The verifier asserts this mapping against the immutable firmware, then maps the
+copied bytes into the emulator. This is a recovered startup mapping, not a guess
+about spare RAM or a new identification of the chip.
+
+Original sampler initialization 0x80009848 passes 0x800366f1 to 0x80002870.
+The latter branches through 0x800776b8 to RAM registration function 0x2022a908.
+The registry is at 0x80570c18: count byte +0x10, five callback slots +0x14..+0x24.
+Registration suppresses duplicates while checking available slots, and admits
+at most five entries. Removal at 0x2022a830 compacts the remaining callbacks.
+Full sampler initialization runs in the test except its two initial hardware/
+queue setup helpers; the subsequent registration and callback setters run stock.
+
+Task descriptor 0x800a1c04 points to entry 0x2022a7a9 and name AudioSubProcess
+at 0x800a3214; its final field is task-handle storage 0x80446d7c.
+The loop at 0x2022a7a8 waits on the handle stored at 0x80446930, through
+0x2022d658 -> 0x80076950, then invokes each nonzero callback in slot order.
+It does not branch on the wait return value. A synthetic failed wait still
+invokes callbacks; this is not evidence of a real device scheduler failure.
+
+The stream callback 0x800366f0 tail-branches to 0x80036508. The emulator redirects
+it to od_emulator_stream_scan, explicitly setting r0=0 first. This matters:
+the original dispatcher has the callback ADDRESS in r0 at the indirect call;
+it is not a parent ticket. Pointing the registry directly at the current
+one-argument scan wrapper would interpret that address incorrectly.
+A future installed adapter needs a no-argument callback ABI and deliberate
+session-parent lookup. It cannot inherit an incidental argument register.
+
+The original task, registration, compiled scan/publication, decoder and stock
+worker are now executed along this route. RTOS wakeup/delivery remain fixtures.
+Promotion blocks the actual callback before original producer mutation.
+
+Two independent state families
+  Audio playback: 0x20015e4c + pad*0x3c
+    +0x00 active word; +0x24 gain; +0x28 gain increment.
+  File-stream service: 0x80735180 + pad*0x44
+    +0x00 enabled byte; +0x1c refill pending; +0x20 requested count.
+These cannot be substituted for one another or for complete task ownership.
+
+Start/restart sequence
+Original 0x80002c60 is called from 0x8003efd8, 0x8003f016 and 0x8004b864.
+Its loaded-file check returns immediately for an unloaded pad. Otherwise:
+  1. 0x80018350 stops/fades the old audio playback.
+  2. 0x800368c0(pad,0) disables file-stream scanning for that pad.
+  3. 0x80018310 starts audio state: active=1, gain=1, fade increment=0,
+     and resets two playback counters.
+  4. 0x80036968 waits for the refill-pending byte to clear.
+  5. 0x80036750 seeks the file; 0x80036710 reconciles positions;
+     0x800366f8 resets another stream field; 0x80036800 sets +0x40=200.
+  6. 0x800368c0(pad,1) re-enables stream scanning.
+
+The test observes audio active=1, stream enabled=0 and refill pending=1 inside
+the drain wait. Therefore protection must begin before the whole restart path,
+not only when its final stream-enable write occurs. The seek and worker progress
+inside this check are modeled; no claim of physical sample alignment is made.
+
+Sound stop and natural end
+0x80018350 computes a negative gain increment from the configured sample rate,
+then yields while waiting for the renderer to reduce gain or clear audio active.
+When gain reaches the tested threshold it clears the audio-active word. The
+test models fade progress during that yield, and executes the stock stop body.
+Both its zero-gain and delayed-fade paths leave stream enabled unchanged.
+The zero-gain path also leaves an existing refill pending byte unchanged.
+Executing a subsequent original scan can enqueue another refill after sound stop.
+
+Static inspection of RAM renderer 0x20220ac8 finds the non-looping end branch
+at 0x20220c18, which clears the audio-active word at 0x20220c2e. The loop branch
+instead resets positions and continues. Natural-end execution is not verified:
+the current emulator CPU rejects stock VMAXNM.F32 at 0x20220be0. The attempted
+Cortex-M7 CPU switch on this existing emulator is also unsupported. No replacement
+arithmetic was silently substituted. Audio state changes still need a verified
+renderer completion boundary, including final buffer accesses after active clears.
+
+Unload is not a standalone drain barrier
+Original unload 0x800096f8 disables scanning and closes a retained file handle,
+then clears metadata. When deliberately invoked with pending=1, its close hook
+observes pending still 1. There is no wait inside this routine. The higher-level
+caller may synchronize correctly on the device; this is not a claim of a stock
+firmware defect. It means our integration cannot use this isolated routine as
+evidence that all file work is already finished.
+
+Negative and positive controls
+With audio active and streaming enabled, the ordinary scan and worker finish,
+all refill tickets retire, and the gate admits promotion. This is a reproducible
+negative control showing why the current guard alone is incomplete.
+
+A separate check manually retains a running parent owner across a scan and all
+its children. It blocks promotion between refills and after sound stop. That
+uses existing compiled ledger code and demonstrates the required lifetime;
+the test does not install automatic playback admission or decide when release
+is safe. Generic OWN_SCAN is used as the fixture's owner kind, not a finalized
+playback-session API.
+
+Next implementation boundary
+Implement a session coordinator around the complete start/restart operation,
+with synchronized per-pad ownership and a no-argument callback adapter. Release
+must follow a verified quiescence sequence that prevents new starts/refills,
+joins already-running audio/scan activity, and accounts for outstanding workers
+and file operations. Merely observing audio-active=0 or pending=0 is insufficient.
+Natural EOF, looping, explicit stop, retrigger, unload/reassignment and failure
+must all have defined behavior. Refill callbacks cannot simply borrow a global
+promotion ticket; parent attribution and lifetime must be explicit.
+
+This is the next research/implementation task, not a completed installed safety
+protocol. Existing USB/card ownership, recorder finalization, device placement,
+update packaging and recovery requirements still apply. No flashable image has
+been produced.
+
+4 October follow-up: docs/research/pad_renderer_boundary_findings.txt supersedes the
+VMAXNM execution limitation for the tested renderer paths. The complete original
+renderer now executes under the M-class fixture, including natural EOF and its
+post-active-clear state accesses. This does not install the pending device fence.

@@ -1,0 +1,133 @@
+L6 PERMANENT HOOK/WORKER GATEWAY AND SESSION DETACH
+3 October 2026
+
+Result
+The offline prototype now reserves a permanent gateway counter BEFORE reading
+the current Bridge pointer. This closes the previously identified gap between
+loading a session pointer and registering a session-local actor. The file worker
+uses the same gateway before validating/dereferencing its supplied pointer.
+Detachment closes this gateway and waits for earlier callers to return.
+
+The combined ct_detach_capture entry first requires control-drain acknowledgement,
+then requires terminal file-worker state and hook/worker detachment. Ordinary DSP
+windows continue after detach. No restart, storage reuse or device installation
+is implemented. Control Transport/Router references are still retained.
+
+Verification: all 140 groups pass on the final build (131 previous plus 9 new).
+Stock SHA-256: 64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+Prototype SHA-256: 33f889cbe91f01fe342a07547cdf75d6838e0f62fed99b07306ada414c89fbfa
+
+Files
+src/capture/emulator_bridge.c
+src/capture/control_transport.c
+tests/emulation/verify_session_detach.py
+analysis/session_detach_verification.json
+
+1. Permanent entry reservation
+bridge_gateway_readers lives outside session storage in the prototype's static
+memory. Its high bit closes entry; low bits count earlier gateway callers. Both
+bridge_hook and bridge_step increment it before reading emulator_bridge_current
+or dereferencing session memory. A caller seeing the closed high bit undoes its
+increment and returns without touching session state. Existing callers keep the
+reservation through their final session access, including worker IO and cleanup.
+
+This differs from the existing Bridge actors counter, which remains needed for
+owned requests/event publication but cannot protect its own pointer acquisition.
+Both layers remain present. The gateway requires permanently live code/static
+storage and fewer than 2^31 simultaneous entrants. Actual hardware placement,
+atomic support/cache behavior and worst-case exclusive-instruction retry time
+are unproved; emulator instruction execution is not a hardware timing guarantee.
+
+Worker pointer comparison with the current session occurs before dereference.
+A stale worker call after closure returns 12. Wrong/null pointers while open are
+also rejected before accessing them. Session identity remains checked normally.
+
+2. Detach protocol and caller obligations
+bridge_detach(b, session) is a single-manager operation. Its caller must own stable
+Bridge/Exchange storage and have drained control ownership. ct_detach_capture(t,
+session) supplies the existing ct_drain_poll check before invoking it; Transport
+and Router must remain alive. Multiple concurrent detach managers are unsupported.
+
+A nonterminal Bridge returns 11 WITHOUT closing the gateway, allowing the audio
+hooks and worker to complete or cancel. Once phase is complete (3) or failed (4),
+the manager atomically closes the permanent gateway. It then waits for:
+  - All earlier gateway hook/worker reservations to return.
+  - No worker busy marker, mailbox gate or session-local actor reservations.
+  - No outstanding Exchange reader lease.
+It marks the Bridge closed/retired and clears the global session pointer. This
+operation performs no file IO. Repeated matching detach calls return 0 using
+permanent identity metadata, without dereferencing the old Bridge.
+
+Detach success means these modeled hook/worker entry points no longer access the
+old session; it does NOT mean the file succeeded. Failed/cancelled sessions can
+also detach, and remain ineligible. Verified path access is disabled on retirement;
+a future manager must copy any successful result it needs while that result's
+storage is still alive. No pad assignment or result-copy manager is added here.
+
+The gateway closes permanently for this experiment. bridge_bind rejects further
+binding after closure. This deliberately avoids admitting delayed old invocations
+into a new generation before the separate transport/session restart contract is
+established. The historical bridge_retire_quiesced API remains only for existing
+fixtures whose caller explicitly supplies external full quiescence; it is not a
+substitute for the new protocol and must not race it.
+
+3. New tests
+Nine additional groups exercise:
+  1. Original queued STOP, control marker, file completion and combined detach;
+     exact extra [64,128) stereo WAV; ordinary audio continues afterward.
+  2. Nonterminal refusal leaves the gateway open; wrong session/pointer refusal;
+     fresh binding after detach remains disabled.
+  3. Compiled hook paused just before global pointer load and just after pointer
+     load at the first actor-counter read. Detach waits in both cases.
+  4. Worker paused before reading/validating the session pointer remains counted.
+  5. Terminal phase already visible while worker has not finished its return
+     cleanup. Gateway reservation still prevents early acknowledgement.
+  6. Detach attempted during an audio write and final verification read-close;
+     it leaves the nonterminal worker able to finish, with no open fixture handle.
+  7. Short write causes cancellation; failed capture can subsequently detach
+     without becoming eligible.
+  8. Session actor, queue gate or reader lease separately blocks acknowledgement.
+  9. After detach, old Bridge, Capture, Life, Exchange and sample-slot pages are
+     protected against all guest access. All ten hook kinds, a stale worker call,
+     repeated detach and ordinary audio windows run without touching those pages.
+
+Interleaving tests use separate emulator CPUs and explicitly transfer shared
+protocol bytes at selected guest memory accesses. Translation caches are refreshed
+when installing observers so previously translated instructions are observed.
+These are controlled schedules, not exhaustive RTOS/interrupt exploration.
+Protection testing covers ONLY the listed entry points; other direct APIs would
+still require their caller to hold valid storage.
+
+4. File-worker scope of proof
+The worker holds its gateway reservation throughout synchronous lifecycle calls,
+including WAV finalization, close, reopen, readback and verification close. It
+cannot acknowledge successful detach while that worker remains inside an IO call.
+Ordinary recordings are still checked with the existing sentinel fixtures.
+
+The file API is modeled as synchronous. We have NOT proved whether stock SD/DMA
+operations retain buffers after an API returns, what a real close failure means
+for outstanding device IO, or the scheduling of the actual optional-file worker.
+The result establishes software entry-point lifetime in this emulator model,
+not a complete physical storage fence or deployable firmware.
+
+5. Remaining references and next boundary
+Transport active pointer, automatic wrapper cookies, Request/Job envelopes and
+Router still reference the session. Direct bridge_route_* calls, bridge_publish,
+legacy scope/path access and external Exchange readers bypass the permanent
+hook/worker gateway. Control-drain admission rules account for earlier owned
+requests, but later ordinary wrappers can still access Transport and unsupported
+error paths can still reach its Bridge reference. These objects must remain
+allocated; detach does not authorize freeing the complete session.
+
+Next: audit and close transport/router access through permanent entry ownership,
+including paused wrapper entry, delayed queue envelopes and fault paths. Define
+which objects remain permanently allocated and how stale callbacks are rejected
+before they can reference a replaced generation. Combine that with stable result
+ownership before attempting any repeated-session reset. Actual SD completion,
+hardware memory/cache/timing, bootloader recovery and pad assignment remain
+independent unresolved work. No device/card writes were performed.
+
+Follow-up: docs/research/transport_shutdown_findings.txt adds ownership of installed
+control entry lifetimes and unlinks owned Transport/Router/Bridge references.
+Restart remains disabled: the new negative control reproduces an old untagged
+audio tap entering a new session after a deliberately forced gateway reopen.

@@ -1,0 +1,180 @@
+L6 OVERDUB PROMOTION: SCHEDULING AND ADMISSION INVESTIGATION
+3 October 2026
+
+Follow-up: scheduling_boundaries_findings.txt now connects the USB mode path to
+mass storage and verifies sampler completion/failure cases. The compiled stream
+completion bridge is tested at one original worker call site; full producer
+ownership and firmware-wide exclusion remain unfinished. The findings below
+describe the earlier admission-gate stage and its then-unresolved boundaries.
+
+Result
+The offline prototype now has a compiled ARM admission gate and integrated
+tests, but complete on-device exclusion is NOT implemented. Existing firmware
+busy flags do not supply that guarantee. A negative-control test deliberately
+executes the unmodified clear-pad path during a proposed promotion and shows
+that it bypasses the new gate. Installing only the promotion hook is therefore
+insufficient.
+
+The useful advance is a tested admission protocol plus concrete identification
+of the independent work that a real integration must account for. Nothing has
+been flashed or sent to the mixer. Stock L6.BIN is unchanged:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+
+Original instruction evidence
+All addresses below are runtime addresses in the supplied v1.10 MAIN image.
+
+1. Recorder sequencing
+   0x80034bc8 is RecPlayCtl. It receives 32-byte messages from the queue whose
+   handle is at 0x801f8f38. The first word is a callback; r0 points at the
+   remaining words when BLX executes at 0x80034c20.
+
+   It sets 0x80578ec0 to 1 before a callback and clears it afterwards, using
+   the mutex handle at 0x80446890 around the flag updates, NOT around the
+   callback. 0x80034db8 reads that busy word under the same mutex.
+
+   0x8004b698 queues play-start callback 0x8004b891.
+   0x8004b6d8 queues record-start callback 0x8004b9a1.
+   0x8004b718 queues stop callback 0x8004ba41 with one argument.
+   These producers use queue-send 0x800483f8 and mutex 0x80446894.
+   They do not reject a new request merely because the worker is busy.
+
+   Original worker instructions were executed with modeled queue delivery and
+   callback bodies: stop and then start each observed busy=1; the word was 0
+   after both completed. A separate original-producer test confirms that a
+   start request still queues with busy=1. The worker naturally serializes its
+   callbacks; neither test establishes exclusion of other tasks.
+
+   The candidate promotion call inside 0x8000b698 remains inside stop callback
+   0x8004ba40. The state byte at 0x80578ebc is cleared only at 0x8004bae4,
+   AFTER that candidate call; worker busy clears later still. Waiting there
+   for either flag to become idle would wait for the current callback itself.
+
+2. Pad assignment and clear
+   0x80008c68 marks assignment-busy 0x807348cc under mutex 0x80446864.
+   For mode != 2 it calls 0x80006848(pad,1) BEFORE queuing, then posts a
+   32-byte message to queue handle 0x801f8f3c under mutex 0x804468a8:
+     callback 0x80049d61; mode; PATH POINTER; pad; index; count; option.
+   The last word is not treated here as a defined argument.
+
+   The test executes the original producer and then changes the referenced
+   path buffer: the queued pointer now resolves to the changed name. The
+   producer does not take an owned copy. Deferring a pointer-bearing request
+   by copying its queue bytes is NOT sufficient to preserve its meaning.
+
+   Mode 2 executes synchronously: stop/unload, assigned-state/path changes,
+   then clearing assignment-busy. No assignment queue message is generated.
+   A gate placed only in the assignment worker misses this branch and the
+   pre-queue busy-state changes of other branches.
+
+   Worker 0x80036290 independently receives from 0x801f8f3c and calls the
+   callback at 0x800362b4. This is not the recorder worker. Note that
+   0x35490 is its FILE OFFSET, not its runtime address.
+   Callback 0x80049d60 calls 0x8004b760 and posts a completion event for
+   modes 0/1. Completion delivery, not simply queue submission, matters.
+
+3. Catalogue and reload
+   0x80009a40 includes 0x80008f40 followed by 0x80008d68.
+   0x80008f40 performs catalogue/path work including scanner 0x800082c0.
+   0x80008d68 queues callback 0x80049da1 to the assignment worker.
+   0x80049da0 loads pad settings and looks up/reassigns pads against the
+   catalogues; it is NOT the entire directory scan. Guarding only that
+   callback would start too late to protect preceding catalogue work.
+   Other observed direct scanner callers: 0x800099a8, 0x8004bc5a,
+   0x8004bc90. Direct-call searches are not proof of exhaustive coverage.
+
+4. Playback has asynchronous file activity
+   Pad-start candidate 0x80002c60 checks 0x80009740 and calls multiple
+   sampler state/engine routines, including 0x80036750 and 0x800368c0.
+   This is a candidate interception site, not a proven common entry for
+   every physical/MIDI/transport trigger.
+
+   SamplerFileAccess worker 0x80036118 has queue handle 0x801f8f30.
+   Message kind 0 reaches original read wrapper 0x80060620 at 0x80036184.
+   Kind 1 reaches 0x8005f168 at 0x800361bc (seek-like branch; not exercised
+   in this pass). Completion paths signal via 0x800763d8 using handles at
+   0x804467fc or 0x80446800; some paths call stored callbacks first.
+   SamplerUpdatePlyStream worker 0x80036c60 receives from 0x801f8f34 and
+   invokes 0x800369a8. Neither worker uses the RecPlayCtl queue.
+
+   A pad can therefore have queued/background work beyond a button handler's
+   return. Blocking new pad starts alone does not prove existing file access
+   has drained. These workers were statically inspected, not audio-emulated.
+
+5. USB/card ownership remains unresolved
+   Candidate mode-transition routine 0x8000c220 calls 0x80009b18 and
+   0x80061f60 for r0==1, then 0x8003b7e0 with a derived mode 6/8/10.
+   0x8000c288 includes complementary operations and a possible 0x80009a40(2).
+   0x8003b7e0 sends mode-dependent state to another worker and waits on a
+   synchronization handle. 0x80006290/0x80006aa8 read/write config+0x2340.
+   This is a useful transition lead, NOT yet a verified file-transfer
+   entry/exit contract. No new command should be sent based on these guesses.
+   Names EV_BTN_USB in diagnostic strings also refer to mixer controls;
+   they alone cannot establish a mass-storage transition handler.
+
+Proposed gate implemented
+src/overdub/admission_gate.c and .h implement one atomic 32-bit word:
+   low 30 bits: admitted ordinary activities;
+   bit 31: one exclusive promotion;
+   bit 30: latched fault.
+The compiler emits ARM LDREX/STREX and memory barriers. Ordinary activities
+may overlap each other as stock code permits, but promotion requires zero
+ordinary activities. While promotion owns the gate, new ordinary admissions
+return BUSY. No function waits for an activity to finish. Admission uses at
+most eight compare/exchange attempts; releases retry competing atomic updates.
+This is not a measured hard-real-time execution bound.
+
+The protocol counts an activity from BEFORE its first side effect/queueing
+through actual completion, including its queued interval and asynchronous
+children. It requires exactly one release per accepted admission. The gate
+does not identify callers or enforce an ownership ledger; balanced ownership
+is a required integration contract. It must be initialized before participants
+start, never reset in the presence of pending work.
+
+An upgrade operation can atomically change ONE owned ordinary admission into
+promotion, only if there are no other admitted activities. This could support
+the recorder's own completion checkpoint without waiting for itself. On a
+failed upgrade the caller retains its ordinary admission. Determining when
+all recording work is actually finalized, and propagating this ownership
+through the stock stop path, remain unimplemented device bindings.
+
+Promotion's own file operations and assignment helpers must remain under its
+exclusive ownership, rather than acquiring ordinary admission again. If work
+is handed to another task, that task needs attributable inherited ownership;
+a global bypass flag would admit unrelated tasks and is not acceptable.
+
+The emulator fixtures connect the gate to Port.enter/leave and attempt a new
+admission at every cooperative checkpoint. They do NOT patch stock ingress
+sites. A failed/uncertain core cleanup latches the gate fault; verified normal
+completion or cancellation releases it. No automatic fault-reset API exists.
+
+Requests are rejected as BUSY in this version, not retained for later replay.
+No retry scheduler or UI response has been implemented. The existing prototype
+reports OD_BUSY if entry fails; it does not preserve a pending job by itself.
+A future retry must own the master path and capture its finalized metadata.
+
+Verification
+tests/emulation/verify_admission_gate.py: 14 passing groups, including:
+- original recorder queue/worker behavior;
+- original assignment pointer lifetime and synchronous-clear bypass;
+- six successive promotions with original pad adapter control flow and a
+  competing compiled admission attempt at each copy/verification checkpoint;
+- all 90 API-boundary orderings of two ordinary activities and a promotion;
+- busy/no-file-work, explicit retry, cancellation, fault preservation, invalid
+  release and count overflow, plus owned-recording upgrade behavior.
+These are deterministic offline checks, not arbitrary instruction-level
+preemption, cache-coherence validation or real RTOS/SD/audio tests.
+
+The rebuilt artifact also passes all 35 baseline overdub groups (including
+68 injected I/O failures) and all 14 stock-pad-adapter groups: 63 groups total.
+Machine-readable results: admission_gate_verification.json,
+overdub_prototype_verification.json, stock_pad_adapter_verification.json.
+
+Next concrete integration work
+Recover the USB/card mode transition contract and sampler completion lifetimes.
+Build an explicit ownership ledger across their producer/worker/completion
+paths, then connect the gate to those verified paths in the emulator. Keep
+the synchronous clear and earlier catalogue scan paths in that coverage.
+Do not call scheduling exclusion complete until those real entry points,
+already queued work, and promotion-owned asynchronous children are covered.
+Finalized-master/segment/close-status capture, device memory placement and
+recovery remain separate prerequisites for a flashable implementation.

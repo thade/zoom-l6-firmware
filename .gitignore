@@ -2,10 +2,11 @@
 /Reference/
 /deployment/
 
-# Publish written research findings, not recordings, device inventories,
-# generated disassembly, session state or generated test reports.
-/analysis/*
-!/analysis/*_findings.txt
+# Local reports, recordings, device inventories and session state.
+# Public research lives in docs/research/.
+/analysis/
+# Retained local build output from the previous source layout.
+/prototype/
 
 # This file describes one private recording session rather than general setup.
 /Overdub workflow.txt

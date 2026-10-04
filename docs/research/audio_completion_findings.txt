@@ -1,0 +1,105 @@
+L6 AUDIO CALLBACK COMPLETION: COMPILED OFFLINE PROTOTYPE
+4 October 2026
+
+Result
+The control coordinator now supports a non-reused audio completion epoch after
+control drain. A request pins control closure until an entire subsequent audio
+callback has returned. All four recovered callbacks execute their original
+instructions in these tests, including the normal callback's later DSP stages
+and secondary dispatcher. The extra-capture manager and the default playback
+fence are unchanged; automatic pad publication is not enabled by this result.
+
+14 new test groups pass. The relevant combined regression inventory is in
+audio_completion_regression.json: 245 groups across 15 suites. Test counts are
+coverage bookkeeping, not hardware-readiness measures. The stock L6.BIN remains
+unchanged. No device or SD card was accessed.
+
+Implementation
+src/overdub/audio_completion.c implements begin/end on the audio side.
+control_coordinator.c implements request/poll and prevents ordinary oc_reopen
+from bypassing a pending audio request. The coordinator grows from 340 to 372
+bytes, appending state after the existing 16 job slots. It is zeroed once before
+participants start and remains permanently allocated. Existing control-only
+users may still reopen without requesting audio; this optional barrier must be
+explicitly used by the future combined protocol.
+
+oc_audio_request requires the matching closed epoch and no running command.
+Queued commands remain parked and are not confused with running work. The
+request remains pending until acknowledged, with no timeout release or cancel.
+A duplicate request returns BUSY without replacing state. Closure epochs and
+callback tokens never wrap or reuse.
+
+oc_audio_begin records the actual loaded branch target and current secondary
+slot, snapshots the requested epoch and returns a unique callback token. The
+recognized primary Thumb pointers are 2022a791, 80010961, 800124d9 and 800133e9;
+the recognized secondary pointer is 2022a789. Null dispatch is skipped by the
+adapter and provides no completion. Unknown targets, exhausted tokens and
+nested entry latch a fault.
+
+oc_audio_end checks a matching token and the current primary/secondary slots.
+Only a full callback that began after the request can acknowledge that epoch.
+A request arriving during a block waits for the next whole block. A missing
+return leaves BUSY; wrong/duplicate returns or changed selectors latch FAULT,
+including when an earlier block already acknowledged. Poll and reopen check
+that fault; no public fault reset is supplied.
+
+Audio never acquires or waits for the control metadata lock. One serialized
+audio producer owns its invocation fields; request, acknowledgement and fault
+cross the control/audio boundary through acquire/release atomics. This is a
+specific concurrency contract, not proof of actual RTOS/interrupt topology.
+
+What the emulator executes
+verify_audio_completion.py supplies entry at original BLX r0 (8001078c) and
+return at common continuation 8001078e. At each proposed hook, a separate ARM
+emulator runs the compiled coordinator operation. Python explicitly schedules
+these operations. The stock audio CPU executes the complete selected callback,
+with synthetic input/routing memory and an idle effects processor. No DSP stage
+or math helper is replaced, but outer output continuation 80010150 is not run.
+ARM MAX is used for the previously documented double-precision instruction
+coverage; that is not identification of the device's silicon.
+
+This stage does NOT install a branch trampoline or verify register/FP/flags
+preservation, task preemption, cache coherency, DMA, placement or timing. The
+loaded-target race test changes the selector after original dispatch selection:
+the old callback runs and the compiled completion protocol rejects its return.
+An endpoint check cannot detect a transient selector change that is restored
+before return. Preventing such changes depends on complete upstream control
+admission, which is not yet installed or exhaustive.
+
+Evidence and limits
+Tests cover four real callback paths; mid-block request; absent/null audio;
+primary and secondary changes; unknown targets; nested, wrong and duplicate
+returns; missing return; request blocked by an actual pending original control
+handler; deferred commands remaining parked after acknowledgement; stale and
+duplicate epochs; audio progress while the control metadata lock is occupied;
+callback token exhaustion; and a negative pad-reader control.
+
+The negative control matters: a looping pad continues reading samples after a
+successful acknowledgement. This protocol proves a past completion boundary.
+It does not suspend later audio, clear active pads, block retriggers, drain
+stream workers, establish card/recorder exclusion, or authorize buffer reuse.
+Current acknowledge success must never be substituted for playback_session's
+still-unbound all-reader fence.
+
+Next integration
+Join this completion request to playback-session closure and stream-child
+ownership. Close start/retrigger and scan admission, retire the target playback
+state through verified boundaries, wait for a subsequent full callback, and
+keep those exclusions in force through buffer/file replacement. Preserve other
+pads and continuing audio. Card and ordinary-recorder ownership must also join
+before real publication. Do not reopen controls simply because audio poll says
+OK: the external combined protocol must first establish readiness.
+
+Original UI/task dispatch deferral and complete mode/import admission, installed
+hook preservation, safe memory placement and device recovery remain unresolved.
+
+Reproduce
+  /tmp/l6-re-tools/bin/python tools/firmware/build_overdub_prototype.py
+  /tmp/l6-re-tools/bin/python tests/emulation/verify_audio_completion.py
+
+Subsequent integration
+playback_shutdown_findings.txt documents the next stage: a persistent playback
+hold, stream-disable adapter, audio epoch and file-worker ownership join, followed
+by retained exclusive access. The callback acknowledgement remains a past barrier
+on its own. The combined test adapter supplies additional admission guarantees;
+real card/recorder ingress and publication wiring remain unfinished.
