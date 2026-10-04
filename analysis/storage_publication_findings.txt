@@ -1,0 +1,151 @@
+L6 STORAGE READINESS AUDIT AND INHERITED PUBLICATION OWNERSHIP
+4 October 2026
+
+Result
+The completed-extra-capture publisher now has an emulator binding which borrows
+shutdown's existing exclusive owner. It no longer needs an independent modeled
+success flag or a second exclusive acquisition in this integration test. An owned
+child spans publication, including copying, assignment, persistence and rollback.
+Shutdown finish cannot release the parent while that child remains outstanding.
+
+This is not full device storage exclusion. A new original-instruction audit
+confirms that convenient recorder/card return values are insufficient. Actual
+recording, USB/card session and deferred reload entry/completion ownership is
+still unbound. The tests supply explicit reservations for those external lifetimes;
+they do not infer them from idle flags and do not claim installed firmware hooks.
+
+Seven new storage-readiness groups and eight new guarded-publisher groups pass.
+See storage_readiness_verification.json, guarded_publisher_verification.json and
+guarded_publisher_regression.json for current coverage, limitations and hashes.
+No device/card access or stock firmware changes occurred.
+
+1. Card setup can return zero without local readiness
+Execute original 80009a40(2), original status getters 8000ac80 and 8000ac70,
+and original reload producer 80008d68. The filesystem status source 8005ec00,
+mount routine, directory preparation, RTOS and queue effects are fixtures.
+
+8000ac80 returns 1 minus status bit 0; 8000ac70 returns status bit 3.
+At 80009a60 the mount call's result is not tested. After catalogue reset, the
+volume getter is checked. If status bit 0 is set, the branch at 80009a6e reaches
+80009b14 and returns ZERO without directory work or any pad-reload submission.
+Tests reproduce this with both zero and injected error returns from mount.
+Consequently a zero result from 80009a40 is not positive readiness evidence.
+
+With status bit 3 set, or injected directory-preparation failure, the setup
+routine returns -1 without reload. With fixture status zero and setup success,
+its call at 80009ac0 runs the original deferred reload producer:
+  80008d8c sets pending word 807348cc to 1;
+  80008da6 places callback 80049da1 into a 32-byte message;
+  80008dbe sends it to the queue whose handle is at 801f8f3c;
+  mutex-release code overwrites the send result before producer return.
+Both injected send success and failure lead to zero from the outer setup routine,
+with pending still 1. The original callback is 80049da0; it is not executed in
+this new audit, and its completion/success evidence remains a next target.
+A submitted reload is not a completed reload, and failed send is ambiguous.
+
+These are stronger negative controls for the already documented USB return path:
+its mode flag can clear even after failed remount. Neither flag nor return code
+can release storage-session ownership or authorize publication.
+
+2. Ordinary recorder stop erases convenient state after ignored errors
+The audit executes original backend 8000b698, its real drain predicates
+80037dc0/80037d68/80037df0, and real state-reset routine 800380d0. The external
+finalizer/close/postprocess bodies and handle/length queries remain fixtures.
+
+Scheduled fixture progress separately clears file, producer and flush activity.
+The original backend waits for those predicates before entering its twelve
+per-stream finalization/close sequences. This verifies control-flow ordering,
+not arbitrary asynchronous pointer lifetime or SD durability.
+
+For master stream index 10:
+  8000b8e2 calls finalizer 8000ea08;
+  8000b8e8 calls close 8005c1f8.
+Neither returned error is checked. Injecting either or both still closes later
+streams, executes real 800380d0 (clearing enabled mask 8077ca38), calls postprocess
+800032b0, and clears recorder state byte 801f8c50 at 8000b9aa.
+An idle byte or zero enabled mask therefore cannot distinguish successful close
+from uncertain close. A disabled backend can also return without any finalizers
+or closes; synthetic preexisting stream state then remains untouched.
+
+A future lifetime adapter must retain errors/status evidence before these values
+are overwritten, cover every open/segment and asynchronous descendant, and join
+postprocessing. Reserving only around the final backend call is too late to cover
+recording itself or already queued start/stop work. This stage does not claim
+that such a complete recorder lifetime adapter has been installed.
+
+3. Publisher inherits the retained exclusive owner
+playback_shutdown.c adds trusted publication begin/end APIs. Begin runs under
+the shutdown latch, requires its HELD phase, a nonfaulted ledger, a matching audio
+acknowledgement, persistent playback hold and quiet state. It reserves/accepts/
+claims an OWN_CARD child under the existing promotion ticket. It does not call
+od_own_promote again or drop the parent between ownership domains.
+
+publication_lease.c supplies explicit emulator Port.enter/leave functions using
+a permanent 12-byte context at 21003e00: shutdown pointer, publisher State pointer,
+and child ticket. This address is not a device RAM allocation. The child exists
+through all synchronous publisher file calls and rollback. On ordinary return,
+complete plus producer_done retires the child; the parent remains exclusive for
+the manager to finish explicitly. On uncertain close, ownership or release
+failure, the child remains attributed and the gate/publisher fault latches.
+
+The shared publisher now also checks State.fault after Port.enter failure and
+after its void Port.leave callback. This prevents a release failure from being
+reported as a clean success/cancellation simply because leave has no return value.
+Both prototype ELFs were rebuilt because both contain the shared publisher body.
+
+4. Integration evidence and exact limits
+The capture CPU produces a verified additional pre-master WAV and reaches the
+manager's RESET boundary. A shutdown CPU executes the compiled shutdown and real
+audio acknowledgement. Explicit state transfer then supplies that same closed
+state and retained ticket to the stock-pad CPU, which executes the compiled
+manager visitor/publisher, new lease, ledger and stock pad assignment control flow.
+
+Every observed file event has the same parent exclusive ticket and its one
+running publication child. Attempting shutdown finish during a checkpoint returns
+BUSY; starts/scans remain blocked. A successful publish copies the exact additional
+WAV bytes, retains its source, and leaves the ordinary MASTER unchanged. Explicit
+finish releases the parent and playback hold afterwards.
+
+Missing audio acknowledgement prevents publication before file I/O. A fixture
+root representing card/recorder activity also blocks the handoff. A definite
+not-sent fixture operation can be cancelled and then permits publication; an
+uncertain operation remains owned despite its producer returning. These roots
+are intentionally supplied by the harness, not silently inferred from weak stock
+flags or represented as recovered on-device recorder/USB hooks.
+
+Recoverable short writes release the publisher child but retain the parent for
+an explicit retry. Uncertain close retains the child and faults shutdown. A
+release-lock failure propagates to the publisher's returned FAULT. Repeating an
+already published manager snapshot creates no new file I/O and does not drop
+parent ownership.
+
+Existing sample-loader/prefetch and file-driver effects remain modeled in this
+publisher fixture. Real asynchronous work spawned by assignment must inherit
+this owner and remain tracked after the synchronous publisher returns. The new
+child alone is not proof of all prefetch completion. Physical cache/DMA behavior,
+RTOS scheduling, SD timing/durability and power-loss atomicity remain unverified.
+
+Next verified boundary to pursue
+Trace deferred reload callback 80049da0 through its completion and per-pad loader
+results, then attach non-reused ownership before the storage-mode request and
+its first release side effects. Preserve it across USB host access, return,
+volume readiness and every reload descendant. For ordinary recording, attach at
+the admitted whole request before enqueue, retain through all file and control
+work, and collect finalizer/close evidence rather than read the eventual idle bit.
+Do not enable automatic on-device publication until these real entry points and
+asynchronous descendants are covered. Default standalone unbound fence adapters
+remain BUSY; no firmware image has been built for installation.
+
+Reproduce
+  /tmp/l6-re-tools/bin/python tools/build_overdub_prototype.py
+  /tmp/l6-re-tools/bin/python tools/build_extra_capture.py
+  /tmp/l6-re-tools/bin/python tools/verify_storage_readiness.py
+  /tmp/l6-re-tools/bin/python tools/verify_guarded_publisher.py
+
+Subsequent reload audit
+pad_reload_findings.txt follows the full queued callback and its UI consumer.
+The UI completion event triggers a second stop/unload/reload/save sequence, so
+worker callback return is too early to release storage ownership. Late loader
+and close failures can also escape both event status and final-state snapshots.
+The new evidence refines the next required ticket lifetime; no storage shortcut
+was enabled.

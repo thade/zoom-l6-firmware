@@ -1,0 +1,34 @@
+# Vendor downloads, firmware images and local device/deployment evidence.
+/Reference/
+/deployment/
+
+# Publish written research findings, not recordings, device inventories,
+# generated disassembly, session state or generated test reports.
+/analysis/*
+!/analysis/*_findings.txt
+
+# This file describes one private recording session rather than general setup.
+/Overdub workflow.txt
+
+# Build output, Python environments/caches and local settings.
+*.elf
+*.o
+*.bin
+*.BIN
+*.wav
+*.WAV
+*.mp3
+*.pdf
+*.zip
+*.pyc
+__pycache__/
+.venv/
+venv/
+.zig-cache/
+zig-out/
+.DS_Store
+._*
+.env
+.env.*
+.codex/
+.agents/

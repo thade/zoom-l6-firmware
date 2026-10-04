@@ -1,0 +1,167 @@
+L6 USB/CARD HANDOVER AND SAMPLER COMPLETION BOUNDARIES
+3 October 2026
+
+Follow-up: work_ownership_findings.txt adds compiled per-job ownership and
+same-size ticket transport. It also corrects this stage's initial mocked wait
+success value: low-level semaphore success is 1, queue-wrapper success is 0.
+The corrected scheduling harness passes all 31 groups again.
+
+Result
+The previously tentative USB-mode path is now connected to the original
+mass-storage backend selector, and the sampler read/seek producer-to-worker
+completion paths have been executed offline. A compiled completion bridge is
+connected to the original stream worker in the emulator, covering cancellation
+and a nonempty refill. Complete firmware-wide exclusion is still unfinished.
+
+Several status values are weaker than they first appear:
+- USB transition acknowledgement occurs even after USB start fails.
+- The transfer-mode flag is cleared even when the remount helper reports failure.
+- Sampler read/seek producer returns reflect the semaphore wait, not file success.
+- A failed wait can return while a request remains queued.
+- Early-cancelled stream work can return without clearing its pending flag.
+
+No USB/MIDI/SD operations were sent to the L6. Register accesses below execute
+against private emulator memory. No stock bytes or flashable image were changed.
+Stock v1.10 SHA256:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+
+USB/card transition path
+0x8000c220(mode, profile), with mode=1 and profile=0..2:
+  0x80009b18       card/pad release path
+  0x80061f60       storage preparation
+  0x80077686(10)   delay
+  0x8003b7e0       USB mode selector, argument 6/8/10
+  0x80006aa8(1)    stores config+0x2340 = 1
+The last store occurs after the selector call returns. These calls were executed
+with downstream hardware/card effects intercepted and their order recorded.
+
+0x8003b7e0 maps its selector into a bit request in 0x801f9108+4, signals
+the worker via the handle at +0, and waits via the handle at +0xc.
+Worker 0x80045cf0 is named UsbPollingTask by its creation site 0x8003b4fc.
+Its original dispatch and configuration-building instructions were executed:
+
+  selector   worker request   configuration identifier
+     5            0x20                 0x089f
+     6            0x40                 0x088f
+     7            0x80                 0x089e
+     8           0x100                 0x088e
+     9           0x200                 0x089d
+    10           0x400                 0x088d
+
+The odd selectors are the corresponding other configurations; the even
+selectors' identifiers are accepted by original mass-storage backend selector
+0x800654b0. Tests execute that selector for 088f/088e/088d: it chooses the
+respective descriptor at 0x800a1298 + index*24 and invokes backend 0x80068378.
+Backend effects are intercepted. This establishes the firmware's storage-mode
+connection; the identifiers are not newly measured USB product IDs.
+
+The worker invokes USB-start wrapper 0x8003b5a8. On failure (zero), it clears
+its active byte at 0x80212e00, but still signals the completion handle via
+0x80046cce. Therefore acknowledgement means the attempt completed, not that
+USB started successfully. The top-level mode setter does not inspect this byte.
+
+Return path 0x8000c288(1):
+  0x8003b8a0       requests USB stop and waits
+  0x8005f0d0       filesystem reset/initialization path
+  0x8001fca0(10)   card-detection query
+  if query == 1: 0x80009a40(2), mount/catalogue/reload path
+  otherwise:    0x80009b18, release path
+  0x80006aa8(0), clears config+0x2340 in either case
+
+A test injecting -1 from 0x80009a40 still reaches mode=0. No-card also reaches
+mode=0. Thus that flag cannot authorize local file access or promotion. Also,
+0x80009a40 queues pad reload work via 0x80008d68 after its catalogue work;
+returning from it alone does not prove all reload work has completed.
+
+Required guard lifetime: reserve before the first release/preparation side
+effect, retain throughout the host storage session, USB stop, local card
+reinitialization, catalogue work, and pad reload completion. Release only after
+positive local-readiness and reload results. Startup acknowledgement or mode=0
+alone is inadequate. Exact successful-remount evidence and all alternate mode
+entry points are not yet bound to the guard. No USB command was transmitted.
+
+Sampler read/seek completion
+Producer 0x80036208(pad, buffer, bytes):
+  rejects pad>3 or null buffer without queueing;
+  queues four words {0,pad,buffer,bytes} to handle at 0x801f8f30;
+  waits indefinitely (timeout argument -1) on handle at 0x804467fc.
+Producer 0x80036250(pad, offset, origin):
+  rejects pad>3;
+  queues {1,pad,offset,origin} to the same queue;
+  waits on handle at 0x80446800.
+
+The original initialization at 0x800366c0 stores the read producer pointer
+into four per-pad stream structures. 0x80036750 tail-calls the seek producer.
+
+Worker 0x80036118 uses per-pad state:
+  base = 0x80735180 + 0x9a0 + pad*20
+  base+4  file handle
+  base+12 error callback
+  base+16 latched file error
+For kind 0 it calls read 0x80060620; kind 1 calls seek 0x8005f168. It handles
+errors/callbacks, then signals the corresponding waiting producer. A successful
+short read zero-fills the rest of the requested buffer before signalling.
+Missing file handles skip I/O but still signal. An existing error suppresses
+replacement/error-callback delivery even though the I/O call still executes.
+
+Original producer and worker instructions were run in separate emulator
+instances, with modeled queue delivery and semaphore scheduling. Gate admission
+was retained from before enqueue through I/O, error callbacks, worker signal and
+producer return; promotion attempts at each phase remained blocked. Releasing
+the test-owned admission afterwards allowed promotion.
+
+Crucial failure limits:
+- Both producers attempt the wait even when queue-send returns an error.
+- They return the wait result; one indicates a successful wait, not necessarily
+  a successful file read/seek. Zero is the low-level wait failure result.
+- A modeled failed wait returns while the successfully queued message remains
+  pending. Do NOT unconditionally release admission on producer return.
+- Semaphore handles are shared, not request-specific tokens. Tests serialize
+  requests; concurrent-caller matching and higher-level locks remain to audit.
+
+Stream worker bridge
+SamplerUpdatePlyStream at 0x80036c60 receives four-word jobs from the queue
+whose handle is at 0x801f8f34. Its BL at 0x80036c7c calls 0x800369a8.
+The stream routine normally ends through 0x80036488, updating cursors and
+clearing the per-pad pending byte at 0x80735180 + pad*0x44 + 0x1c.
+However, cancellation byte 0x80735180 + pad*0x224 + 0x330 == 1 causes an
+early return at 0x800369c6 WITHOUT clearing that pending byte.
+
+prototype/overdub/emulator_stream_bridge.c calls original 0x800369a8 and
+releases one test-owned ordinary admission on return. The harness redirects
+only the worker BL, not every call to the stream routine; no binary is patched.
+The producer-side admission and message ownership are supplied by the harness.
+
+Evidence from original worker plus compiled bridge:
+- two queued jobs, first cancelled and second zero-length: admission counts
+  2 -> 1 -> 0; the cancelled pad's stock pending byte remains set;
+- without the required admissions, the bridge latches the gate fault instead
+  of declaring the system idle;
+- a nonempty two-frame refill retains admission through modeled file input
+  and audio-conversion callbacks, then updates the original stream cursor and
+  clears pending before releasing the final admission.
+
+This is a concrete completion-site integration, not a complete playback guard.
+Actual enqueue admission must occur before the pending-state change/queueing
+around 0x80036652..0x80036674. Queue failures require attributable ownership
+and recovery. Direct prefetch callers and promotion-owned asynchronous child
+work must not release an unrelated ordinary admission. The current gate counts
+activities but cannot identify their owners; that ledger is still required.
+
+Verification and artifacts
+tools/verify_scheduling_boundaries.py: 31 passing groups.
+analysis/scheduling_boundaries_verification.json: observations, hashes and limits.
+analysis/usb_mode_worker_disassembly.txt: bounded original worker disassembly;
+inline tables are data even where the disassembler prints instruction mnemonics.
+The rebuilt prototype also passes 35 baseline, 14 stock-pad-adapter and 14
+admission-gate groups: 94 groups total. No real RTOS timing, SD durability,
+USB enumeration or audible sample output is established by these tests.
+
+Next implementation target
+Add attributable producer-to-completion ownership for the recovered stream
+queue, including failed publication/wait paths, and retain card-session
+ownership until verified local readiness plus pad-reload completion. Preserve
+promotion's ownership when it invokes stock prefetch. Only then can these
+boundaries be connected into a complete exclusion scheme rather than isolated
+emulator fixtures. Recorder finalization/segment capture and installation/
+recovery remain separate outstanding requirements.

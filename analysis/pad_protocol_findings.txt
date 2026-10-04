@@ -1,0 +1,193 @@
+ZOOM L6: PAD FILE-SELECTION PROTOCOL AND CALL PATH
+Investigation: 2 October 2026
+
+RESULT
+
+The stock v1.10 firmware implements pad file-list queries, assigned-file queries,
+and a select-existing-file command. The selection message includes both a file-list
+index and an encoded filename. The handler resolves the index within the requested
+pad's catalogue, compares that entry's filename with the transmitted filename, and
+builds the operational path from the catalogue's directory and entry name.
+
+This is positive evidence for reusing an existing assignment mechanism. It is not
+an arbitrary-path import or audio upload command. In the ordinary selection path,
+supplying a RECORDER path in place of the listed filename does not bypass the
+catalogue lookup. The precise catalogue population/refresh contract remains to be
+traced. A separate conversion branch exists for certain WAV formats, so this report
+does not claim that the entire assignment subsystem never creates files.
+
+For automatic overdubbing, likely approaches are to copy a finalized master into a
+pad folder and refresh its catalogue, or modify the internal path/catalogue logic.
+Neither approach has been implemented. Rotating assignments alone is insufficient
+if recordings are not yet available to the corresponding pad catalogues.
+
+EVIDENCE AND LIMITS
+
+Source image: Reference/L6_v1.10_E/L6.BIN
+SHA256: 64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+Main address mapping: runtime = file offset + 0x80000e00.
+
+The installed Editor 2.0.0 build 39 is a Flutter AOT application. Its executable
+retains relevant Dart identifiers but only snapshot-level Mach-O symbols; source
+filenames in its strings are not source files. The editor's individual compiled
+message builders have NOT been independently recovered. Protocol details below
+come from the firmware receiver and reply builders, supported by editor identifiers:
+SoundPadAssignService, sendAssignFileNameRequest, updateAssignFileName,
+buildAdvPatchDataDumpReqFileNum, buildAdvPatchDataDumpReqFileName2,
+buildAdvPatchDataDumpReqAssignFileName, and AppSysEx.
+
+Selected original firmware instructions were executed in Unicorn 2.1.4. There are
+26 passing recorded cases, including one case covering 35 independent encoder
+inputs. The routine executed unmodified ARM Thumb bytes from the stock image.
+External queue delivery, filesystem lookups and audio validation were intercepted.
+No real filesystem/audio/RTOS or complete L6 hardware was emulated.
+
+Checks covered all four pad indices for four query types, rejection of pad index 4,
+query rejection in initial session state, 7-bit packing including high-bit bytes,
+UTF-16 filename decoding, selection against a synthetic catalogue, and two reply
+constructors. The catalogue test executed the real filename comparator and branch
+logic with mocked lookup results. A matching name enqueued assignment; a different
+name and a recorder path did not. This is not a hardware validation of copying,
+playback, WAV compatibility, persistence or start timing.
+
+No MIDI/USB packets were sent. No installed app, firmware or mixer setting changed.
+The receiver session state was seeded to 2 for ordinary-message tests. Real editor
+connection negotiation, USB routing and applicability to firmware other than the
+supplied v1.10 still require capture/verification. This decoder is a research aid,
+not a supported control API.
+
+WIRE FORMAT RECOVERED FROM THE FIRMWARE
+
+All numbers below are hexadecimal; p is a ZERO-BASED pad index (00..03).
+Messages include F0 and F7. The stock reply builders use F0 52 00 00; the meaning
+of the two zero header bytes is not assigned here. The receiver inspected does not
+validate those fields. Do not infer product identification from them.
+
+Read file count:        F0 52 00 00 46 00 p F7
+Read listed filename:   F0 52 00 00 46 01 p indexHi indexLo F7
+Read assigned filename: F0 52 00 00 46 02 p F7
+Read pad status:        F0 52 00 00 46 03 p F7
+
+File count reply:       F0 52 00 00 45 00 p countHi countLo F7
+Listed filename reply:  F0 52 00 00 45 01 p indexHi indexLo lenLo lenHi data... F7
+Assigned name reply:    F0 52 00 00 45 02 p indexHi indexLo lenLo lenHi data... F7
+No assigned file reply: F0 52 00 00 45 02 p 7F 7F 00 00 F7
+Select existing file:   F0 52 00 00 31 05 p indexHi indexLo lenLo lenHi data... F7
+
+Index/count = (Hi << 7) | Lo. Encoded length = lenLo | (lenHi << 7).
+The differing byte order is intentional and confirmed from original instructions.
+Encoded data carries UTF-16LE filename bytes. Each group of up to seven original
+bytes gets a prefix with their high bits in prefix bits 6..0, followed by each
+byte's low seven bits. No terminating UTF-16 NUL is required in the demonstrated
+messages; the receiver appends two zero bytes after unpacking. The length field
+counts encoded bytes, not characters or decoded bytes.
+
+A zero encoded length follows the clear-assignment branch rather than selecting
+an empty filename. This branch was statically inspected, not exercised on hardware.
+The file index is an ordinal in the pad's list; it is resolved to the internal
+entry index before filename validation. Indices may change after a catalogue scan.
+
+Example: read the assigned filename for the first pad:
+F0 52 00 00 46 02 00 F7
+This is a decoded format example, not a recommendation to transmit without first
+verifying session negotiation and the destination port.
+
+CALL PATH AND RECOVERED CONTRACTS
+
+0x8002e7a8 MidiSettingRcvMsg task (name from firmware task table)
+  Collects F0 ... F7 messages, accepts manufacturer byte 52 or universal byte 7E,
+  then calls 0x800301f0 with a structure {u32 length; u8 message[]}. The parser's
+  loads at structure offset +4 therefore address wire byte 0, not byte 4.
+
+0x800301f0 Session-aware editor SysEx parser
+  In session state 2, command 46 enters the query dispatch at 0x800303bc.
+  Command 31 enters parameter dispatch at 0x80030300; subcommand 05 reaches
+  0x8003044c, which unpacks the filename into 0x80629474 and adds a UTF-16 NUL.
+
+0x80020ca0 Event enqueue wrapper
+  Stores five 32-bit words, then submits through 0x8006e4b8.
+  Selection event = {2, 0, 5+pad, listOrdinal, encodedLength}.
+  Count query     = {2, 2, 0x38+pad, 0, 0}.
+  Filename query  = {2, 2, 0x3c+pad, listOrdinal, 0}.
+  Assigned query  = {2, 2, 0x40+pad, 0, 0}.
+  Status query    = {2, 2, 0x44+pad, 0, 0}.
+
+0x8002c6d8 Selection-event dispatch arm
+  Subtracts 5 from event parameter, yielding pad; passes ordinal and length to
+  0x80009ba0.
+
+0x80009ba0 App selection handler: (pad, listOrdinal, encodedLength)
+  First checks whether this pad is the recording target via 0x80034da8.
+  Nonzero length: 0x80008e00 resolves ordinal; 0x80008e70 gets entry filename;
+  0x800301b0 returns received-name buffer; 0x8003aab8 compares UTF-16 strings.
+  A mismatch returns without assignment. On match, 0x80008ee8 gets list count,
+  0x80008e88 builds full path; 0x80009568 inspects the WAV; permitted results
+  lead to 0x80008c68(0, fullPath, pad, internalIndex, fileCount, 1).
+  Zero length: 0x80008c68(2, 0, pad, 0, 0, 0), then notification/persistence path.
+  Return values and all error meanings are not fully characterized.
+
+0x80008e88 -> 0x80008200 Full-path builder
+  Uses the selected pad's catalogue at 0x8023e398 + pad*0x80950.
+  Catalogue directory pointer is base+0x14 (getter 0x8002ab88).
+  Entry filename is base+0x2a4+internalIndex*0x20e (getter 0x8002ab28).
+  Builds directory + backslash + filename in a shared buffer, with length check.
+  Pad catalogue initialization and refresh semantics remain unverified.
+
+0x80008c68 Assignment entry: (mode, fullPath, pad, internalIndex, fileCount, option)
+  Mode 2 performs clear-assignment logic. Other modes mark the pad busy and queue
+  a 32-byte message, callback 0x80049d61 (Thumb), to the SamplerFileAssign worker.
+  First six logical fields after callback are the arguments above. Not a contract
+  for arbitrary callers: shared buffers, locks, state checks and lifetime matter.
+
+0x80049d60 Assignment worker callback
+  Calls 0x8004b760(fullPath, pad, internalIndex, fileCount, option).
+  Mode 0 posts event {1,4,0x1c,pad,0}; mode 1 posts {1,4,0x1d,pad,0}.
+  Dispatcher 0x8002d780 names the mode-0 event as completion for PCAPP and calls
+  0x80008b00(pad,0), which notifies the app and clears busy state.
+
+0x8004b760 Internal assignment operation
+  Validates format; may enter conversion at 0x8004bb40 for a particular format.
+  Stops the pad, updates selection/path state through 0x800069a8, resets state,
+  and conditionally prepares sampler playback. This routine does not itself prove
+  arbitrary RECORDER paths can be supplied safely or persist correctly.
+
+0x80030778 Assigned-filename response builder
+0x800308e0 Listed-filename response builder
+0x80030990 File-count response builder
+0x8006e658 Original byte-to-7-bit encoding routine
+0x80031648 Outgoing message queue helper (intercepted in emulator)
+
+ARTIFACTS AND REPRODUCTION
+
+analysis/pad_protocol_verification.json: passing emulator cases, packet examples,
+  limitations. Synthetic input packets are clearly not recorded hardware traffic.
+analysis/pad_protocol_disassembly.txt: bounded disassembly with labeled windows;
+  inline branch-table bytes also appear as spurious instructions.
+analysis/pad_protocol_symbols.csv: provisional semantic names and locations.
+tools/fw_window.py: bounded disassembly and heuristic direct-call references.
+tools/verify_pad_protocol.py: offline emulator verification harness.
+tools/decode_l6_sysex.py: standalone offline decoder; no MIDI dependency or sender.
+
+Run verification with the analysis Python environment:
+/tmp/l6-re-tools/bin/python tools/verify_pad_protocol.py
+Decode an individual captured message:
+python3 tools/decode_l6_sysex.py --hex 'F0 52 00 00 46 02 00 F7'
+
+On this Mac, Unicorn initially crashed in cache detection because the sandbox
+blocked its hw.cachelinesize query. The approved run outside the sandbox passed.
+The failure happened during emulator initialization, before any firmware execution.
+No emulator or firmware binary patches were used as a workaround.
+
+NEXT CONCRETE STEPS
+
+1. Capture the stock editor's connection and one pad selection on a connected L6;
+   compare messages against the offline decoder. Merely opening a second MIDI
+   input does not establish visibility of another process's outgoing messages;
+   a proper proxy or instrumentation at the editor's send/receive boundary is
+   needed. Neither has been installed or attached in this investigation.
+2. Trace catalogue initialization/refresh, master-file finalization, and the
+   existing record-to-pad path. Establish whether file copy is needed, how its
+   name is chosen, and when the master is safe to read.
+3. Verify stock simultaneous pad playback/multitrack recording, clean stems, and
+   timing on hardware. Keep this separate from firmware installation/recovery.
+4. Establish bootloader acceptance and a verified recovery method before flashing.

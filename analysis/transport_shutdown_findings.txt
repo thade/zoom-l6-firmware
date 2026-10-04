@@ -1,0 +1,139 @@
+L6 TRANSPORT SHUTDOWN AND RESTART BOUNDARY
+3 October 2026
+
+Result
+The offline prototype now fences installed control entry points before they read
+Transport state, holds ownership across ordinary caller/queue execution, and
+unlinks Transport/Router/Bridge after control drain and hook/worker detach.
+Protected-memory tests cover the entire synthetic session, including Transport
+and Router, while ordinary mixer code continues. This extends the previous
+hook/worker-only fence; it is not a hardware or full-program reclamation proof.
+
+A separate negative control demonstrates why restart is still disabled: an old
+DSP invocation can pause between its individual hooks and later feed an untagged
+tap into a new session if the permanent gateways are simply reopened. Old owned
+queue envelopes carry a generation and are rejected, but raw audio taps do not.
+The unsafe reset exists ONLY as direct fixture memory writes, not an exported
+restart API. This stage intentionally does not implement that reset.
+
+Verification: all 147 groups pass (140 previous, 5 shutdown, 2 restart boundary).
+The restart negative control passes by reproducing the deliberately unsafe reset.
+Stock SHA-256: 64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+Prototype SHA-256: 2888a69155fcaf29dda66deba50eb367e2b34270f3fb355d779263ee47c992d6
+
+Files
+prototype/extra_capture/control_transport.c
+prototype/extra_capture/emulator_bridge.c
+tools/verify_transport_shutdown.py
+tools/verify_restart_boundary.py
+analysis/transport_shutdown_verification.json
+analysis/restart_boundary_verification.json
+
+1. Control entry lifetime inventory
+ct_gateway_readers is permanent storage outside Transport. Each public installed
+control entry reserves it before loading ct_active or dereferencing a caller's
+Transport pointer. High-bit closure rejects new optional access; low bits account
+for earlier callers. Ownership spans:
+  - All five high-level automatic wrappers, including the whole original stock
+    function and return cleanup. Even an ordinary post-admission-close wrapper
+    with no Request still owns its stack cookie until return.
+  - The common queue sender, including original send completion.
+  - The owned queue callback dispatcher, including original callback execution.
+  - The drain marker, explicit scope/request adapters and close/drain operations.
+  - The manager's combined ct_detach_capture operation.
+Denied automatic requests and sends still execute ordinary stock behavior.
+Denied owned callback/marker entries return before inspecting even their argument
+buffer. Their ordinary queue receive buffers remain kernel-owned; no queue ABI
+change is introduced by this layer.
+
+Bridge context lookup is covered by the existing Bridge gateway while its hook
+uses the returned Request. Shutdown detaches that gateway before closing the
+control gateway. Therefore lookup and rr_hook cannot outlive the earlier Bridge
+detach acknowledgement under the installed-entry contract.
+
+2. Single-manager shutdown ordering
+ct_shutdown(t, session) requires stable caller-owned session storage and one
+serialized manager. It rejects the control worker itself. It performs:
+  1. Existing control admission/drain checks, including uncertain-send retention.
+  2. Existing terminal Bridge and audio-hook/file-worker detach checks.
+  3. Atomic closure of the permanent control gateway.
+  4. Wait for all earlier control gateway users and owned requests to finish.
+  5. Clear retired Bridge context/transport/scope links, owned Job request links,
+     automatic Request router links, Router.bridge, Transport.router and ct_active.
+Success is 0; pending work is 10/11 as in the earlier control protocol; invalid
+context is 12 and uncertain marker failure remains 30. No wait/IO occurs inside
+the unlink step. Earlier drain operations can still block on stock mutex/send.
+An uncertain earlier send prevents closure/unlink, preserving its ownership.
+
+Idempotent successful shutdown uses a permanent pointer/session tombstone and
+never dereferences retired memory. Gateways remain closed permanently. ct_init
+and bridge_bind reject attempts to bind while closed; there is no product rearm
+entry. Synthetic memory and fixed-capacity assumptions remain unchanged.
+
+Direct legacy rr_*, bridge_route_*, bridge_publish, lifecycle, Exchange, path and
+other raw-pointer APIs require external lifetime ownership. They are not newly
+made safe for arbitrary post-shutdown calls. Initialization, legacy retirement
+and shutdown must not race. Explicit fixture Request pointers retained outside
+Transport cannot be revoked by clearing owned links and must not be used later.
+The installed-entry audit remains bounded by the known five original request
+paths; it is not proof that all firmware callers or indirect paths are covered.
+
+3. New shutdown verification groups
+1. Control drain, terminal file, both gateways, cleared owned links, idempotent
+   shutdown and wrong pointer/session rejection.
+2. Separate pauses before ct_active load in a wrapper, replayed callback, raw
+   queue sender and explicit scope entry. Peer manager closes admission but
+   cannot unlink while the earlier gateway reservation is live.
+3. Ordinary stock call paused after capture admission closed: no capture Request
+   exists, yet its wrapper cookie prevents unlink until return.
+4. Uncertain earlier send keeps shutdown waiting and Transport linked.
+5. Protect the entire session region and sample slots against guest access, then
+   execute all five stock entry wrappers, replay earlier start/stop/marker wires,
+   exercise denied explicit entries with stale/unreadable pointers, invoke all
+   hook kinds and a stale worker, and run ordinary audio. No protected memory is
+   touched. Ordinary DSP cursor advancement and no additional file IO are checked.
+
+Peer tests use independent emulator CPUs and explicitly transfer shared protocol
+state at selected pauses outside original critical sections. They do not emulate
+arbitrary RTOS scheduling or hardware interrupt/cache behavior. Closed callers
+can still transiently update permanent gateway counts; they never access retired
+session memory. Those permanent gateways/code must themselves remain alive.
+
+4. Restart experiment: useful failure, not supported behavior
+The negative-control fixture completes/shuts down generation 123, forcibly zeros
+session storage and both permanent gate words, then binds generation 124 at the
+same addresses and prepares another uniquely named synthetic WAV. This bypasses
+the implementation's rejection of restart and is intentionally unsafe.
+
+Replaying old owned queue envelopes causes no callback or Transport mutation:
+the session field rejects the old generation even though its address was reused.
+However, model an old DSP invocation that has returned from its outer hook but
+has not reached its pre-master tap. After the forced new binding, resume that
+untagged tap with distinctive samples. The new Exchange accepts and stages those
+samples without a new-generation outer hook; no fault is latched. This directly
+exposes generation ambiguity between separate hook calls.
+
+This is a controlled counterexample, not a claim of an audible hardware failure.
+It does not run an entire DSP invocation or prove all restart hazards. Its test
+passes by reproducing the defect. A zero gateway count guarantees no caller is
+INSIDE a covered entry at that instant; it cannot identify an old ordinary DSP
+invocation paused BETWEEN entries. Reopening also needs scrutiny for ordinary
+control calls that have not yet reached their first covered entry.
+
+5. Next bounded step
+Track one audio invocation from its outer callback boundary through its return,
+with a stable session/generation binding shared by tap and commit hooks. Audit
+normal return, skipped/null callback, alternate callback and error paths. Attempt
+shutdown/restart while paused before tap, between tap/commit and before return;
+late work must be excluded from the next generation. Only then design a reopening
+manager that also owns result-path copies, new file preparation and control ingress.
+
+A real file/storage fence remains separate: synchronous mocked file calls do not
+prove SD/DMA buffer lifetime or close-error recovery on the mixer. Physical RAM,
+cache/atomic behavior, stack/timing, bootloader recovery and pad assignment remain
+unresolved. Stock firmware and the connected device/card were not modified.
+
+Follow-up (4 October): analysis/audio_invocation_findings.txt adds an opt-in
+outer/return adapter holding one session across the selected callback. Strict
+taps/commits cannot join a session outside that invocation. The earlier negative
+control remains a legacy-mode demonstration. Atomic reopening remains unimplemented.

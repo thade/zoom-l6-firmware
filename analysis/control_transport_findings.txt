@@ -1,0 +1,152 @@
+L6 TASK IDENTITY AND COMPILED CONTROL-QUEUE TRANSPORT
+3 October 2026
+
+Follow-up: auto_requests_findings.txt adds compiled automatic allocation/binding
+and return cleanup at five verified high-level entries. Explicit scope APIs stay
+available for the earlier suite. Producer coverage, retirement and rearm are
+still unproved; the newer transport adds a limited request pool.
+
+Result
+The new emulator adapter carries request identity inside the original 32-byte
+control-queue message size. Compiled code owns the original callback arguments,
+decodes the envelope and invokes the original start/stop callback through the
+original RecPlayCtl worker. Python no longer attaches a separate request-identity
+sidecar in this suite. The original current-task getter distinguishes request and
+callback scopes; short router mutations use original critical-section routines.
+
+Nine new groups pass; all 101 preceding groups also pass on the final build,
+110 total. A start/stop test produces exactly [64,384), 320 stereo frames in the
+additional pre-master WAV. Ordinary-file sentinels remain intact. This is still
+offline PC interception, NOT an installed patch or complete RTOS simulation.
+
+Stock SHA-256: 64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+Prototype SHA-256: bc0defe3239491efa8e2e6022d897840f30113a6b8754141dcbc58d2e812710e
+No device or card access occurred.
+
+Files
+prototype/extra_capture/control_transport.c
+prototype/extra_capture/request_router.h
+prototype/extra_capture/request_router.c (shared types moved to header)
+prototype/extra_capture/emulator_bridge.c
+prototype/extra_capture/emulator_hooks.S
+tools/verify_control_transport.py
+analysis/control_transport_verification.json
+
+1. Original task identity, not a shared current-request pointer
+0x800770e8 returns the word at 0x808e291c without changing the task object.
+Execution with zero and two distinct synthetic task pointers confirms its value
+and lack of change to task+0x74. In contrast, nearby 0x8006e068 increments the
+word at current-task+0x74 before returning the task; it is not a harmless getter.
+The adapter uses 0x800770e8 only.
+
+Each of eight task entries holds one request scope and one callback scope. Lookup
+uses the actual original getter on each access. Tests change the current-task
+word between two outstanding scopes and verify that each retains its own request.
+These changes are scheduled fixtures, not a running RTOS context-switch test.
+Null current task and exception context are rejected for binding; lookup checks
+IPSR to avoid borrowing the interrupted task's scope. Exception behavior is a
+code guard, not a tested hardware interrupt model in this suite.
+
+Initialization installs a context provider in Bridge, replacing its older pair
+of global scope pointers in this route. The active Transport itself is one stable
+session object, not a changing current request. No transport teardown/replacement
+is supported; its storage must remain valid for all possible old queued tokens.
+Live task-handle reuse is unsupported.
+
+2. Guarded state changes, no blocking work while guarded
+The adapter executes original critical entry 0x80073ec8 and exit 0x80073f18.
+Entry writes BASEPRI=0x20, executes barriers and increments 0x801f6090; exit
+decrements that nesting count and clears BASEPRI when it reaches zero. The test
+executes two nested entries/exits and verifies the count returns to zero. This
+does not prove all relevant hardware interrupts are covered by that mask.
+
+ct_request_op guards begin/finish/ignore; ct_scope guards binding; queue submission
+and callback dispatch guard their router mutations. Bridge uses the same guards
+when a task-context control hook calls the otherwise externally serialized rr_*
+interface. Direct concurrent calls to rr_* remain outside this adapter contract.
+
+The guard is released before stock queue send, which may block, and before the
+original callback body. Tests assert nesting depth zero at both boundaries. No
+audio/file IO is added inside a critical section. Stack/latency/cache behavior
+on the hardware remains unmeasured.
+
+3. Same queue size, owned argument storage
+The common queue-send entry 0x800483f8 is redirected in the emulator to compiled
+ct_queue_send. Its forwarder replays the original push and resumes at 0x800483fa,
+so the original send wrapper and its result conversion still execute. Only the
+RecPlayCtl handle and exact start/stop callback values are wrapped. Other queues
+and callback types take the ordinary path.
+
+For a supported message, a fixed Job owns all eight original words. The outgoing
+32-byte envelope is:
+  compiled callback; Transport pointer; slot; request ID; session; 0; 0; 0.
+RecPlayCtl's original BLX at 0x80034c20 invokes the compiled callback with the
+seven argument words, exactly as with a stock callback. The decoder validates
+the Transport/session, allocated slot, request ID, Request identity and delivery
+state. It installs the receiving task's callback scope, calls the saved original
+callback with &original_words[1], then completes the attributed request.
+
+A dedicated test fills all seven original argument words, mutates the producer's
+message buffer after send, and verifies the original stop callback receives all
+seven original values. These supported callbacks use no start arguments and one
+scalar stop argument. This is not a deep-copy guarantee for arbitrary pointer-
+bearing messages; unsupported callback types are not enrolled by this adapter.
+
+The kernel queue's byte copying/delivery is still modeled. The compiled sender,
+original queue wrapper, original control worker, compiled decoder and original
+callback entry/control flow run. Deep recorder registration, filesystem and UI
+callees are stubbed. The start-admission checkpoint is a compiled fixture called
+in place of deep registration; the actual stop cursor setter still runs.
+
+4. Coverage at the common boundary matters
+Observed direct-call search finds 0x80035030 -> record-start producer 0x8004b6d8
+and 0x80034fda -> stop producer 0x8004b718. However, stop messages are also built
+inline: 0x80034d18 and 0x80034e58 contain such branches. These do not pass through
+0x8004b718. The new test executes 0x80034d18 and verifies the common sender wraps
+its stop message with the explicitly bound request identity.
+
+A stop from a different, unbound task must not inherit another task's request.
+The adapter detects it at the common sender, faults optional capture (27), and
+forwards the ordinary message unchanged. This preserves ordinary queue behavior
+but is NOT proof of complete capture integration: all relevant request-entry
+paths still need binding. Direct-call searches are not an exhaustive producer
+audit, particularly for indirect calls and asynchronous/error paths.
+
+5. Lifetime and bounded capacity
+Transport is 532 bytes, including eight 52-byte Jobs and eight task entries.
+Bridge is now 248 bytes. Request remains 64 bytes and Router 20 bytes. The eight
+Jobs are never reused during this session. Exhaustion cancels optional capture
+(26) and forwards the ordinary message; no live argument storage is recycled.
+This is deliberately finite, not a whole-device multi-session allocator.
+
+Replay after completion, wrong request ID and old session tokens are rejected
+before the original callback runs. Callback completion and sender result still
+own the Request independently through the earlier router protocol. A failed
+stock send remains uncertain: the optional file is cancelled, but the Request
+reservation is retained rather than reclaimed. No timeout or automatic reset
+pretends to prove old work has vanished.
+
+Dropping a stale token in this controlled test does not establish a safe hardware
+rearm protocol. Transport/Request memory cannot be freed while stale references
+may exist. Untagged forwarded work and callback/audio lifetimes still require
+the external drain/admission fence discussed in preceding findings.
+
+Verification groups
+1. Original task getter and nested critical sections.
+2. Compiled envelope -> original control worker -> original start/stop -> exact WAV.
+3. All seven original argument words preserved after producer-buffer mutation.
+4. Inline stop producer attributed at the common sender.
+5. Two task identities keep overlapping request scopes separate.
+6. Completed replay, wrong ID and old-session wire tokens do not call stock code.
+7. Unbound stop cancels optional capture and preserves ordinary message.
+8. Queue failure retains uncertain request ownership.
+9. Envelope exhaustion does not reuse live storage.
+
+Next concrete boundary
+Add guarded automatic entry/exit wrappers for the verified request producers,
+starting with 0x80034f40, 0x80034d18 and 0x80034e58. Define ownership for any
+remaining indirect/error ingress before claiming coverage. Then close producer
+admission, drain acknowledged queued callbacks, and separately quiesce sample
+hooks before releasing/rearming session storage. A dedicated optional-file worker
+schedule, safe RAM placement, hardware timing, pad assignment and recovery remain
+separate prerequisites. Nothing here makes a device test or flash attempt ready.

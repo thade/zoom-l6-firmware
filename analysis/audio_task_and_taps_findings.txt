@@ -1,0 +1,145 @@
+L6 AUDIO-TASK COMPLETION AND ADDITIONAL SIGNAL TAPS
+3 October 2026
+
+Result
+Executed the original AudioProcess task's selected control flow, including its
+normal four-stage callback, callback return, output-copy loop and subsequent
+AudioSubProcess signal. Recovered alternative callback selections and executed
+their dispatch paths. This narrows the end-of-block boundary, but does NOT yet
+establish the all-reader exclusion needed by the playback-session fence.
+
+Also identified a candidate stereo signal before the late dynamics processing,
+and executed the later 64-frame-per-channel copy into another working buffer.
+This supports feasibility of a custom pre-dynamics capture. It does not establish
+a selectable stock pre-compression stream, or a complete new recorder route.
+
+Seven new groups pass; all eight existing suites were rerun and pass, giving
+172 groups across nine suites. The ELF is unchanged this stage. The emulator
+supports an optional stack address because original audio buffers overlap the
+older test stack at 0x20010000. The new task suite uses synthetic 0x2003f000;
+existing suites retain their original default. Neither is a device placement.
+
+Files
+tools/verify_audio_task_boundaries.py
+analysis/audio_task_boundaries_verification.json
+tools/verify_overdub_prototype.py: optional stack override only
+
+Audio task boundary
+Descriptor 0x800a1bec identifies AudioProcess entry 0x80010939. The task waits
+on the handle at 0x8044692c and calls 0x80010698 with buffer pointers from
+0x2000bb00. That function calls the nonzero callback at 0x20015e10 through the
+indirect call at 0x8001078c. It continues at 0x8001078e after callback return,
+does further housekeeping and output copying, then signals the handle at
+0x80446930 through the tail call at 0x80010886.
+
+Normal callback 0x2022a790 calls these stages in order:
+  0x20220ac8: includes pad playback rendering
+  0x20224b90
+  0x20220000
+  0x202263e0: includes late output/dynamics/copy processing
+The final call is a tail branch; the caller returns to 0x8001078e only after
+that final stage finishes. This ordering executes in the tests with DSP stage
+bodies intercepted. It is not a full DSP waveform emulation.
+
+Initialization fragment 0x80011974..0x8001199a selects callback 0x800124d9 when
+the mode getter returns 1, and 0x2022a791 otherwise. Runtime setters 0x8000ca98
+and 0x8000cab0 install 0x80010961 and 0x800133e9 respectively. All are observed
+to reach the same outer callback-return continuation when dispatched. Their
+full reader behavior and mode meanings are not established by these tests.
+
+The task also signals AudioSubProcess with a null callback. Therefore the
+subprocess signal is not itself proof that a particular reader executed or
+that any old-buffer access is now forbidden. A hook confined to 0x2022a790
+would miss alternate callback bodies.
+
+FENCE STATUS: remains deliberately unbound
+The coordinator's fence port must acknowledge both completion of existing
+readers AND prevention of future access until rearm. Observing callback return
+provides only the first part for readers known to be inside that invocation.
+Future blocks, alternate callbacks, other tasks, interrupts and DMA need an
+explicit coverage/exclusion audit. Skipping the entire audio callback would
+also disrupt the live mixer/recording path and could leave stale output buffers;
+that is not an acceptable replacement for a pad-specific fence.
+
+No acknowledgement is automatically emitted by this stage. The existing
+unbound adapter still returns BUSY. Next work is to trace pad-buffer references
+in all callback modes and isolate a pad-reader entry/exit guard that preserves
+the rest of the mixer, then bind epoch acknowledgement under that guard.
+
+Publicly documented streams and buses
+Official original-L6 manual, checked 3 October 2026:
+https://zoomcorp.com/manuals/l6-en/
+Relevant sections: Signal flow; Using external effects; Selecting the signal
+send positions for AUX SEND 1 and 2; L6 folder and file structure; Specifications.
+
+The documented recorder captures the input channels and stereo master. Master
+level and compressor state affect the recorded master. The advertised interface
+has twelve input channels and four output channels from the computer's viewpoint.
+No independent pre-compression-master recording or extra USB capture pair is
+documented. Do not confuse L6max monitor/sub-output options with this L6.
+
+The two mono AUX SEND buses provide additional analog mixes, with selectable
+pre/post channel-level send positions. They are not documented as additional
+separate SD/USB capture tracks. Their per-channel routing is not automatically
+an exact copy of the stereo master, particularly for pan, pads and effects.
+The effects-send/return and pad-playback paths are additional internal signals;
+their existence does not make them independently selectable recording streams.
+
+Internal stereo-buffer candidate
+The normal audio path repeatedly processes a stereo working region:
+  left:  0x20013e00 (base 0x20010a48 + 0x33b8)
+  right: 0x20013f00 (same base + 0x34b8)
+Each side has 64 32-bit samples in the examined blocks.
+
+At 0x202269f8 onward, the code applies a gain or gain ramp to this stereo region,
+using fields +0x6214/+0x6220/+0x6224. At 0x20227136 onward it enters dynamics
+processing using fields +0x63f0 and related state. Another dynamics portion
+starting at 0x202278b8 reads the stereo samples and updates processing state.
+The original control path 0x80002ab8 -> 0x8000d4a0 changes parameters consumed by
+these stages. Executing that control with modeled ramps/delays verifies the
+parameter changes; it does not verify the compressor's acoustic response.
+
+Candidate capture boundaries are therefore:
+  - before the gain block near 0x202269f8: possible pre-master-gain/dynamics tap;
+  - before the first dynamics block near 0x20227136: possible post-gain,
+    pre-dynamics tap.
+These are static candidates requiring end-to-end signal identification. The
+exact mix contributions, monitor processing, optional recorder playback override,
+latency and equivalence across callback modes still need checking. This is not
+a claim that either location is already a validated pre-compression master.
+
+At 0x202280e0..0x202281c4 the original code copies both channels, bit for bit,
+to base+0x1610 and base+0x1710: 0x20012058 and 0x20012158. The test executes
+this copy with 128 distinct marker words and verifies all 512 bytes without
+changing the source. Later code copies these regions into larger ring-buffer
+destinations near 0x2022a628 and 0x2022a720. Their downstream association with
+the master file must still be verified across the complete producer/recorder
+chain, not inferred solely from their being the final two channel buffers.
+
+The source region is processed in place. A pre-dynamics value is therefore
+transient; pointing a later asynchronous writer at that address would race
+subsequent processing and the next audio block. A useful tap must make an owned
+copy at the chosen point into a properly synchronized recording buffer.
+Two channels at 48 kHz/float32 require 384,000 bytes/second before WAV metadata
+if stored as an additional stream. That arithmetic is not a measured spare
+bandwidth or CPU guarantee.
+
+Implication for iterative overdubs
+A custom uncompressed accumulation mix is a sensible target: it would avoid
+reapplying master compression to already-compressed earlier layers at every
+pass, while a separate output path could still provide compressed monitoring.
+Pre-master-gain capture could also avoid repeating master-level scaling, but
+pad gain and other routing still need accounting. Replacing the existing master
+capture source may be simpler than adding extra tracks, but that is a design
+option, not an implemented firmware feature. Disabling COMP already removes
+that processing from the stock master, without creating a separate simultaneous
+compressed monitor/capture path.
+
+Follow-up: pre-compression investigation, same date
+See analysis/uncompressed_tap_findings.txt and its nine-group verification report.
+Bounded original DSP windows now execute using Cortex-M7/M-class selected before
+emulator initialization. Pad/live inclusion, master-gain separation and ring-to-
+stream-10 stereo readback are numerically verified with synthetic state. The tap
+snapshot/substitution remains modeled, and complete DSP/file output is unverified.
+This supersedes the earlier statement that source contributions and the ring's
+logical channel identity were only static candidates, within those test limits.

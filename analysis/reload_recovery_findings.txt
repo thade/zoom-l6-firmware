@@ -1,0 +1,137 @@
+L6 v1.10 — retained UI delivery and Main mode-5 continuation
+4 October 2026
+
+Result
+The compact transport now retains a failed UI-event delivery and retries the same
+owner/child ticket. It does not repeat the worker's file operations. A cooperative
+Main continuation defers the whole recovered mode-5 branch until existing reloads
+finish and their verified owners retire. Main can service those owned reloads while
+waiting, including when its queue is completely full of ordinary controls.
+
+The original branch instruction ranges execute in the emulator, followed by a
+register-preserving resume at the common startup continuation. No firmware patch
+has been installed. Deep USB/UI device effects and scheduling remain fixtures;
+this is reload exclusion, not the completed global storage/playback fence.
+
+Files and memory
+Changes: reload_compact.c/.h, reload_compact_hooks.S,
+reload_ownership.c/.h, verify_reload_ownership.py.
+New: tools/verify_reload_recovery.py and its verification/regression JSON reports.
+RlCoordinator is now 400 bytes; the new draining flag is at offset 396, after the
+existing cleanup flag at 392. Prior job offsets remain unchanged. RcBinding stays
+44 bytes. Eight permanent pending-event slots add 192 bytes (state + five words
+per slot), and the one-shot mode state occupies 12 bytes. No dynamic allocation.
+These are emulator placements; available physical firmware/heap space is unproved.
+
+Retained delivery
+rc_send_ui reserves a slot before its first native event-send call. Atomic slot
+states are EMPTY, sender-owned and READY-for-retry; no short metadata latch spans
+the stock event call. A successful send releases the slot. A failed send retains
+the exact five event words, while the existing ownership ledger records an
+uncertain submission and keeps the UI branch live.
+rc_retry_ui, called from Main's receive ingress, attempts at most one retry per
+poll. It validates the live owner/child identity first. Metadata contention keeps
+the slot for a later poll. A retired owner's stale slot is discarded. Successful
+resubmission releases the slot; another failure retains it. No second rl_sent is
+issued, and no new owner is invented. Positive consumption resolves the original
+uncertain delivery through the existing claim/return protocol.
+
+If a failed send actually delivered, a retry may create a duplicate packet.
+Only one can claim the UI branch; later copies cannot execute its body again.
+The same non-reused ticket protects a subsequent reload from a late old packet.
+Normal Main retries enqueue through the original event transport so ordinary
+queue ordering is retained. Queue-capacity waits are nonblocking, but the stock
+event sender still uses its original mutex wait: this is not a lock-free or
+hard-real-time path.
+
+Owned drain during the mode transition
+Main must not execute arbitrary queued UI controls before its startup branch
+finishes. rc_service_owned first resumes any retained Main task completion, then
+tries a queued-delivery retry. It takes the existing event mutex with timeout zero,
+scans a bounded snapshot of at most 4096 messages, and selects at most one tagged
+reload. All unselected messages are rotated back in their original relative order.
+It releases the mutex before executing the selected UI body, including file I/O.
+Unexpected dequeue/requeue errors fault closed instead of reporting a successful
+drain. The complete snapshot can be substantial work; no hardware latency budget
+has been demonstrated.
+
+A full queue of ordinary controls presents a special case: neither retry-enqueue
+nor dispatching ordinary controls is appropriate. After finding no queued owned
+event, Main can transfer one retained event directly into its task-owned UI
+continuation. It still validates and claims the same ticket. A busy claim or return
+phase retains the copied continuation in RtTask; file work is not replayed.
+Ordinary queued controls remain unchanged until the original clear is permitted.
+This direct transfer is restricted to owned transition draining; normal receive
+uses the FIFO retry path. No timeout fabricates completion or frees a live owner.
+
+Recovered mode-5 branch
+Main selects this branch at 0x8002c480. Its original sequence is:
+- 0x8000c210 resets the USB-related status word.
+- 0x80005e28 reads the configured USB selector; 0x8000c220(0,selector) requests
+  its mode-worker operation. The deepest hardware/worker handshake is modeled.
+- 0x800085c8 optionally leads to 0x80008608(0,1).
+- 0x800075b8 (tail 0x80027508) performs UI setup; deep effects modeled.
+- 0x80020438 clears the event queue.
+- 0x80007ec8(1) updates UI outputs; physical output effect is modeled.
+- 0x8003fb78(1) sets the flag at 0x801f5ca4.
+- 0x8002c4b2 branches to common startup at 0x8002c362.
+"Mode-5" is the recovered Main branch selector; it is not a new claim identifying
+that branch with a particular physical USB mode.
+
+State machine and admission
+rc_mode5_step is Main-only and guards against reentry. It is one-shot for this
+recovered startup branch; reset, task restart and repeated mode-state reuse are
+not supported.
+IDLE -> DRAIN closes new reload admission using rl_transition_begin, while
+allowing already admitted workers/UI branches and their descendants to finish.
+No branch setup effects happen yet. A pre-existing cleanup must finish first.
+DRAIN polls rl_transition_ready. While jobs remain, it services bounded owned UI
+work and returns BUSY. Successful-looking pad flags or a returned UI body are not
+sufficient: an external verifier must collect final evidence and retire each
+producer/root. Outstanding attributed file work still prevents verification.
+Once no reload jobs remain, ready acquires cleanup exclusion without reopening
+admission. RUN executes the original prefix, actual clear and original suffix
+exactly once. RELEASE retries only rl_transition_end if its metadata latch is
+busy; setup and clear never repeat. DONE permits the original common-startup
+resume. A recorded fault parks the state and retains admission closure.
+
+The assembly entry adapter preserves Main's saved registers and stack, repeatedly
+polls, and invokes the bound scheduler yield between unsuccessful polls. On success
+it restores state and branches to 0x8002c362. The emulator redirects original entry
+0x8002c480 to this adapter except when the guarded original prefix itself runs.
+The prefix and suffix are stock instruction subranges, not standalone stock
+functions: additional emulator return interception at 0x8002c4a2 and 0x8002c4b2
+returns to the compiled state machine. This demonstrates a reviewable control-flow
+binding, not a completed native relocation/branch-patch implementation.
+
+Verification
+Seventeen new groups and all 388 groups across 25 relevant suites pass.
+The new suite covers full-capacity recovery in ordinary Main receive, direct owned
+transfer during a full transition drain, ambiguous delivered failures, stale retry
+records, multiple jobs, metadata contention, no-UI-yet worker waits, ordinary-event
+order, mutex contention/release before file work, checked settings errors,
+outstanding file descendants, whole-branch deferral, single execution of prefix
+and suffix, release contention, faults before reopen, prior cleanup, and native
+entry yield/resume with preserved Main stack/registers. Exact counts and hashes
+are recorded in reload_recovery_verification.json and reload_recovery_regression.json.
+
+Remaining integration limits and next step
+Final verification and producer retirement are still explicit verifier actions in
+the harness. They are deliberately not inferred from queue emptiness or successful
+stock returns. The next useful stage is to connect those evidence checks to the
+manager's completion path, so it can retire a successful reload automatically and
+report a failed one while retaining protection.
+Queue copying, mutex effects, RTOS yield/task switching, filesystem drivers, RIFF
+parsing, audio prefetch, USB mode-worker handshake and physical UI outputs remain
+fixtures. Existing producer/file task-context binding, public-wrapper I/O errors,
+USB/card/ordinary-recorder lifetime roots, durable settings verification and the
+all-reader exclusion still need their earlier native integration. If the real mode
+prefix starts fresh reloads or other storage operations, those operations need
+explicit attribution rather than bypassing the transition's closed admission.
+Native installation must implement/verify all entry and return patches, task
+lifecycle, memory placement and scheduling. No complete hardware boot, audible
+overdub test or recovery from power loss is claimed here.
+
+No physical mixer communication, firmware-image modification, SD writes, flashing
+or device opening occurred. Stock L6.BIN SHA256 remains:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb

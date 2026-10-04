@@ -1,0 +1,151 @@
+L6 CONTROL-CALLER ADMISSION AND DEFERRAL
+4 October 2026
+
+Result
+Recovered the effects import-table address and its principal stock control
+wrappers. Two parameter handlers already wait on one shared effects lock before
+updating their state or invoking their plug-in callback. In controlled offline
+scheduling, suspending at that wait preserves original arguments and lets the
+full audio callback continue; releasing it then runs the original handler once.
+
+Mode workflows do not share that lock. Two inspected mode callers invoke other
+subsystems before reaching the selector setter. Deferral must begin before those
+whole workflows, not by pausing only the final selector store. Returning an
+invented BUSY/error from existing void-like calls is not a valid substitute.
+
+Nine new evidence groups pass in tools/verify_control_admission.py. No prototype
+ELF or firmware image is rebuilt. No L6 or SD-card access occurs.
+Firmware SHA-256:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+
+1. Import-table recovery
+0x8001dc10 initializes the table at 0x80440cdc. 0x8001dc00 returns its address.
+The original initializer and getter execute in the test; confirmed entries:
+  +0x2c -> 0x8005b741: synchronous word-copy producer
+  +0x30 -> 0x8005b791: synchronous doubleword-copy producer
+
+The table is supplied as r1 to effect callbacks, including:
+  0x8000e6d2 / 0x8000e702: selected effect initialization/next callback slots
+  0x8000e798: callback from effect state +0x14
+  0x8000e800: callback from effect state +0x18
+  0x8000e908 / 0x8000e956 / 0x8000e980: effect-change branches
+  0x8003496c: another registered callback tail call
+The generic effect state is 0x8053d190. Its +0/+4 pair holds context/import-table
+pointers used by the audio-side effect processor invocation at 0x8000e4dc.
+Thus the import table is accessible to processing as well as control callbacks.
+We cannot classify every possible copy-producer call as a sleep-safe UI call.
+No assumption that arbitrary active plug-in code cannot invoke an import is used.
+
+2. Existing lock provides a candidate control waiting point
+0x8000e748 and 0x8000e7b0 first load the handle from 0x80446818 and call
+0x80076950(handle, 0xffffffff). After the wait they call 0x8006f840 to update
+parameter metadata, then possibly invoke the registered plug-in callback with
+the context and the recovered import table. They finish by signaling the same
+handle through 0x800763d8(handle,0,0,0).
+
+Related effect-change wrappers 0x8000e600 and 0x8000e818 also acquire that handle
+before their inspected mutation region. This is static evidence for those larger
+functions; the nine-group suite exercises the two smaller parameter handlers.
+The actual kernel object implementation, fairness and priority behavior are not
+validated here, so 'lock' is used as an ownership description rather than a
+verified OS mutex type.
+
+The suspension test keeps a CPU at the actual wait entry WITHOUT returning from
+that call. A separate CPU executes the full original audio callback. When the
+modeled lock becomes available, the original suspended registers and stack resume,
+and the observed metadata update receives the original requested value (91).
+The imported plug-in callback then runs once and the lock is given once.
+
+The audio fixture does not acquire this handle. However, it uses no active effects
+processor; a general nonblocking-audio guarantee still requires inspection of
+active processing and its imports. The test demonstrates a usable ordering for
+the covered wrappers, not universal permission to wait in every calling context.
+
+3. A failed wait result is not deferral
+Injected wait result 0 does not prevent either metadata-update or plug-in-call
+progress in the covered original handler. The handler subsequently signals the
+handle despite the injected failure. This is a negative control; normal kernel
+blocking behavior may make that situation unreachable on hardware.
+
+Practical implication: replacing the stock wait with a try-lock that returns
+BUSY would let the unmodified caller proceed. A wrapper must keep the call pending
+until legitimately admitted, or change a higher-level dispatcher that has a
+verified retry ABI. Returning success, BUSY or an error without doing the copy
+cannot preserve the existing synchronous operation contract.
+
+Injected plug-in return values 1 and 0xffffffff also do not produce a retry in
+the original parameter wrapper; it simply gives the lock and returns. These
+experiments do not invent an original failure ABI for the imported copy helpers.
+
+4. Why audio must continue while joining old control work
+The original word-copy producer publishes destination/count and polls until the
+audio consumer clears the count. The new test stops at its first actual poll and
+confirms four words remain pending and the destination has not yet been copied.
+The preceding audit already executed completion through the real audio callback.
+
+Therefore closure must first prevent NEW producers, then let admitted producers
+and their audio consumers complete. Stopping audio before that drain would strand
+an admitted copy. The effects lock must not be held by a coordinator while waiting
+for a caller which itself needs that same lock to finish. No wait-for-ownership
+loop belongs inside the audio callback.
+
+5. Mode deferral belongs before whole workflows
+0x8000ca98 / 0x8000cab0 still bypass the effects lock and directly store their
+selected callback. Holding only 0x80446818 does not exclude them.
+
+Observed original call order (other subsystem bodies modeled):
+  0x80006ca8: 0x8002fa18, 0x80007ff8, then mode setter via 0x80002868.
+  0x80006fc8: 0x8002fba8, 0x8002fa18, 0x80007ff8, then the same setter.
+Both continue other subsystem work after changing the selector. The execution
+check establishes ordering, not the deep effects of those stubbed subroutines.
+
+0x8001d968 takes the opposite path: setter through 0x80002c58 first, then updates
+its own state and calls 0x800494c0. It also does not take the effects lock.
+Another known switch site, 0x8001d8fa, follows parameter/report work in its enclosing
+handler. That larger path and the enclosing workflow around 0x80006f7c still need
+complete entry/ownership classification; intercepting their final store is too
+late to assume the whole operation has been deferred.
+
+6. Concrete protocol constraints for the next implementation
+A candidate coordinator should:
+- Obtain closure at caller/dispatcher boundaries, before mode workflows acquire
+  other resources or mutate state. Any deferred event must retain its complete
+  payload and ordering; no reconstructed partial UI command.
+- Keep admitted effects handlers counted until they return, including plug-in
+  imports and direct/deferred copies. Parameter callers waiting for admission must
+  keep their arguments/source storage alive and receive no premature return.
+- Let audio keep running while earlier parameter-copy consumers drain. Do not
+  make audio wait for the publication worker or effects lock.
+- Acquire the existing effects exclusion only after its prior owner completes;
+  a publication worker can retry a positive, separately verified acquisition
+  protocol, but cannot inject failed waits into original callers.
+- After all relevant control work is joined, request the balanced audio-callback
+  acknowledgement and independently join pad stream workers, card and recording
+  ownership. Retain closure across assignment/settings update until rearm.
+
+These are implementation constraints supported by the recovered paths, not a
+new installed coordinator. The default playback fence remains BUSY. Complete
+mode-dispatch ingress, imports used during active processing, lock ordering,
+RTOS wakeup/priority behavior, and failure/recovery still require evidence.
+
+Verification scope
+9 groups: table initialization/getter; both parameter-handler orderings; suspended
+wait plus later exact resumption while separate audio runs; ignored failed wait;
+no verified retry from error-like plug-in returns; selector bypasses effects
+lock; two earlier-starting mode workflows; opposite mode ordering; pending copy
+requires continued audio progress.
+
+Original control code, initializer, mode setters and full audio callback execute.
+Kernel wait/signal, imported plug-in body and deep mode-workflow subsystem bodies
+are modeled explicitly. Suspended-CPU continuation retains its actual registers
+and stack; separate CPU execution avoids recursively corrupting the first CPU.
+Synthetic placement and instruction coverage are not device timing or chipset
+proof. There is no flashable image or hardware-readiness claim.
+
+Reproduce
+  /tmp/l6-re-tools/bin/python tools/verify_control_admission.py
+Report: analysis/control_admission_verification.json
+
+Follow-up: control_coordinator_findings.txt implements a bounded compiled
+upstream queue/admission/drain ABI for five whole handlers and verifies original
+wait/copy completion. This does not install a UI/task adapter or renderer fence.

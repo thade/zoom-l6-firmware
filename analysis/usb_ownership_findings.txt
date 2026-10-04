@@ -1,0 +1,99 @@
+L6 proposed USB storage transition ownership — 2026-10-04
+
+Outcome
+--------
+Added an offline compiled controller which acquires an exclusive storage owner
+BEFORE the original c220 storage-entry path mutates the filesystem. It retains
+that owner throughout the host session, a checked stop and descendant join,
+remount, deferred pad reload, settings save and independent readback. Only then
+can it release the owner. This is a proposed integration, not installed firmware
+and not evidence that all native device storage ingress is covered.
+
+What executes
+=============
+prototype/overdub/usb_ownership.[ch] introduces a permanent, single-controller
+binding. The caller must zero its objects once before initialization, and must
+not reset a live owner/ledger. Three storage profiles use selectors 6, 8 and 10.
+The compiled us_stock_enter wrapper calls original 0x8000c220 with type 1. The
+fixture executes original 0x80009b18 and 0x80062230 as part of entry; the latter
+really clears the synthetic volume pointers. Admission therefore demonstrably
+precedes that mutation, not just the eventual worker command.
+
+The request boundary at 0x8003b7e0 is redirected in the emulator to us_queue.
+The proposed transport copies 20 bytes: parent owner, command child, operation,
+selector, parameter. The consumer claims the exact request before invoking its
+checked driver port. This replaces the assumptions of the mutable two-word
+native mailbox; it is NOT a compatible addition to the existing mailbox. Both
+native endpoints would need changing together after old work is drained.
+Accepted and uncertain delivery retain a child until the consumer completes.
+A known rejected send faults the controller. Old/unknown tickets do no work;
+changed metadata for a live ticket faults the ledger. Completion retries never
+repeat a driver operation.
+
+The exclusive owner stays live in US_HOST even after START completes. An exit
+request copies the expected full pad/settings plan before issuing STOP. After
+STOP and all attributed children join, us_stock_remount reconstructs c288's
+saved-register frame and enters at 0x8000c290, AFTER its original stop call. The
+original filesystem reset, card check and 09a40 setup control flow run. Its
+08d68 reload request is intercepted as one deferred intent, without submitting
+the original untagged reload. A separate checked local-readiness port must then
+succeed before the existing compiled reload manager starts under the USB parent.
+
+The ordinary reload worker, Main UI reload, public filesystem wrappers and
+settings readback execute as in the earlier manager tests. The USB parent waits
+for the manager's verified completion and any remaining children before release.
+Added od_own_exclusive_drained is a non-retiring join: checking completion at
+an intermediate phase cannot accidentally reopen general storage admission.
+
+Evidence and limits
+===================
+tools/verify_usb_ownership.py exercises the compiled ARM code with original
+firmware routines and synthetic RAM/files. The per-suite report is
+analysis/usb_ownership_verification.json; the combined current-build report is
+analysis/usb_ownership_regression.json. Reports include image/build hashes. The final run passed 19 new USB test groups
+and 461 groups across 29 suites in total, including the independent 18-group
+stock storage lifetime audit.
+
+Covered cases include all three profiles, admission before volume mutation,
+existing storage work, delayed START/STOP, whole-session exclusion, late child
+work, ambiguous/rejected delivery, checked driver errors, command copying,
+claim/completion contention, stale identities, corrupt request metadata,
+subsequent sessions, absent/unavailable cards, ignored stock mount errors,
+delayed positive readiness, immutable plans, lost external exclusion, failed
+settings writes/readback, and metadata-only final-release retries.
+
+USB queue delivery, scheduler selection and boundary PC redirection are fixture
+operations. The checked USB driver port is MODELED. It must eventually prove
+successful start, or close host ingress and join/attribute every outstanding
+operation before reporting successful stop. The native ack and cleared active
+byte cannot satisfy that contract (see storage_lifetimes_findings.txt).
+
+Mount driver results and readiness are also modeled. The test deliberately
+executes the stock code that ignores mount errors, and supplies that error to
+the required checked-readiness port. This verifies that the controller rejects
+it; it does not implement native capture of that error. Card directory/catalogue
+work, quiescent recorder/pad release effects, SD drivers and audio remain models.
+Those transition stubs are scoped away before the subsequent original reload,
+so its loader and unloader control flow execute rather than being bypassed.
+
+The external exclusion port must remain continuously held against pad/control,
+ordinary recorder and competing mode/card operations. Other native entry paths,
+including c2d8 and direct card/recorder callers, are still unbound. Consequently
+this module is NOT wired in as proof of publication_workflow's external exclusion.
+
+The expected plan is supplied by a trusted caller at exit. These fixtures model
+no host edits; deciding and validating the expected result after arbitrary host
+changes remains separate work. The controller does not discover that plan from
+whatever happens to load and then declare it correct.
+
+Next bounded investigation
+==========================
+Trace original USB start 0x8003b5a8 and stop 0x8003b558 into their lower driver
+work, callbacks and waits. Establish whether stop closes new requests and joins
+existing transfers, which results report real failure, and where error ownership
+can be retained. This is the prerequisite for replacing the modeled checked
+worker port with evidence-backed native boundaries. Then cover alternative
+USB/card ingress and actual recorder postprocessing through all tail reopens.
+
+No mixer access, SD writes, firmware update image, flash operation or recovery
+claim was made. The vendor L6.BIN remains unchanged.

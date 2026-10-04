@@ -1,0 +1,165 @@
+L6 DEFERRED PAD RELOAD: WORKER, UI FOLLOW-UP AND FALSE COMPLETION
+4 October 2026
+
+Result
+Executed the original deferred reload producer, assignment worker, entire reload
+callback, and the subsequent UI event branch. The event is NOT the end of storage
+work: the UI performs another stop/unload/reload cycle for all four pads, followed
+by settings-save and display-refresh calls. Both stages must retain ownership.
+
+19 new audit groups pass. Targeted storage/shutdown/publication validation passes
+53 groups across four suites (pad_reload_regression.json). No compiled prototype,
+stock firmware, device or SD card was changed in this stage. The default unbound
+storage lifetimes remain unbound; no new success shortcut was installed.
+
+Files
+  tools/verify_pad_reload.py
+  analysis/pad_reload_verification.json
+  analysis/pad_reload_regression.json
+
+1. Original producer and worker
+80008d68 sets the shared assignment-busy word 807348cc and enqueues a 32-byte
+message whose first word is callback 80049da1. Queue handle slot: 801f8f3c.
+The producer ignores/masks the send outcome, as established in the prior audit.
+
+Worker 80036290 receives the message through 800483a8, passes a pointer to the
+remaining words in r0, and calls the first-word callback through BLX r1 at
+800362b4. Actual return reaches 800362b6. No unique request identifier is present
+in the stock reload message/event contract. Multiple reloads can queue while
+sharing the same busy word.
+
+The new tests execute that whole producer/worker route. A failed, undelivered
+send leaves busy=1 with no callback. An injected ambiguous failure can also have
+been delivered and completed. Producer return alone cannot choose between them.
+
+2. Full reload callback and its local per-pad outcomes
+80049da0 calls settings loader 80006410(0), then looks up configured pad paths in
+the catalogues and calls original assignment 8004b760 where applicable. It also
+has a fallback path which searches catalogue candidates and loads them directly.
+The fixture uses actual catalogue, path, validator and loader control flow, with
+settings input, WAV parsing, file drivers, RTOS and engine effects modeled.
+
+Local status words at stack offsets +8,+12,+16,+20 are not an external result API:
+  0: initially cleared array when the settings loader reports failure;
+  1: configured NO ASSIGN marker;
+  2: the callback's other distinguished path marker (not given a UI meaning here);
+  3: configured basename absent from catalogue;
+  4: assignment function returned zero;
+  01010101: byte-filled initial sentinel left unchanged after early assignment
+            rejection on the tested path.
+The 16-byte initialization fills bytes with 1, not four integer words with 1.
+The sentinel compares above 3 and therefore skips fallback on that path. It must
+not be mislabeled as a successful load or ordinary integer result 1.
+
+Fallback can load catalogue candidates even when the settings read failed, or
+when settings contain NO ASSIGN. The synthetic initialized catalogue's selected
+candidate is index zero. A separate negative control overrides that getter with
+-1 to demonstrate a settings failure with no candidates loaded. Neither behavior
+should be inferred as a user-facing promise from the internal result array.
+
+3. Late load failure is reported as success by the assignment wrapper
+The callback's direct assignment calls occur at 80049e34, 80049ebc, 80049f3e and
+80049fc4. Original 8004b760 validates, stops/unloads, updates the path, calls
+loader 800092a0 and may prefetch through 80036360 -> 800369a8.
+
+If the validation pass succeeds but the subsequent loader rejects the WAV or
+cannot open it, actual loader control flow clears assigned/loaded state and
+changes the path to NO ASSIGN. The outer assignment still returns zero. The
+reload callback records local result 4 and continues. Tests reproduce this on
+all four pads for late parse rejection and on one pad for a late open failure.
+
+The existing strict stock-pad snapshot plus comparison with the intended path
+can detect that disagreement. A snapshot of current state alone legitimately
+accepts a consistent empty pad; comparing expected versus observed state matters.
+However, state readback is not sufficient for all I/O failures: an injected close
+error during the initial validation pass can be ignored while the final paths,
+loaded flags and snapshots all look correct. I/O error evidence must remain owned.
+
+4. The completion event is an attempted-operation notification
+At 8004a2f2 the callback calls original 80020ca0 with words:
+  {1,4,26,0,0}   (26 = 0x1a)
+80020ca0 packs those five words and calls event transport 8006e4b8. The event has
+no per-pad results or unique reload ticket. Identical words are emitted after
+successful loads, missing names, settings failure and late loading failure.
+The callback's return register follows the event transport result in these tests,
+not an aggregate file/assignment success status.
+
+The shared busy word is still 1 at callback return if the UI has not processed
+the event. It is neither a return acknowledgement nor a reliable count of work.
+A separate UI CPU can handle the event and clear busy before the original callback
+returns. This is an explicit scheduling injection, not a measurement of actual
+task priorities on the L6.
+
+5. The UI performs a SECOND storage-bearing reload
+The original generic event consumer 8002d568 reads category 4 and event 26. Its
+jump-table branch reaches 8002d74c, logs, calls 80008b68 and later UI refresh
+8000a5d8. This is NOT the neighboring simple busy-clear path 80008ac8.
+
+80008b68 performs:
+  800075a8(1)     status/control update;
+  80002ce8       stop all four pads (calls 80018350 for each);
+  80009840       tail-call unload-all 800096b0;
+  80009930       tail-call load-all 80009748;
+  800075a8(0);
+  8000ac90       tested flag getter;
+  80006b18       settings save when that getter is zero;
+  clear 807348cc under its mutex at 80008bb0;
+  return, then UI refresh.
+
+80009748 calls loader 800092a0 for each pad and prefetches through 800369a8 for
+loaded pads. With four valid synthetic files, the new full-consumer test observes
+FOUR MORE closes, FOUR MORE opens and FOUR MORE prefetch calls after the worker's
+initial four prefetches. Busy remains 1 at the save call and is 0 at refresh.
+Original stop-all dispatch, unload, load, UI routing and busy clear execute. The
+individual stop bodies, engine/prefetch work, save body and refresh are modeled.
+
+An injected unload-close error in this second cycle still leads to consistent
+loaded snapshots and busy=0. Another test stops the assignment worker after its
+first callback return, runs the UI completion, and observes busy=0 while a second
+reload remains queued. That paused worker is not resumed in that test; it is a
+specific scheduling/flag counterexample rather than full RTOS emulation.
+
+6. Consequence for releasing storage ownership
+None of these observations alone justifies releasing the storage session:
+  mount return zero; reload send return; local status 4; completion event;
+  worker callback return; final loaded flags/path snapshots; shared busy zero.
+They each miss another demonstrated failure or continuation.
+
+Required lifetime: retain a non-reused storage owner before the original mount/
+catalogue/reload work, attribute the queued worker callback, reserve the UI
+continuation BEFORE publishing its event, and keep both branches owned until
+actual returns. File/prefetch descendants must also remain attributed through
+completion, including failures and uncertain waits/closes. The final state check
+must use the intended path/options policy rather than count any empty pad as a
+successful reload. Known-empty/no-candidate cases need an explicit accepted
+outcome; fallback may intentionally change the selected file.
+
+A UI event's original five-word payload cannot simply be repurposed without
+changing its producer and consumer together. An added ticket envelope or owned
+side record needs explicit capacity, lifetime, ordering and failed-send behavior.
+Two identical queued reloads must never be matched merely by event code, pad
+number or the shared busy flag. The existing ledger can retain those branches,
+but their real queue/event ingress and error observers are not installed yet.
+
+This finding prevents premature integration: releasing a reload owner at
+800362b6 would omit the later UI's four file closes/opens and save. Releasing at
+busy-clear would also omit later queued requests and any unjoined file descendants.
+
+Next implementation target
+Add explicit ticket ownership spanning both the reload worker and its UI follow-up,
+with reservation before event publication, positive handling of failed/uncertain
+sends, and checked file-operation outcomes. Validate that a completion arriving
+after a newer request cannot release the newer owner's storage reservation.
+Keep the actual global storage fence blocked until those ingress/descendant
+contracts, the recorder lifetime, and USB host-session return are all connected.
+
+Reproduce
+  /tmp/l6-re-tools/bin/python tools/verify_pad_reload.py
+
+Subsequent compiled protocol
+reload_ownership_findings.txt documents the next stage: explicit worker and UI
+branch tickets, reservation before publication, original-return accounting,
+retained errors and descendant-aware final verification. The harness supplies
+the proposed envelope transport; real queue/event and I/O observer installation
+remain unfinished. The additional UI reload is no longer omitted from the
+compiled lifetime model.

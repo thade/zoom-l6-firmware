@@ -1,0 +1,150 @@
+L6 RECORDER SCHEDULING, DRAIN ACKNOWLEDGEMENT AND REQUEST ATTRIBUTION
+3 October 2026
+
+Follow-up: request_router_findings.txt corrects the false-start defect in the
+new explicitly scoped emulator route. The historical negative control below
+remains reproducible with routing disabled. Real task/queue binding is unproved.
+
+Result
+Eleven new offline groups execute original queue setup, control dispatch,
+request classification, producer wakeup, stop predicates and completion-token
+paths. They identify useful worker boundaries but NO complete session fence.
+One negative control reproduces a defect in the current compiled extra-capture
+bridge: a normal record-to-stop toggle publishes a second START and cancels the
+optional take. The prior 78 passing groups did not cover this full request path.
+The new suite passes because it explicitly asserts that defect; this is NOT a
+claim that normal device interaction now works. The prototype is unchanged.
+
+Files
+tools/verify_record_scheduler.py
+analysis/record_scheduler_verification.json
+prototype/extra_capture/README.txt
+
+No device, card or firmware image was modified. Stock L6 v1.10 SHA-256:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+
+1. Independent tasks and their wakeups
+Task descriptors in the stock initialization table:
+  0x800a1e74: RecPlayCtl, entry 0x80034bc9, raw size field 0x1000.
+  0x800a1cc4: StreamFileAccess, entry 0x80037381, raw size field 0x400.
+  0x800a1cf4: StreamUpdateRecStream, entry 0x80039341, raw size field 0x400.
+The size fields are recorded as raw arguments; no stack-headroom claim follows.
+
+Original initializer 0x80048248 calls the modeled allocator for a 512-entry,
+32-byte-message queue and stores its handle at 0x801f8f38 (RecPlayCtl). The file
+queue at 0x801f8f2c is one entry of 16 bytes. The test executes the original
+initializer with task creation and allocation intercepted.
+
+RecPlayCtl blocks through 0x800483a8 -> 0x80076710 with timeout -1. It dispatches
+message word zero at 0x80034c20, passing a pointer to the remaining words. Its
+busy word at 0x80578ec0 is set around callback execution and cleared before the
+next receive. Execution confirms that busy is zero even with more messages in
+the modeled queue. Polling that flag is insufficient to retire a session.
+
+Record stream selection at 0x80037b20..0x80037b56 writes stream index C+0xec,
+frame request C+0xf0, and busy byte C+0xe8 before signalling the handle at
+0x80446940. C = 0x8077ca30. Worker 0x80039340 waits on that handle and invokes
+producer 0x80038e60. It does not branch on the wait's return value. Execution
+tests both injected zero/nonzero wait results; this is a failure-path probe,
+not evidence that failed waits normally occur on the L6.
+
+This establishes a concrete stock producer wakeup mechanism, not a spare worker
+for the new file. The optional worker still needs its own scheduling/lifetime
+contract. File draining/readback cannot be placed in the real-time sample hook.
+Any reuse of stock worker time requires budget and ownership analysis first.
+
+2. Queue submission is not acknowledged by producer return
+0x8004b6d8 queues record-start callback 0x8004b9a1; 0x8004b718 queues stop
+callback 0x8004ba41 and its argument. Both use mutex 0x80446894 and queue sender
+0x800483f8. After send, they release the mutex and overwrite the send result.
+Injected send failure and success therefore produce the same modeled producer
+return. A future integration must observe/own the send outcome at the send
+boundary, not infer it from the high-level producer returning.
+
+An experiment puts old-stop, marker and later-start callbacks in FIFO order.
+The original dispatcher executes them in that order, with busy=1 in each and
+busy=0 between them. A marker can acknowledge earlier callbacks in this modeled
+FIFO, but does not exclude later callbacks already queued behind it, future
+producers, audio hooks or other tasks. A usable retirement barrier needs producer
+admission closure and all in-flight reservations accounted for before its marker.
+No marker or admission closure is installed by this investigation.
+
+3. Important correction: saved start cursor is not a START event
+The full request routine 0x80034f40 calls selector 0x80002478 and saved-start
+setter 0x80006908 BEFORE deciding what the request means. Original execution
+with explicit admission fixtures verifies:
+  UI state 0, worker idle: queues record-start.
+  UI state 0, worker busy: returns without queuing a callback.
+  UI state 1, mode getter returning 2: queues record-stop.
+  UI state 2: returns without queuing a callback on the tested path.
+All four paths update the saved-start cursor. Early rejection also does so,
+as already established in record_events_findings.txt.
+
+The compiled bridge currently intercepts 0x80006908 and publishes START for
+every call. With a take already admitted, the genuine request-to-stop path
+therefore queues START in the new mailbox before the stock STOP callback runs.
+The bridge detects duplicate START, returns error 12, closes the extra file and
+withholds eligibility. The test executes this path and confirms the failure.
+Ordinary-file sentinel checks still pass; no pad assignment is performed.
+
+Correct integration must distinguish a request-time sample snapshot from an
+accepted record-start event. The accepted-start branch reaches 0x80035030;
+the stop branch reaches 0x80034fda. Those are attribution leads, not drop-in
+replacement hooks: delayed modulo resolution could lose the original timestamp,
+and other callers/overlapping requests still need coverage. Keep the timestamp
+owned by its request, publish it only for an attributed accepted start, and carry
+its identity through queue delivery/admission. Ignored/rejected requests must
+not cancel a different active take. The current rejection hook also needs that
+ownership audit. Merely suppressing duplicate START would hide real ordering bugs.
+
+4. Stop helpers change state; they are not global idle checks
+0x80037d68 saves C+0x10 once at 0x8077ca27, clears C+0x10, and reports whether
+C+0xe8 is zero. 0x80037d98 restores the saved mode. These helpers suspend and
+restore production rather than simply observing it.
+
+0x80037df0 returns false while stream-active mask C+0x440 is nonzero. Once
+zero, it clears C+0x10 and waits for C+0xe8 to be zero. Depending on C+0x1e88,
+it also clears C+0. It does not inspect file error C+0x1e48; an injected file
+error still allows a true return. It supplies activity evidence, not IO success.
+
+0x80002360 -> 0x80018e10 clears recording state at B+0x53d0, B+0x53d4 and
+associated counters, then unconditionally returns 1. B=0x20010a48. Despite the
+caller looking like a polling loop, this helper does not wait for the audio
+callback to return and cannot be used as an audio-reader/reclamation fence.
+
+5. Final disk write has a narrower, useful rendezvous
+Initialization at 0x80037f26..0x80037f36 installs callback 0x80037359 in
+C+0x1e20. That callback waits/takes the token at 0x804467f8 through 0x80076950
+and then gives it back through 0x800763d8. The stock payload producer also takes
+this token before enqueueing writes at 0x80037590. StreamFileAccess gives the
+same token after a write attempt (0x800373b4..0x800373be).
+
+The final-stream suffix 0x80039304..0x8003933a calls C+0x1e20 before clearing
+the last bit in C+0x440. Original execution confirms that ordering. Under the
+normal successful token contract, this is evidence of a rendezvous with the
+last file-write attempt before the producer marks all streams inactive. It
+does not prove the physical medium has durably stored data or headers are closed.
+
+Two negative controls limit that inference:
+  - 0x80037358 does not check wait failure. An injected failed wait still gives
+    the token back, and the producer then clears the active mask.
+  - The original file worker gives the token after short and failed writes as
+    well as successful ones. Tests verify both error latch and signal ordering.
+Thus token completion, stream inactivity, successful IO, file finalization and
+callback-queue retirement are distinct facts. None should stand in for the others.
+
+Scope and next implementation
+The 11 new groups cover original instruction windows with modeled queues,
+allocation, waits and selected callees. They do not execute complete RTOS/DSP/SD
+or the entire stop backend. Hardware atomics, cache, RAM allocation, timing,
+recovery and pad-reader exclusion remain unresolved. No emulator fence is newly
+bound and no custom worker has been created on hardware.
+
+Next: correct request attribution before extending repeated-take integration.
+Retain the original sample timestamp in an owned request, distinguish accepted
+start from stop/ignore/reject, capture actual queue admission outcome, and carry
+the request/session through the control callback. Then test stop-toggle, ignored
+requests, queue failure, overlapping requests and delayed old callbacks. The
+subsequent retirement design must close producer admission before requesting a
+queue barrier and must separately cover sample-hook lifetime and optional-file
+completion. Existing busy flags are insufficient for that job.

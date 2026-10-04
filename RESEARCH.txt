@@ -1,0 +1,56 @@
+Zoom LiveTrak L6 firmware research
+
+Status — 4 October 2026
+The goal is repeated whole-song overdubbing using sound pads, while preserving
+clean channel recordings and the ordinary processed stereo master. An additional
+pre-compression stereo recording is intended to become the next backing pad.
+
+Hardware evidence so far:
+- A modified USB product string was installed and observed as T6, then restored
+  to the stock L6 name.
+- A one-instruction change was installed and observed as ZOOM L6. Stock
+  restoration for this second trial is prepared; confirmation is pending.
+- The official editor's File Transfer Mode can stage the update on the card
+  without removing it. Installation still uses the physical update boot sequence.
+
+The overdub implementation remains an offline prototype. Neither newly added
+code storage nor the full recording workflow has been demonstrated on hardware.
+Restoring a working marker image does not prove recovery from broken firmware.
+No ready-to-install overdub firmware is provided. This is an independent project,
+not an official Zoom release.
+
+Layout
+tools/                  Analysis, build and verification scripts; macOS helpers.
+prototype/extra_capture/ Additional stereo capture and session orchestration.
+prototype/overdub/       Pad publication and resource-lifetime prototypes.
+analysis/*_findings.txt  Research notes, including historical intermediate results.
+
+Historical notes describe the state when written. In particular, earlier notes
+saying firmware installation has never been tested predate the marker trials.
+Their unresolved hardware, concurrency and memory-placement limits still apply.
+
+Local research setup
+Use Python 3 and install requirements-research.txt in a virtual environment.
+Obtain the official L6 v1.10 firmware from Zoom and place its L6.BIN at:
+  Reference/L6_v1.10_E/L6.BIN
+Expected SHA256:
+  64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+Vendor firmware, manuals, recordings and local device backups are not included.
+
+From the repository root, these commands build and verify the small code probe
+locally. They do not write to a device:
+  python tools/build_code_probe.py
+  python tools/verify_code_probe.py
+
+The two emulator-only prototype builds are:
+  python tools/build_overdub_prototype.py
+  python tools/build_extra_capture.py
+Their ELF files use emulator addresses and must not be installed on the mixer.
+
+This is a research workspace, not yet a portable test package. Some older tests
+depend on private recording fixtures, which are intentionally excluded. The
+audio-analysis scripts additionally require NumPy. Device helpers use macOS
+frameworks; analysis/emulation scripts do not require a connected mixer.
+
+Official firmware source:
+https://zoomcorp.com/en/us/digital-mixer-multi-track-recorders/digital-mixer-recorder/livetrak-l6-final/l6-support/

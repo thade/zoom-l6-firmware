@@ -1,0 +1,28 @@
+ZOOM L6 EDITOR: INITIAL READ-ONLY INSPECTION
+
+Installed app: /Applications/ZOOM L6 Editor.app
+Version: 2.0.0, build 39.
+
+The app uses Flutter and a native MIDI connection framework. Its compiled
+App framework retains readable Dart class, method and source-path strings.
+These are identifiers, not recovered source code or verified function contracts.
+
+Relevant identifiers include SoundPadAssignService, SoundPadFileNameService,
+SoundPadStateService, AppSysEx, sendAssignFileNameRequest,
+buildAdvPatchDataDumpReqAssignFileName and updateAssignFileName.
+A user-facing message specifies SOUND_PAD/PAD{{padNum}} on the SD card.
+
+This provides a second route into understanding pad selection: trace the editor's
+assignment requests and match the resulting MIDI SysEx handlers in the firmware.
+Packet layouts, supported paths, recording commands and synchronization behavior
+have not yet been recovered. An identifier alone does not prove a device command
+exists or reveal whether it reads or writes a setting.
+
+Next: decode the relevant message builders or observe one deliberate pad-selection
+change with a connected mixer. Establish whether selection is limited to files in
+the pad folder; selecting a file is distinct from transferring/copying a new master.
+This can establish the existing control interface before any firmware patching.
+It does not establish firmware update acceptance or recovery.
+
+No app was launched or modified, no MIDI messages were sent, and no hardware
+settings were changed. Offsets and matching strings are in editor_inventory.json.

@@ -1,0 +1,160 @@
+L6 CONTROL ADMISSION COORDINATOR: COMPILED OFFLINE PROTOTYPE
+4 October 2026
+
+Result
+Implemented a 340-byte compiled coordinator for five inspected whole control
+handlers. It accepts copied scalar commands, executes them in FIFO order on a
+worker, closes new execution admission, joins the currently running handler and
+keeps unstarted commands pending until an explicit matching-epoch reopen.
+An accepted command is not reported complete until its original handler returns.
+
+11 new groups pass. Relevant rebuilt-prototype and firmware-audit regressions
+also pass: 231 groups across 14 suites. Exact inventory and hashes are in
+control_coordinator_regression.json. Historical negative controls are included;
+test totals are not hardware-readiness measures.
+No stock firmware or device/card was changed. The rebuilt overdub.elf is an
+offline test artifact, not a firmware update.
+
+Files
+prototype/overdub/control_coordinator.h and control_coordinator.c
+prototype/overdub/control_fixture.c (synthetic test effect callback only)
+tools/build_overdub_prototype.py
+tools/verify_control_coordinator.py
+analysis/control_coordinator_verification.json
+
+1. Supported whole operations
+The compiled stock-dispatch adapter executes:
+  kind 1: 0x8000e748, two scalar arguments (first effect parameter handler)
+  kind 2: 0x8000e7b0, two scalar arguments (second effect parameter handler)
+  kind 3: 0x80006ca8, no arguments (inspected mode workflow)
+  kind 4: 0x80006fc8, no arguments (second inspected mode workflow)
+  kind 5: 0x8001d968, no arguments (opposite selector workflow)
+It enters these functions at their starts, not in the middle at a selector store.
+Other mode/effect/import callers are not covered by this five-operation set.
+
+This is a proposed upstream dispatcher ABI. The harness submits commands before
+original handlers execute; no existing UI, MIDI or task dispatcher is patched.
+Original synchronous calls are not intercepted and handed a new BUSY return.
+An upstream adapter must retain the event, preserve ordering and defer caller
+completion until its accepted ticket is DONE. If no slot is available, the
+upstream owner must keep the event and retry; FULL does not accept/drop the event.
+
+Only the two scalar words supported by these operations are copied. No borrowed
+caller payload/source pointers are stored. Mode jobs require both words zero.
+Future commands containing pointers need an explicit ownership/copying design.
+No original handler return ABI is replaced by the new completion status: DONE
+only says that the dispatched handler returned, not that its requested effect
+was independently validated or that stock internal errors were diagnosed.
+
+2. Admission, execution and closure
+OcCoordinator contains a short atomic try-lock, ticket sequence, closure epoch,
+closed flag, one running ticket and 16 job slots. Initialize it to zero once
+before participants run. It remains allocated; no live reset/destruction or
+public fault-recovery operation is provided. Passed pointers refer to valid,
+non-overlapping caller-owned storage; this is not a memory-permission validator.
+
+oc_submit returns a fresh, non-reused ticket. Its payload is owned until completion
+is consumed. Submission does not execute original code or return an original
+function's success. oc_take_done on queued/running work returns BUSY.
+
+oc_run_one admits the lowest-ticket queued job only while open and no handler is
+running. It marks that job RUNNING, releases the metadata lock and dispatches the
+whole original operation. Original effects-lock waits and parameter-copy waits
+therefore do not hold the coordinator lock or stop its manager from closing.
+A second worker cannot enter another original handler while this one runs.
+
+After dispatch returns, a release store publishes DONE as the worker's last
+access to that job. Completion consumption acquires that state before reclaiming
+the slot. DONE records retain their slots until consumed; no completion is
+silently overwritten. A running marker pointing at DONE can be reaped by the
+manager or next worker. Reusing a slot always assigns a fresh ticket.
+
+oc_close closes execution admission and issues a fresh epoch. Unstarted commands,
+including ones already queued before closure, remain parked. Commands submitted
+while closed can also be accepted into available slots, but cannot start. They
+have no original-handler side effects yet. An already admitted handler continues
+normally, including audio-dependent work, until its actual return.
+
+oc_drained succeeds only for the current closed epoch with no running handler.
+It does not require parked commands to disappear; those are held for later
+execution and must not be confused with completed commands. It does not by
+itself acknowledge audio return, drain sampler reads, acquire card ownership or
+validate ordinary recorder state.
+
+oc_reopen requires the matching closed epoch and drained active control work.
+Its caller must additionally establish readiness through the external playback,
+card and recording protocol. No automatic reopen occurs on a timeout. Old,
+missing, duplicate or wrong epochs are rejected. Ticket/epoch exhaustion refuses
+new operations instead of wrapping. No queue timer, task wakeup or starvation
+policy is implemented in this stage.
+
+3. Actual original-code integration evidence
+The tests execute the original effects import-table initializer, the five handler
+entry paths and stock selector stores. Deep subsystem bodies within mode workflows
+remain stubs. The effects-lock kernel wait/signal and ordinary plug-in callback
+body remain models, explicitly inherited from the prior caller audit.
+
+One test suspends the worker in the original effects-lock wait. An independent
+manager CPU closes the compiled coordinator and submits another command using a
+copy of its shared state. Drain/reopen cannot succeed while the first handler is
+pending. After resumption, the original parameter value is used, the first job
+becomes DONE, and the later one stays queued until explicit reopen.
+
+A stronger integration test uses control_fixture.c as a synthetic effect callback
+which calls the REAL stock word-copy import through the original import table.
+The coordinator runs the original handler, which reaches that callback, publishes
+a real deferred copy and waits at its original poll. The manager closes admission
+and correctly remains undrained. A separate audio CPU then executes the full
+original normal callback, including its secondary dispatcher, and completes the
+copy. Only after the original producer and handler return does the compiled
+coordinator report drained. The subsequent mode command remains parked.
+
+This is controlled CPU interleaving with explicit shared-memory transfer. It is
+not a simulated complete RTOS or real task preemption/cache/DMA behavior. The
+synthetic effect callback is test infrastructure, not a replacement Zoom effect.
+The worker must be distinct from audio: executing a blocking parameter-copy
+producer on the audio task would not be made safe by this coordinator.
+
+4. Verification
+11 new groups cover FIFO whole-handler execution; accepted-versus-DONE semantics;
+parking before and after closure; closing during an original lock wait; real
+imported copy completion through original audio; mode workflow deferral before
+entry; scalar-payload ownership; queue saturation and retained completions;
+fresh tickets and closure epochs; no wraparound; invalid payload and try-lock
+contention; and prevention of duplicate/concurrent worker execution.
+
+The rebuilt prior pad suites and relevant audit suites also pass. Their combined
+inventory is recorded separately so the 231 total is not confused with the prior
+capture-only suite counts. The extra-capture ELF is unchanged.
+
+5. What remains before connecting automatic pad publication
+This implements control admission and drain, not the complete all-reader fence.
+The default playback fence still returns BUSY, and manager/pad publication has
+not been enabled with a synthetic success result.
+
+Next integrate a non-reused callback-completion request/acknowledgement with this
+closed-and-drained control state. It must track the actual callback admitted at
+entry, reject invalid mode/secondary-state changes, and wait for actual return.
+Combine that with existing playback session and stream-child ownership, then
+establish physical card/ordinary-recorder exclusion before any pad assignment.
+
+Production ingress still requires a real UI/task adapter at whole-event boundaries,
+coverage of the other mode and imported-callback callers, caller-context/lock
+ordering verification, source/event lifetime, cancellation/fault reporting,
+backpressure and task-priority/wakeup design. The implementation cannot be dropped
+at a void-like low-level setter and assumed to defer its caller correctly.
+
+Memory placement, real interrupt/DMA/cache behavior, storage timing, boot recovery
+and update packaging remain separate. No hardware installation is recommended
+by this emulator-stage result.
+
+Reproduce
+  /tmp/l6-re-tools/bin/python tools/build_overdub_prototype.py
+  /tmp/l6-re-tools/bin/python tools/verify_control_coordinator.py
+
+Subsequent stage: audio completion
+The following implementation stage appends 32 bytes of audio completion state
+(coordinator now 372 bytes) and pins reopen when an optional audio request is
+pending. See audio_completion_findings.txt and audio_completion_regression.json
+for current implementation behavior, tests and hashes. The 340-byte description
+and 231-group inventory above describe the preceding control-only stage.

@@ -1,0 +1,149 @@
+L6 native USB start/stop lifetime audit — 2026-10-04
+
+Result
+======
+The native shutdown has real endpoint-flush polling and a mass-storage worker
+stop handshake. Neither its public return value nor its worker acknowledgement
+alone is evidence of a completed SD transfer drain. The registered storage
+callback on the worker stop path takes/releases a per-unit semaphore, toggles
+register bits around dispatch, and returns success without calling an SD backend.
+Whether that semaphore covers outstanding asynchronous SD work remains unproven.
+
+This narrows the missing native contract. It does NOT replace the modeled
+checked-worker port in usb_ownership.c with a positive readiness flag.
+
+Evidence
+========
+17 new original-code test groups pass in tools/verify_usb_driver_lifetime.py.
+Results: analysis/usb_driver_lifetime_verification.json.
+Bounded disassembly: analysis/usb_driver_lifetime_disassembly.txt.
+
+The tests run original ARM instructions with synthetic RAM. RTOS scheduling,
+events, semaphore outcomes, low-level cleanup results and endpoint register
+changes are controlled fixtures. Fault injection is a negative control, not a
+claim of a reproduced defect on the mixer. No physical USB, SD, or flash access.
+Neither prototype source nor its ELF was changed in this audit.
+
+Native chain and return conventions
+===================================
+Start: 3b5a8 -> 3aeb8 -> setup/registration -> 727b8 -> 727e8 -> 72998.
+All addresses in this note have the prefix 0x800 unless explicitly full-width.
+
+At 3b5a8, byte 0x802142b5 must be set and byte +1 must be clear. It sets byte
++2 before calling 3aeb8 and byte +1 AFTER that call regardless of its result.
+3aeb8 validates configuration, performs several initialization steps and returns
+boolean success. Five distinct injected failure stages and invalid configuration
+still leave the outer active byte set. A repeat start is then refused. This is
+why a checked start cannot infer success from that byte.
+
+Stop: 3b558 -> 3acc0 -> 729d0 -> 73b98 -> 451f8 -> 412c8 -> 44bd8.
+Then 729d0 calls 72440; 3acc0 calls 72490 for teardown.
+
+3b558 gates entry using outer active/mode bytes and clears its active byte after
+the lower call. 3acc0 uses state at 0x802142b8, ANDs the 729d0 and 72490 results,
+and clears its two bytes. Those results are not comprehensive cleanup verdicts:
+
+- 729d0 returns the conjunction of its initial initialized/started state. It
+  ignores both 73b98 and 72440 results and clears its started byte.
+- 73b98 correctly maps core stop zero to boolean success and only clears its
+  own started word on that success; its caller ignores this evidence.
+- 72440 invokes the device callback and clears its started byte only on nonzero
+  callback success. The tested default callback at 718a0 only clears byte
+  0x808e2eb4 and returns its prior truth value. It performs no transfer join.
+  71d40 installs this default for mode classifications other than 2; other
+  configurations must not be assumed to use the same callback.
+- 72490 calls teardown and clears its state/handles while ignoring subordinate
+  cleanup returns. Its return is its previous initialized state.
+- 735d0 selects class cleanup according to the profile at 0x808e0d58. Profiles
+  0x202, 0x2030100 and 0x20100 include 26b88 -> 66dd8 (mass storage); other
+  branches have different audio/auxiliary combinations. It returns 1 even after
+  ignoring cleanup results. The outer-chain failure tests use the profile-zero
+  branch; mass-storage teardown is separately exercised with original code.
+
+An outer-stop fixture can therefore return 1 and clear its public handles while
+a deeper object still retains a started flag after an injected stop failure.
+The inverse is also significant: an inactive outer wrapper returns 0 without
+visiting a lower object. There is no single universal zero/nonzero-success
+convention across these layers. A native checked adapter must normalize each
+specific boundary and must preserve the first failure.
+
+Endpoint shutdown and task cleanup
+==================================
+44bd8 first calls 32248(0x71), then visits endpoint state at 0x808e0814. A normal
+pending endpoint writes its mask to 0x402e01b4 and polls until the relevant bits
+clear; it also checks the register at +4 before continuing. Only then does it
+mark the descriptor, clear its data and discard the stored pending pointer.
+A separate linked-list path handles other endpoint records. Later it clears
+controller run state, performs clock/power cleanup if indicated, and tears down
+another resource. It ends by returning zero.
+
+The endpoint test supplies one normal endpoint. Three modeled register reads
+precede descriptor clearing in the progressing case. A register that remains
+set stays in the poll, retaining the descriptor. The emulator stops observing
+after five reads; the instruction loop itself has no timeout. This confirms
+control-flow ordering, not physical DMA/cache coherency or all endpoint cases.
+
+412c8 preserves only the result from 44bd8. It then stops/deletes tasks and other
+objects, including different self-task and other-task branches, ignoring those
+cleanup results and clearing their handles. Both branches were exercised with
+injected cleanup failures. Actual RTOS task termination and interrupt ordering
+are still deeper contracts, not inferred from disappearing handles.
+
+Mass-storage handshake, storage callback and later cleanup
+=========================================================
+66dd8 uses the context at 0x8023d120. If the worker handle at +0x60 is nonzero:
+  1. Signal event 0x400 via the event object at +0x5c.
+  2. Wait on the completion semaphore at +0x64 via 328f0 -> 327c8 -> 76950.
+     The wait is indefinite. 327c8 maps kernel return 1 to success zero and a
+     failed wait to 0xffffffce, but 66dd8 ignores that result.
+  3. Stop/delete the worker and clear its handle.
+Then it unregisters USB mass storage, calls 65568, deletes the event/semaphore,
+clears pointers and returns zero. A pending modeled wait stops before teardown;
+a returned wait failure allows the remaining teardown and still returns zero.
+
+The original worker starts at 65a60. On event 0x400, each unit whose registration
+state is 2 receives a 20-byte storage request with operation 6 and submode 4.
+The worker ignores that callback's result, signals the completion semaphore at
+65c40, then enters 32898 (the indefinite park/wait wrapper). With no registered
+units it goes directly to acknowledgement and parking. Parking and actual task
+termination remain scheduler contracts; the fixture stops at the park boundary.
+
+The registration table at 0x800a1298 has four entries (IDs 0x88f, 0x88e, 0x88d,
+0x860). All four point to 68378, and their embedded unit byte is 1. The earlier
+synthetic-callback tests are complemented by a test that executes the worker
+through this ACTUAL registered dispatcher:
+  worker stop -> per-unit semaphore acquire -> semaphore release -> ack -> park.
+No SD backend function is called on that path. 68378 operation 6/submode 4
+branches directly to the common success/unlock path at 684ac. It does not issue
+an explicit flush, cancel or transfer join. A failed semaphore acquire DOES
+return an error, which the worker then ignores.
+
+The semaphore may still serialize sufficiently if transfers keep it held for
+their entire lifetime. This audit does not establish that, so it must not be
+promoted into readiness evidence yet. Register bit toggles at 682f8/682d8 are
+executed in a modeled MMIO page; their hardware meaning is not inferred here.
+
+Cleanup also continues AFTER the worker acknowledgement. 65568 sends operation
+5 for each registered unit, then operation 1, clears registration, and returns
+the final result. 66dd8 ignores that result. Positive controls through 68378
+show operation 5 reaches 69488 and operation 1 reaches 68da8 -> 6b050. Thus a
+worker ack is also earlier than these remaining storage-backend cleanup calls.
+The latter functions' complete asynchronous lifetimes are not verified here.
+
+Practical implications and next investigation
+=============================================
+Retain the USB parent across the entire teardown and remount, as the proposed
+controller already does. Do not bind its checked stop to 3b558's return, the
+outer active byte, the worker ack or cleared object pointers.
+
+Next trace the normal read/write dispatcher paths 68db0 and 68e40 and determine
+when they release the per-unit semaphore relative to completion callbacks and
+SD DMA. Also follow post-ack operation 5 (69488 -> 6b2e0/6aee0/6b0a8) and operation
+1 (68da8 -> 6b050). This will distinguish a real serialized drain from a request
+that has merely been submitted, and identify the lowest useful owned completion
+boundary. Only then can the modeled checked-worker port be reduced further.
+
+The native error observations needed are now concrete: endpoint stop result,
+core/task cleanup where meaningful, mass-storage signal/wait result, storage
+callback results, and the later backend cleanup results. Native RTOS and hardware
+contracts, alternate USB/card ingress, recovery and installation remain open.

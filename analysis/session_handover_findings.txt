@@ -1,0 +1,160 @@
+L6 PREPARED SESSION HANDOVER AND REPEATED TAKES
+4 October 2026
+
+Result
+The offline prototype now has a bounded prepared-session handover path. A worker
+prepares a uniquely named extra WAV while capture is closed. The next strict
+outer audio callback initializes the new exchange at its current stock cursor
+and adopts the prepared Bridge. Control capture admission opens only after that
+first callback/block has completed. The existing raw bind/init APIs still reject
+blindly reopening closed gateways.
+
+The new emulator test completes five successive recordings in the same fenced
+arena, checks every WAV's exact sample range and retains every prior file. It
+also replays earlier owned messages across reused addresses without executing
+their callbacks. This is repeated capture-session evidence, not a complete
+musical overdub/pad-assignment workflow or installed firmware.
+
+Verification: all 168 groups pass (157 preceding plus 11 new), including
+historical negative controls that deliberately reproduce unsafe legacy behavior.
+Stock SHA-256: 64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+Prototype SHA-256: 431eeeb583638eacab16a4ec5ca4c08186e2e403578c4bbd10aaf0c13c9ee1b7
+
+Files
+prototype/extra_capture/control_transport.c
+prototype/extra_capture/emulator_bridge.c
+prototype/extra_capture/lifecycle.c
+tools/verify_session_handover.py
+analysis/session_handover_verification.json
+
+1. Caller/manager sequence
+The current fixture supplies one serialized manager and owns the arena. It:
+  - Completes and verifies the previous WAV; copies its path into separate,
+    stable result storage using life_copy_verified.
+  - Admits STOP, closes admission and completes the established control/audio/
+    worker/transport shutdown. All retained direct raw-pointer API users must
+    have been abandoned according to that contract.
+  - Clears the fenced arena, invokes compiled life_prepare from the worker and
+    supplies fresh zeroed Transport/Router/Bridge/Exchange/Capture storage.
+  - Calls ct_stage_next with a descriptor containing those objects, sample slots,
+    bounded slot count, a monotonically increasing session token and stock queue.
+  - Continues ordinary audio. Adoption occurs at a strict callback entry.
+  - Polls ct_activate_next; only its success permits new owned capture requests.
+The orchestration, arena selection/clearing and worker scheduling are still test
+harness responsibilities. These are compiled component APIs, not yet one deployed
+automatic manager. Direct reset of live storage is not authorized by this path.
+
+life_copy_verified requires VERIFIED state, no live handle, no uncertain close,
+and enough caller-owned UTF-16 storage including the terminator. It copies the
+path rather than returning a reference into memory that will be cleared. The
+file itself is retained on the modeled disk. No pad index/catalogue is modified.
+
+2. Prepare before publication
+ct_stage_next requires the previous Transport to have shut down, no active or
+staged Transport and the control gateway fully closed. It validates descriptor
+pointers/count, fresh object state, strict audio mode, an already prepared file
+and a session token greater than the last queued/adopted generation.
+
+It initializes route/context links before release-publishing pending_bridge.
+The pending Transport keeps closing=1 and is not ct_active. A queued generation
+is consumed even if later adoption fails; tokens are never recycled. Slot count
+is limited to 2..32 powers of two for bounded initialization in the audio path.
+No heap allocation, file open/write/close or wait occurs in the audio adopter.
+
+A prepared session can be queued while an ordinary callback is already running
+with the old gateway closed. That callback has no new-session pointer and cannot
+adopt halfway through. Only its successor's outer entry attempts adoption.
+
+3. Audio-boundary adoption and control activation
+The single audio producer tries to reserve one gateway reference with a compare-
+and-swap from CLOSED+0 to CLOSED+1. Transient closed arrivals defer adoption; the
+counter is never reset. Under that reservation it validates the selected normal
+callback and initializes Exchange from the current stock cursor/capacity/mode.
+Then it publishes the new Bridge and clears ONLY the gateway's closed bit with
+an atomic operation. Counts belonging to concurrent closed arrivals are preserved
+until those callers undo them. The outer invocation owns the adopter reservation
+through tap/commit/return, exactly as in the preceding whole-callback stage.
+
+ct_activate_next requires this generation to have been adopted, no active audio
+call/gateway users, a completed first block, no pending exchange stage and no
+Bridge/publication error. It reserves the closed control gateway, publishes the
+fully initialized Transport, clears its admission-closed flag, clears only the
+control gateway's closed bit and releases its manager reservation. This is not
+a general claim of simultaneous publication across both gateways: audio warms
+first, control opens later by design.
+
+The original single audio producer and serialized manager assumptions still
+apply. Actual interrupt priorities, cache coherence and exclusive-instruction
+retry timing are not established. No arbitrary multicore schedule is proved.
+
+4. Old work and conservative failure
+Owned queue messages contain the session token, so old generations are rejected
+before their Request/Job is used even if the arena address is reused.
+
+Ordinary stock operations remain usable while capture is closed. An operation
+that began then can resume after activation without an owned Request. It must
+not borrow the new capture session. The common sender's existing missing-owner
+check cancels optional capture; context lookup now similarly cancels on a late
+unowned stock stop/admission callback once new capture admission is open. The
+ordinary callback still executes. A transition under unexpected user/control
+activity may therefore lose the OPTIONAL new take rather than silently produce
+an incorrectly bounded file; seamless transition under all control activity is
+not claimed.
+
+File-create failure leaves capture closed and no new session published. Invalid
+callback/mode at adoption leaves the pending file for manager/worker cleanup.
+Failure in the first adopted block is cancelled by the worker, then its Bridge
+is detached before a later generation can be prepared. ct_cancel_failed_stage
+waits for the relevant audio accesses to finish. A failed/uncertain close keeps
+the staged instance retained and prevents restaging; it is not treated as proof
+that a real storage resource was released.
+
+Not all staging cancellation paths are implemented: a valid pending stage that
+never receives another callback remains pending. Abort/recovery of a healthy
+queued stage and retry scheduling/backoff belong in the future manager. Partial
+initialization after unexpected internal invariant failure also requires caller
+cleanup; this is not a general transactional allocator.
+
+5. Eleven new verification groups
+1. Five successive same-arena takes with exact WAV payloads, unique names even
+   when serial 1 is requested repeatedly, preserved old files/result copies and
+   replayed old-generation owned queue messages rejected.
+2. Preparation by a separate manager CPU during an already-running closed-gateway
+   callback waits for its successor to adopt; no mid-callback publication.
+3. A transient closed-gateway reference defers adoption without resetting counts.
+4. Fresh file creation failure leaves capture closed; a clean retry can succeed.
+5. Invalid callback at adoption leaves gates closed; worker cleanup permits a
+   fresh generation afterward.
+6. Failure in the first adopted block is cancelled/detached before retry.
+7. Reused session token rejected before publication; prepared file explicitly
+   cancelled by its worker in this rejected-descriptor fixture.
+8. Late unowned stock stop executes normally but cancels the optional new file.
+9. Original request started while closed resumes after peer activation and cannot
+   borrow new-session ownership; optional capture cancels.
+10. Uncertain close during failed-stage cleanup blocks restaging.
+11. Result copy rejects unverified files and insufficient output storage.
+
+The complete earlier suite runs again on this build, including historical
+negative controls. The old force-reset negative control remains deliberately
+unsafe legacy-mode evidence; it does not invoke the new handover protocol.
+
+6. Practical limits and next step
+The DSP callback body/cursor and filesystem remain fixtures. Real stock DSP
+windows are tested separately by preceding suites; this is not a continuously
+running hardware mixer, actual SD writes or full RTOS scheduling. Ordinary-file
+sentinels remain unchanged. Synchronous mock close does not establish real SD/DMA
+buffer lifetime, nor does a successful software fence establish physical RAM
+placement, cache behavior, stack headroom or recovery from a bad firmware patch.
+
+Next, put preparation, stable result retention, shutdown, staging, activation
+and failure cleanup into one bounded manager state machine with explicit worker
+scheduling. Then connect verified results to pad catalogue/reader lifetime
+handling. Current repeated takes do not automatically load/play the previous mix
+or update pad assignment; those are required for the user's complete overdub flow.
+No device/card data or stock firmware image was modified.
+
+Follow-up: analysis/session_manager_findings.txt now places worker/file work,
+result copying, fencing, bounded memory clearing, preparation, staging, activation
+and cancellation in one compiled manager. Six successive takes are checked.
+The harness still supplies first-session setup, scheduling, audio and queue
+delivery. Pad assignment and real hardware integration remain separate.

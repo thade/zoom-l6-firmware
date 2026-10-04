@@ -1,0 +1,136 @@
+L6 v1.10 — compiled compact reload transport and deferred cleanup
+4 October 2026
+
+Result
+The prototype now carries reload identity in the existing 32-byte assignment
+message and 20-byte UI event. The original assignment worker dispatches a compiled
+callback; the original Main receive loop dispatches the tagged event to a compiled
+UI adapter. Both execute the original reload bodies, including settings save.
+All three audited cleanup operations preserve the queue while any reload owner
+exists. No queue resize or firmware-image write was made.
+
+This is still offline integration. Entry interception is supplied by the emulator,
+not installed branch patches. Native queue clearing's surrounding mode changes,
+full-queue recovery, producer/file task attribution and other storage lifetimes
+remain unfinished. This change does not establish a deployable firmware image.
+
+New files
+prototype/overdub/reload_compact.h, reload_compact.c, reload_compact_hooks.S
+ tools/verify_reload_compact.py
+ analysis/reload_compact_verification.json
+ analysis/reload_compact_regression.json
+Shared changes: reload_ownership.c/.h adds cleanup exclusion; coordinator size is
+now 396 bytes (previous fields retain their offsets). Build includes the compact
+module and assembly forwarders. The emulator fixture now permits a Cortex-M7
+factory so the compiled IPSR context check can execute instead of being stubbed.
+
+Compact wire formats and native control flow
+Worker: [compiled rc_worker address, RL_MAGIC, owner, worker-child,
+         RL_WORKER, 0, 0, 0].
+The original 0x80036290 worker receives 32 bytes and passes the following 28 bytes
+to the callback. rc_worker reconstructs a private full envelope and zero payload
+for the known original 0x80049da0 callback, which ignores its argument payload.
+The compact format is only for this known reload callback, not arbitrary pointer-
+bearing stock work. Producer ownership is still reserved before original producer
+0x80008d68 runs, using rt_produce/rt_queue and the compiled compact send port.
+
+UI: [1,4,26,owner,UI-child].
+The original event sender 0x8006e4b8, receiver 0x80020690 and Main-loop branch
+0x8002c43e run. The adapter at handler 0x8002d568 reconstructs [1,4,26,0,0]
+before invoking the original UI body, then completes the attributed branch after
+return. Other UI events and the original zero-payload reload event are forwarded;
+activation therefore requires old unowned reload traffic to be drained/admitted
+under a separately verified cutover policy. It is not silently retroactive.
+
+Register/stack forwarders replay the verified v1.10 entry prologues and resume at:
+ stock send: 0x800483fa; event sender: 0x8006e4bc;
+ UI body: 0x8002d56a; reducer: 0x8001fd12;
+ whole clear: 0x8002043a; targeted delete: 0x8002054c.
+The filter forwarder also preserves its original zero-count early return.
+Firmware hash checking in the harness pins these addresses and instructions.
+No installed jump encoding, cache maintenance or physical code placement exists.
+
+Task identity and pending work
+RcBinding is a permanent 44-byte context. It is installed once with distinct,
+nonzero worker/UI task identities, distinct task contexts and queue handles.
+Bindings cannot be replaced; task-handle reuse and teardown are unsupported.
+Compiled lookup reads IPSR and calls original current-task getter 0x800770e8.
+Null, wrong or unknown task identities fault the ledger before executing a body.
+The harness changes the actual current-task RAM word between scheduled fixture
+contexts. The IPSR guard executes in thread mode; this is not an interrupt test.
+
+Both blocking receive paths must enter rc_next before fetching another message.
+If a task retained a claim/error/completion retry, rc_next retries it first. A
+still-busy operation yields through an explicitly bound scheduler port and returns
+receive failure without touching the next queued message. Completed or stale
+work can then be followed by another message. Returning busy from a callback alone
+would have been insufficient because the original dispatcher ignores that result.
+Tests cover both worker and Main retention, duplicate delivery, late old messages,
+producer reuse, and two jobs with reversed UI order. The fixture yield is not a
+measured RTOS scheduler or hardware liveness guarantee.
+
+Cleanup policy: defer the entire cleanup while a reload is live
+rl_cleanup_begin is serialized with rl_begin under the short coordinator latch.
+It succeeds only if no reload jobs exist, then sets a separate cleanup flag.
+The flag blocks new reload admission until rl_cleanup_end after the whole original
+cleanup body returns. No metadata latch is held through stock/RTOS calls.
+If a job already exists, cleanup is deferred even if its worker has not yet
+published a UI event. There is no unsafe check-empty-then-clear admission gap.
+Faulted or unverified reloads continue to defer cleanup.
+
+rc_filter returns its original input count and leaves the buffer untouched when
+cleanup cannot begin. This conservatively preserves all events, including owned
+continuations. Without a live reload it executes the original reducer unchanged.
+rc_clear and rc_delete return OWN_BUSY without running the original body when
+blocked; after admission they execute original whole clear/targeted removal and
+return OWN_OK. These are NEW status contracts, distinct from the original helper's
+incidental semaphore return. Deferred bits 1/2/4 in RcBinding are sticky diagnostics,
+not a queue of retry requests. A failed cleanup-end transition faults closed.
+
+The original Main mode-transition caller currently ignores the old clear return.
+Native integration must make that caller honor deferral, or otherwise preserve its
+transition semantics explicitly. Merely skipping its queue clear does not defer
+its other actions. This is the next required control-flow binding, not a completed
+mode-transition implementation. A Main task must not block waiting for itself to
+consume a pending UI continuation.
+
+Full UI queue handling
+The common UI queue-send boundary uses kernel send 0x800763d8 with timeout zero
+and preserves the original zero/-1 result mapping and message-counter update.
+Other queue sends retain their original wrapper. This prevents a full UI queue
+from blocking forever after cleanup has conservatively retained all messages.
+The test fills the actual modeled capacity of 4096 events, executes the original
+sender's drain/filter/requeue path, retains all existing events, and returns a
+failure for the new event. Its reload remains owned and cannot permit publication.
+The earlier ownership protocol treats the failure as uncertain; this stage does
+not implement automatic resubmission, explicit cancellation or owner recovery.
+Nonblocking UI send changes saturation behavior for all UI queue callers; their
+error handling must be audited before a native patch uses this boundary.
+
+Verification and limits
+Fourteen new groups exercise normal original-worker/Main execution, all cleanup
+paths before and after retirement, cleanup/admission exclusion, checked settings
+short writes, retained claim/completion retries in both native receive loops,
+task rejection, binding lifetime, stale messages, reversed jobs, full capacity,
+and original cleanup entry interception. The original clear body is checked to
+hold cleanup admission while the short metadata latch remains unlocked.
+All 371 groups across 24 relevant suites pass. The regression report records
+exact suite counts and current ELF hashes.
+
+Kernel queue copies/wakeups, mutex effects, scheduler yield, task creation/switching,
+filesystem driver, RIFF parser and audio prefetch remain fixtures. Producer scope
+and file-boundary attribution still use the preceding harness binding; only the
+compact consumers resolve their task from the original getter here. USB/card and
+ordinary-recorder roots, public-wrapper I/O failures and async descendants retain
+their earlier integration gaps. Settings readback and physical audio correctness
+are not newly established by the compact transport.
+
+Next bounded work
+Bind deferred whole-clear handling to its surrounding Main transition, with a
+nonblocking continuation that allows Main to finish queued owned work before
+resuming the transition. Audit the full-queue failure/retry policy alongside it;
+never clear an owner simply because its message could not be delivered.
+
+No mixer communication, SD writes, flashing, device opening or firmware-image
+modification occurred. Stock L6.BIN SHA256 remains:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb

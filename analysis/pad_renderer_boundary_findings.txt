@@ -1,0 +1,144 @@
+L6 REAL PAD RENDERER: COMPLETION AND BUFFER-LIFETIME EVIDENCE
+4 October 2026
+
+Result
+Executed the complete original pad/input-rendering function, 0x20220ac8 through
+its return at 0x20224b8a, including natural EOF, looping, fade and silence cases.
+The earlier playback investigation could not execute VMAXNM.F32; the newer
+M-class emulator configuration already used by the capture tests supports it.
+No arithmetic instruction was replaced or skipped to get these results.
+
+Twelve new verification groups pass in tools/verify_pad_renderer_boundary.py.
+This stage changes tests/documentation only. Neither prototype ELF, the stock
+firmware, connected mixer nor a real SD card is modified.
+Stock SHA-256:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+
+Main conclusion
+The pad-active flag is not a completion acknowledgement. Natural EOF clears it
+before five further accesses to the pad's state. Clearing it from a competing
+control path after the renderer has admitted a pad still allows that entire
+64-frame stereo block to read the old buffers. A zero gain also leaves those
+buffer reads running. Publication must join the in-flight renderer, prevent new
+starts/retriggers and separately account for sampler streaming/file operations.
+
+The normal callback return at 0x8001078e remains a supported candidate for a
+renderer-completion acknowledgement. We now have execution evidence that its
+first, real stock rendering stage completes all observed pad accesses before
+that point. This is NOT an installed fence or proof of all device readers.
+
+Recovered execution path
+AudioProcess loads the selected callback at 0x80010788 and calls it at
+0x8001078c. For the normal callback 0x2022a790:
+  0x2022a792 calls 0x20220ac8 (pad and input rendering).
+  0x2022a796 calls 0x20224b90 (following mix stage).
+  0x2022a79a calls 0x20220000.
+  0x2022a7a2 tail-branches to 0x202263e0.
+The selected callback eventually returns to 0x8001078e.
+
+The new test executes the original normal dispatch and wrapper with the COMPLETE
+first stage. Its three subsequent DSP stages and 0x80010150 continuation are
+stubbed explicitly. Thus it proves the first-stage accesses precede the callback
+return, not that later DSP stages, alternate callbacks or interrupts cannot use
+aliases of those buffers. A linear scan of flash and startup-copied RAM code
+finds one direct call to 0x20220ac8, at 0x2022a792. Indirect references are not
+excluded by that scan.
+
+What the original renderer does
+Per-pad state begins at 0x20015e4c, stride 0x3c. The renderer loads active once for
+that pad at 0x20220b30 and branches on it at 0x20220b36. Once admitted, its loop
+keeps the source pointers and positions in registers. The left/right float loads
+are at 0x20220bb2 and 0x20220bc8. It does not recheck active for each sample.
+
+At non-looping EOF:
+  0x20220c24 writes buffer position.
+  0x20220c28 writes played position.
+  0x20220c2e clears active.
+  0x20220c36 and 0x20220c48 zero the unused output portions.
+  0x20220c4c reads buffer position.
+  0x20220c4e reads played position.
+  0x20220c58 writes buffer position again.
+  0x20220c68 writes played position again.
+  0x20220c6a writes the cached gain back.
+The last five state accesses occur AFTER active is zero. No later source-sample
+reads from this ended pad are observed on the tested natural-EOF path, but its
+state is still being accessed and rewritten. An assignment changing that state
+must not treat the early flag write as a completed renderer boundary.
+
+Short and boundary-length tests (1, 17, 64, 65 and 128 frames) verify exact source
+read counts, rendered sample values and zero-padded output. A subsequent full
+renderer call sees inactive and does not touch the old sample buffers.
+
+Looping resets positions and continues reading, without clearing active. Tests
+cover lengths 1, 17, 64 and 65 across three blocks each. Gain zero still produces
+128 source loads per block (64 frames, two channels) while remaining active.
+Actual renderer fade arithmetic reaches zero gain; the actual stock stop routine
+0x80018350 then clears active. Its original CPSID/CPSIE helpers also execute in
+this test, but the emulator supplies no real competing interrupts or RTOS tasks.
+
+A pause injection after active admission clears active from the host, modeling
+a competing control action. Resuming the original instructions still reads all
+128 source samples. This is a negative control, not evidence that stock task
+priorities permit that exact interleaving on a physical L6.
+
+Stronger positive and negative controls
+After pad 0 naturally finishes and the selected callback returns, the test marks
+its source page inaccessible. Three further real renderer calls complete without
+accessing that page, while pad 1 continues looping and reading its own buffers.
+This demonstrates the local inactive-path behavior without replacing source
+loads with mocks. It also demonstrates that one pad's EOF does not stop others.
+
+Calling the original start routine 0x80018310 afterwards makes the next renderer
+read pad 0's old buffers again. Therefore a return acknowledgement is not a
+persistent exclusion mechanism: all starts and retriggers must remain blocked
+through publication until deliberate rearming.
+
+Original initializer 0x800181c0 writes fixed per-pad stereo source pointers:
+  pad 1 left: 0x80e49800
+  right-channel offset: 0x000bc000
+  pad stride: 0x00178000
+All four pairs are checked by executing that initializer. These are recovered
+runtime addresses, not new allocations or proof of physical memory availability.
+The risk is old accesses overlapping state/buffer reuse; this stage does not
+claim that the buffers are dynamically freed on every assignment.
+
+Simulation boundaries
+The test uses unchanged firmware bytes copied to their recovered RAM addresses,
+with synthetic sample buffers and ten explicitly initialized input delay rings.
+The latter are required by the complete original renderer; omitting them caused
+an invalid null-buffer write in an initial fixture run. Allocating valid rings
+resolved that fixture error without replacing original instructions.
+
+This is selected-firmware execution, not booting the device. No actual SD driver,
+RTOS scheduling, cache/coherency, DMA or interrupt lifetime is verified. The
+Cortex-M7 M-class emulator choice does not identify the physical chipset.
+Old playback_lifetime findings about unsupported VMAXNM are superseded only for
+these newly executed renderer paths. The default playback fence remains BUSY;
+we have not enabled publication using a new simulated success response.
+
+Reproduce
+  /tmp/l6-re-tools/bin/python tools/verify_pad_renderer_boundary.py
+Evidence: analysis/pad_renderer_boundary_verification.json
+Existing firmware/prototype suites did not need rebuilding for this stage.
+
+Next implementation/investigation boundary
+Use a monotonic requested/acknowledged renderer epoch tied to a completed normal
+callback, with explicit entry/return lifetime and callback-identity checks. The
+request must follow closure of every start/retrigger and stream-production path;
+acknowledgement must not merely sample active=0, gain=0 or a refill-pending byte.
+Keep those admissions closed after acknowledgement until publication/rearming.
+
+Before enabling that adapter, audit later normal DSP stages and alternate callback
+entries for pad-buffer/state aliases, and combine the acknowledgement with the
+existing stream-child ownership drain and card/recorder exclusion. A callback
+which never returns, an unexpected callback, or missing audio progress must stay
+blocked. Do not replace the default BUSY fence with unconditional success.
+
+The concrete advance is real end-to-end execution of this renderer and a tested
+candidate completion boundary. A complete installed, all-reader fence remains
+unfinished; no firmware-flashing recommendation follows from these checks.
+
+Follow-up: pad_reader_audit_findings.txt executes all four recovered callbacks,
+including complete later DSP on ARM MAX, and identifies a second pad renderer,
+a selector-load race and direct/deferred parameter-copy producers. This extends
+the earlier candidate boundary; the default fence still refuses release.

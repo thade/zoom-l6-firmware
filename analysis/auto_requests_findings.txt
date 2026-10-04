@@ -1,0 +1,152 @@
+L6 AUTOMATIC REQUEST ENTRY, RETURN CLEANUP AND PRODUCER AUDIT
+3 October 2026
+
+Result
+Five original high-level entry points now run through compiled wrappers that
+allocate a request, bind it to the original current task, execute the original
+function, and clean up on return. The new emulator suite does not explicitly
+allocate/bind/finish requests for its normal start/stop paths. All five stop
+routes produce exact [64,320) pre-master audio after an attributed start.
+
+Twelve new groups pass and all 110 preceding relevant groups pass on the final
+build: 122 total. Tests still model kernel queue delivery and selected deep
+recorder/file/UI effects. This is NOT installed firmware or hardware validation.
+Ordinary-file sentinel checks pass and the stock image is unchanged.
+
+Stock SHA-256: 64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+Prototype SHA-256: 03ef2325f0fd43b1704c0fb24b52fb8403953aff212d069e0d53ca9beae42fb1
+
+Files
+prototype/extra_capture/control_transport.c
+prototype/extra_capture/emulator_hooks.S
+tools/verify_auto_requests.py
+analysis/auto_requests_verification.json
+
+1. Verified entry wrappers
+Original entry -> compiled wrapper -> stock continuation after replayed push:
+  0x80034f40 -> ct_record_request(target) -> 0x80034f42
+  0x80034d18 -> ct_stop_request() -> 0x80034d1a
+  0x80034e58 -> ct_play_request() -> 0x80034e5a
+  0x80035038 -> ct_stop_argument(argument) -> 0x8003503a
+  0x800350d8 -> ct_stop_other() -> 0x800350da
+Names describe tested control flow, not verified public/UI labels.
+
+The original conditional returns and tail calls return into the C wrapper, so
+cleanup is not limited to one exit instruction. These entries have at most one
+register argument in the inspected code. The argument-taking stop path preserves
+the supplied value in the eventual original callback message. Comparison on an
+ignored record request confirms stock r0 return, r4-r11 and SP are preserved.
+This is a function-boundary ABI check, not proof of every live-register condition
+at arbitrary mid-function insertion points. Stack headroom/timing are unmeasured.
+
+The wrapper's scope cookie lives on the calling task's stack. It remembers the
+Transport, original task identity, task record, previous scope and allocated slot.
+Allocation/binding and cleanup run in the existing short critical sections; the
+stock request body runs outside them. It still obtains task identity through
+the original read-only getter 0x800770e8.
+
+2. Request pool and cleanup
+Transport now contains sixteen 72-byte entry slots, each with a 64-byte Request
+and caller-busy marker. Total Transport is 1688 bytes. This remains synthetic
+emulator allocation, not an established device RAM placement.
+
+Returning an ignored/rejected request clears its task scope and releases its
+Bridge reservation. Returning a queued request clears only the caller scope;
+the request remains held until its send outcome and callback completion meet
+the earlier ownership protocol. A failed send remains uncertain after caller
+return, retaining the request. Cancellation alone is not a reclamation fence.
+
+Only a slot that is no longer caller-busy or held, and whose Request was ignored
+without ever acquiring a queue kind/send/delivery state, may be reset for reuse.
+Each new use receives a fresh monotonically increasing router request ID. Eighty
+ignored requests reuse one slot in the test without exhausting the pool. Another
+test keeps a start queued while twenty later ignored requests execute; its queued
+Request is neither reset nor replaced.
+
+Queued Requests, even successfully completed ones, and all eight Job envelopes
+remain unrecycled in this stage. No session reset/rearm is added. This narrow
+ignored-slot reuse must not be generalized to queue-exposed memory without the
+still-missing producer-admission and drain fence.
+
+3. Conservative failure paths
+Same-task nested entry with an existing request scope is unsupported. The wrapper
+temporarily clears that scope so the inner request cannot borrow the parent's
+identity, cancels optional capture (28), executes ordinary behavior and restores
+the prior scope on return. The test injects an existing outer scope to exercise
+this guard; it is not an arbitrary recursive call-stack/preemption proof.
+
+An exhausted entry pool cancels optional capture (26), while the original request
+and ordinary queue message proceed. A mismatch between entry/return task identity
+or expected scope cancels (29) and retains the uncertain scope/slot. It does not
+free another task's request. A test changes task identity inside an intercepted
+callee to verify that retention behavior.
+
+Null task/exception entry does not acquire an automatic request. Exception
+behavior is guarded in code but not hardware-interrupt tested. Direct unguarded
+queue producers continue to be detected by the existing common send boundary.
+
+4. Producer inventory recovered during this pass
+Scanning the stock MAIN code region with Thumb disassembly found six MOVW
+constructions of the start/stop callback low half, then inspected their contexts:
+  0x80034d4e: stop 0x8004ba41 inside 0x80034d18.
+  0x80034f00: stop 0x8004ba41 inside 0x80034e58.
+  0x80035088: stop 0x8004ba41 inside 0x80035038.
+  0x8003510e: stop 0x8004ba41 inside 0x800350d8.
+  0x8004b6e0: start 0x8004b9a1 in producer 0x8004b6d8.
+  0x8004b720: stop 0x8004ba41 in producer 0x8004b718.
+The last two producers have observed direct caller tails at 0x80035030 and
+0x80034fda, respectively, both inside the wrapped 0x80034f40 request function.
+
+Observed caller references to the other wrapped entries:
+  0x80034d18: tail at 0x8002d7b8.
+  0x80034e58: tail at 0x80008a20.
+  0x80035038: calls at 0x8000a0c4 and 0x8000ab1a.
+  0x800350d8: call at 0x8002ce3a and tail at 0x8002d4d4.
+The first two tail aliases execute in the new tests and reach the wrappers.
+Original 0x80008a56 also tails to 0x80034f40 after its earlier checks; those
+earlier conditions are not newly tested here.
+
+This is coverage of the observed constant-construction paths, NOT exhaustive
+firmware ingress proof. Indirect calls, data-driven callbacks, alternate encoding,
+other code regions, and error/asynchronous paths need separate scrutiny. The
+common queue detector remains necessary; absence from this scan is not exclusion.
+
+5. Playback requests remain ordinary
+0x80034e58 can queue playback-start rather than record-stop. The adapter forwards
+that unsupported callback type unchanged and releases its capture Request as
+never submitted. A test verifies the ordinary 0x8004b891 message and subsequent
+ability to record. Ownership of arbitrary playback/pointer-bearing messages is
+not expanded by these wrappers; pad-reader fencing is still separate work.
+
+Verification groups
+1. Automatic start plus all five stop entry paths produce exact extra WAV audio.
+2. Busy/playback-state/rejected returns release only their own request.
+3. Eighty never-submitted ignored requests reuse one slot with fresh IDs.
+4. Twenty later ignored requests cannot recycle a queued start's storage.
+5. Send failure retains the request after automatic caller cleanup.
+6. Playback-start message stays stock and provisional capture request releases.
+7. Two verified tail aliases enter automatic wrappers.
+8. Same-task nesting guard preserves outer scope and cancels optional capture.
+9. Pool exhaustion preserves ordinary request behavior.
+10. Stock return, callee-saved integer registers and stack preserved in comparison.
+11. Different task identities keep requests separate.
+12. Wrong task identity at return retains scope/storage rather than freeing it.
+
+Limits and next boundary
+The wrappers and request/queue protocol are compiled ARM code executed with stock
+request functions and worker control flow. Deep start registration still uses a
+compiled checkpoint fixture; kernel delivery, task changes and filesystem remain
+models. Hardware RAM/cache/performance/recovery and automatic pad assignment are
+not established. No device hooks or firmware patch image were installed.
+
+Next, implement producer-admission closure and an acknowledged control-queue
+drain using these owned entries. Closing new capture admission must be distinct
+from blocking ordinary mixer behavior. Prove that entered-but-not-yet-submitted
+requests and queued callbacks are accounted for before considering session reuse.
+Then combine that control drain with optional-file completion and a separate
+sample-hook lifetime fence; queue-idle alone cannot justify freeing/rearming RAM.
+
+Follow-up: analysis/control_drain_findings.txt now implements/tests bounded
+admission closure and a control FIFO-prefix acknowledgement. All 131 groups
+pass on that newer build. It does not prove full quiescence or safe reclamation;
+this document retains the historical build hash and size for its own stage.

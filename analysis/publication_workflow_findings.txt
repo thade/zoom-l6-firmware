@@ -1,0 +1,112 @@
+Completed capture -> publication -> verified reload handoff
+Offline prototype, 2026-10-04
+
+Result
+The capture SessionManager now has an optional permanent publication owner. A
+completed verified take pauses at its RESET boundary until the publication
+workflow releases it. Compiled code obtains the completed-result history, copies
+and assigns the latest four extra WAVs, constructs the intended reload plan,
+launches the existing reload manager, and retains protection until verification
+and the complete handoff finish. The normal MASTER and original channel/extra
+files are preserved by the tested pipeline.
+
+No firmware patch image, native hook installation or hardware access is claimed.
+This connects previously separate offline components. Capture/audio boundary
+state still transfers between explicit ARM fixtures; device scheduling, media
+and several ingress/lifetime boundaries remain modeled.
+
+Implementation
+prototype/extra_capture/session_manager.[ch]
+  Three appended fields: permanent publication owner, active hold and released
+  session. A bound manager waits before its first RESET clearing step when its
+  latest result belongs to the just-completed session. It cannot clear arenas,
+  rearm or resume through an active hold, including after cancellation. The
+  unbound legacy path is unchanged. Cancelled sessions without a new verified
+  result may still be explicitly resumed without publishing an older result.
+
+prototype/extra_capture/pad_publisher.c
+  Token-checked manager_publish_held_pads uses the existing history visitor and
+  publisher. Unowned legacy publication is rejected when an owner is bound.
+
+prototype/overdub/publication_workflow.[ch]
+  One permanent workflow with explicit integer/pointer bridge ports into the
+  separate capture ELF. It holds the completed capture, waits for playback
+  shutdown/audio completion, then retains a publication child under shutdown's
+  existing exclusive ledger reservation for the entire operation.
+
+  The synchronous publisher still takes its own short-lived child through the
+  existing publication lease. Releasing that child no longer permits shutdown
+  to reopen: the workflow's child stays alive across plan handoff and reload.
+  The reload session is a descendant of that child, not an unrelated new root.
+
+  Before publication, compiled stock getters capture all four intended option
+  states; the existing settings payload and preserved tail form the baseline.
+  After successful publication, the verified publisher's destination paths and
+  assigned bits are substituted into that baseline. Intended options are never
+  read back from the possibly changed postpublication state. RmManager copies
+  the resulting plan before reload. Its final checks still use an independent
+  expected image, including the settings header and meaningful saved bytes.
+
+  The reload exclusion port checks the actual retained capture hold, matching
+  shutdown promotion, exclusive gate, session hold, control closure, audio
+  request/ack epoch and quiet predicate. A separate external_held port remains
+  mandatory for ordinary recorder/card/USB exclusion; those hooks are not yet
+  implemented and are not inferred from the capture file having closed.
+
+  Main progresses the reload and verification. The publication worker uses a
+  locked rm_completed query rather than reading another task's phase directly.
+  Only after DONE does it release its child, finish playback/control shutdown,
+  then release capture RESET. Each metadata retry remembers its phase; it does
+  not repeat publication or reload. Errors latch a fault and retain outstanding
+  holds. Even recoverable publisher errors require explicit future recovery;
+  this workflow does not automatically retry mutations or supply a reset API.
+
+prototype/overdub/reload_compact.c
+  Main defers ordinary controls and mode-5 startup for the whole publication
+  workflow, including the interval AFTER reload verification but BEFORE the
+  worker releases its outer child and capture hold. Owned reload events still
+  progress, including a full queue. Mode setup is not entered early and its
+  admission closure cannot strand a producer that has not launched yet.
+
+Verification
+17 new groups in tools/verify_publication_workflow.py include:
+- Six complete additional captures with latest-four rotation and source-file
+  preservation, using actual compiled manager result history.
+- Automatic plan construction and successful pad/settings verification without
+  a Python-supplied postpublication plan or completion verdict.
+- Blocked RESET, wrong-token release, alternate publisher entry and premature
+  parent-finish attempts.
+- Missing audio completion, settings corruption, changed options, publication
+  short write, cancellation and loss of the required external exclusion.
+- Duplicate completed-take rejection, metadata contention at reload completion,
+  child release and capture release, and recovery after a cancelled take.
+- Main ordinary-event deferral and a saturated UI queue during mode transition.
+- Empty unused pads and rejection of unwanted stock auto-assignment.
+
+Stock behavior worth retaining as a limitation
+With an unassigned pad and a nonempty catalogue, the stock reload may pick a
+catalogue file automatically. The workflow rejects that result against its
+intended empty pad and keeps the handoff blocked. Empty pads with empty
+catalogues complete successfully. Suppressing or intentionally incorporating
+that stock fallback needs a separate policy/implementation; the verifier does
+not silently bless it.
+
+What is still modeled
+Capture file and audio completion run in their existing ARM fixtures; explicit
+boundary transfers bring their compiled state into the publication/reload CPU.
+Queue operations, lower filesystem drivers, settings-input loading, RIFF parsing
+and audio prefetch remain existing fixtures. Real asynchronous descendants and
+ordinary recorder/card/USB lifetimes still need native attribution. Stock public
+wrappers, catalogue/assignment paths, reload bodies and compiled ownership code
+execute, but this is not full RTOS or hardware emulation. Readback is not a proof
+of physical SD durability, crash recovery, audible playback or timing capacity.
+
+Next work
+Trace and bind the remaining ordinary recorder/card/USB admission and completion
+boundaries so the workflow's external exclusion requirement has real firmware
+evidence. Resolve the unused-pad fallback before treating arbitrary pad-library
+states as supported. Native placement, patching and recovery remain later work.
+
+Firmware SHA256 remains
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb.
+No mixer communication, SD-card writes or flashing occurred.

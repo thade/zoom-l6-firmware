@@ -1,0 +1,163 @@
+L6 COMPILED SESSION MANAGER
+4 October 2026
+
+Result
+A compiled ARM SessionManager now owns extra-file work, automatic admission close
+once STOP is observed, control/audio/worker/transport shutdown, stable successful
+result copies, bounded object clearing, fresh-file preparation, boundary staging
+and activation. The new test completes six successive recordings without Python
+sequencing those operations or clearing memory between takes.
+
+Python still initializes the first ARMED session, supplies synthetic audio,
+schedules manager_step calls and delivers stock queue messages. Thus this is a
+compiled manager tested in the existing offline environment, not real RTOS task
+integration, cold boot, actual SD operations or an installed firmware update.
+
+Verification: all 180 groups pass (168 preceding plus 12 manager groups),
+including historical negative controls.
+Stock SHA-256: 64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+Prototype SHA-256: a8b19dceef95d8cc767284c1621f0eef1da44f2446fd197ec827108692c4162e
+
+Files
+prototype/extra_capture/session_manager.h
+prototype/extra_capture/session_manager.c
+prototype/extra_capture/emulator_bridge.c
+prototype/extra_capture/control_transport.c
+prototype/extra_capture/lifecycle.c
+tools/build_extra_capture.py
+tools/verify_session_manager.py
+analysis/session_manager_verification.json
+
+1. Ownership and initialization
+manager_init attaches to a fresh, already ARMED/routed first session with strict
+whole-callback audio mode enabled. Its descriptor contains Transport, Router,
+Bridge, Exchange, Life, Capture, sample slots/count, session token and stock queue.
+The manager copies that descriptor and checks object spans for alignment, address
+wrap and mutual/manager overlap. Supplied allocations must actually exist; these
+checks are not a general memory-permission validator.
+
+One permanent manager owner is allowed. A second instance is rejected, and a
+busy guard rejects overlapping worker steps, resume and result-copy operations.
+This manager becomes the SOLE caller of bridge_step and lifecycle operations for
+its session. External direct callers must not compete with it. manager_cancel
+only sets an atomic request flag and performs no IO. APIs require the owner to
+remain allocated; there is no manager destruction/reinitialization protocol.
+
+The manager occupies 2196 synthetic bytes outside all cleared session objects.
+Its four result slots hold generation IDs and copied UTF-16 paths. Overwriting
+the oldest metadata slot never deletes its WAV. The six-take test checks every
+file remains byte-for-byte intact while only the newest four path records remain
+in manager history. manager_copy_result copies a result to caller-owned storage;
+it does not hand out a pointer into the manager's mutable ring.
+
+2. State progression
+LIVE (1): run the extra file worker. Normal stock controls still start/stop the
+ordinary recorder. The manager does not synthesize a user Record/STOP command.
+When the worker observes STOP, error or cancellation, close new capture admission.
+
+FINISH (2): continue draining/finalizing/verifying or cancelling the extra file.
+The existing request ownership protocol accounts for requests still in flight.
+
+FENCE (3): continue worker cleanup if needed and poll complete ct_shutdown. Do
+not publish a successful result until shutdown has finished, all modeled file
+resources are released and a final Bridge/Life validity check passes. A late
+error between verification and shutdown can still prevent result publication.
+
+RESET (4): only after the completed fence, advance the session/name sequence and
+zero each owned object in chunks of at most 4096 bytes per manager step. Manager
+state/results remain intact. Generation/name exhaustion stops without wrapping.
+
+PREPARE (5): worker creates a unique extra WAV using the existing collision-safe
+life_prepare. Track its actual selected serial for the next take.
+
+STAGE (6): publish the prepared, fully initialized session using ct_stage_next.
+
+ACTIVATE (7): wait for strict audio-boundary adoption and its first completed
+block, then open control admission. Return to LIVE, ready for the user's next
+record request. No audio callback means waiting, not a fabricated success.
+
+ABORT_STAGE (8) and ABORT_UNPUBLISHED (11): cancel staged or not-yet-published
+prepared files on the worker, with the relevant pointer/audio fences.
+
+STOPPED (9): cancellation or a recoverable failure finished its cleanup. No
+automatic retry. manager_resume explicitly starts a fresh reset/prepare cycle.
+
+BLOCKED (10): ownership or resource uncertainty forbids resume/reset. Examples
+include failed marker send or uncertain file close. If such uncertainty occurs
+during cancellation cleanup, that blocking error supersedes the cancellation
+code so it remains diagnosable. An uncertain old request send can instead remain
+in FENCE waiting for its unresolved ownership; no timeout frees it.
+
+manager_step returns 10 for further work, 11 for waiting, 0 when newly activated,
+or a fault/cancellation code. Phase and diagnostic state distinguish stopped from
+blocked. Ordinary idle LIVE steps can return WAIT. No wall-clock deadline or
+retry timer is supplied. File operations and original queue/mutex calls can
+block, so bounded transition/clear work is NOT a hard real-time latency guarantee.
+
+3. Cancellation without another audio callback
+The preceding handover could only clean failed stages. The manager now needs to
+cancel a healthy stage that may wait indefinitely for audio. bridge_abort_stage
+and ct_abort_stage provide that path:
+  - If adoption already occurred, signal optional cancellation, run worker
+    cleanup, detach the Bridge, and retain uncertain-close state if necessary.
+  - If still pending, compete with the adopter for the same CLOSED+0 to CLOSED+1
+    gateway reservation. Withdraw pending_bridge under that reservation, then
+    await outstanding audio entry/return before closing the file.
+  - The adopter rechecks pending_bridge AFTER acquiring its reservation. This
+    prevents an earlier loaded pointer from being used after manager withdrawal.
+No gate count is reset and no live callback is forced to release its reference.
+Cleanup of a withdrawn stage needs no further audio callback if none is active.
+
+The pending-pointer race test pauses a real compiled adopter after pointer load
+but before its gate reservation, runs cancellation on an independent emulated
+worker, then resumes it. Adoption is rejected and cleanup still waits for the
+old invocation to return. Shared protocol bytes are explicitly transferred;
+this is controlled interleaving, not exhaustive interrupt/RTOS execution.
+
+4. Twelve verification groups
+1. Six manager-driven takes with exact generated payloads, all WAVs retained,
+   latest four copied results correctly ordered and ordinary sentinels intact.
+2. Cancel an ARMED session, retain history, and explicitly resume/rearm.
+3. Cancel an active optional recording without issuing ordinary STOP; later stock
+   STOP still executes and no cancelled result appears in history.
+4. Cancel during RESET, PREPARE, prepublication STAGE and pending ACTIVATE, without
+   future audio; close resources and resume to a successful next take.
+5. Cancel after audio adoption but before control activation; drain/close before
+   allowing reuse.
+6. Fresh-file creation failure preserves the previous successful result, stops
+   without automatic retry, and resumes successfully when explicitly requested.
+7. Short write never publishes a result; uncertain close (including pending-stage
+   cancellation cleanup) blocks resume and memory reuse and reports close error.
+8. Uncertain old control send keeps FENCE and old ownership without forced reset.
+9. Failure in the first adopted block automatically aborts the stage, preserves
+   the preceding successful result and permits explicit clean retry.
+10. Marker send failure blocks result publication even after WAV verification.
+11. Withdrawal after the adopter's pointer load is rechecked before use, and
+    cleanup waits for that invocation's return.
+12. Worker reentry, duplicate manager instances and manager/session overlap are
+    rejected.
+
+The existing 168 groups are also rerun on this build. Historical negative
+controls intentionally reproduce unsafe legacy approaches and remain included;
+the suite total is not a device-readiness metric.
+
+5. Limits and next step
+This is the first compiled orchestration layer. Cold-start initialization,
+creation/wakeup of its real worker task, priority/latency budgets and physical
+memory placement remain unbound. Fixtures still provide the DSP body/cursor,
+synchronous filesystem, task scheduling and kernel queue delivery. Real SD/DMA
+buffer lifetime, close-error recovery, cache/atomic behavior, stack use and
+bootloader recovery remain unresolved. No timeout can safely reclaim uncertain
+ownership just because a user has waited a long time.
+
+History is in RAM, with no power-loss journal or reboot reconstruction. Files are
+kept, including cancelled/ineligible candidates; cleanup does not delete them.
+The four retained result slots are not pad assignments. The manager neither
+plays a backing track nor starts/stops the ordinary recorder on the user's
+behalf. A control arriving unexpectedly during handover can still cancel the
+optional next take under the existing conservative attribution rules.
+
+Next, consume copied verified results through the separate pad reader/catalogue
+assignment protocol, preserving previous recordings and any active playback.
+That will connect this manager to the user's layering workflow. Stock firmware,
+the connected L6 and its SD card were not changed.

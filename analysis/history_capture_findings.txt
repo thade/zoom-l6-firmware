@@ -1,0 +1,126 @@
+L6 CONTINUOUS PRE-MASTER HISTORY: OFFLINE PROTOTYPE
+3 October 2026
+
+Result
+The additional-file prototype now retains continuous stereo history, selects a
+range using 64-bit sample positions, and transfers exactly that range into the
+existing pad-folder file lifecycle. It supports a start delayed relative to the
+ordinary recorder and a final endpoint inside an audio block. Fifteen new test
+groups pass. The four relevant regression suites also pass: 50 groups total.
+
+The original clean inputs and processed MASTER remain ordinary recordings. No
+stock firmware bytes, SD data, pad selections or device settings were changed.
+
+Implementation
+  prototype/extra_capture/history.c
+  prototype/extra_capture/capture.c and capture.h
+  tools/verify_history_capture.py
+  analysis/history_capture_verification.json
+
+This is compiled ARM code executed in the emulator, not just a host-side audio
+simulation. ALL history, control and Capture access in this experiment is
+externally serialized. It is not a concurrent producer/worker implementation or
+a device-ready hook. Storage and monotonic sample labels are harness inputs.
+
+History and ranges
+history_init receives caller-owned sample storage, a frame capacity and a 64-bit
+origin. Each history_push accepts exactly the next 64 stereo frames in the
+existing internal sample scale. A duplicate, gap or 64-bit position overflow
+latches a failure. No missing samples are fabricated. Idle history may wrap
+normally; count/head/next identify exactly which samples remain available.
+
+history_begin binds a freshly started optional Capture to a retained starting
+sample. It rejects overwritten or future starts and refuses an already-bound
+capture. File preparation and exclusive creation remain the existing lifecycle's
+responsibility. The start need not coincide with a 64-frame block boundary.
+
+history_pump copies at most 64 frames into the extra writer queue per call. It
+does not perform filesystem IO. While the range is open, a short remainder is
+held until there are 64 frames or a stopping endpoint is supplied. The existing
+worker drains the queue independently between serialized test operations.
+
+history_end sets an exclusive endpoint. If necessary, the range waits for real
+audio to arrive. Samples at or after the endpoint are excluded. An endpoint
+behind audio already transferred to the queue invalidates the file; this
+prototype does not truncate or silently retain the excess.
+
+If a new audio block would overwrite any unread selected history, push fails
+before modifying those samples. This prevents apparently successful files with
+missing passages. A failure after binding also invalidates the associated
+Capture, so its normal lifecycle cannot expose an eligible pad path.
+
+Partial-block writer support
+Capture now stores a frame count for each queue slot. extra_capture preserves
+its existing 64-frame API; extra_capture_frames accepts 1..64 frames. Full slots
+remain batched up to 4 KiB, while short slots are written separately with their
+exact byte count. Padding in a slot is never written. Checksums, byte counts,
+WAV header lengths and readback verification cover only the actual samples.
+
+A range_pending marker blocks extra_ready until the range has completed. This
+also prevents a premature ordinary lifecycle stop/finalize call from accepting
+only the audio that happened to have reached the queue. Complete range transfer
+disables extra capture and clears that marker; final drain, checked close and
+full readback must still succeed. File verification is not pad assignment.
+
+Once complete, history detaches from the file. It may keep collecting audio,
+then rearm for a second take using a fresh lifecycle/Capture. A test preserves
+the first file and creates a second exclusive filename from the continuing
+history. Failed instances are quarantined rather than automatically reset.
+
+Most direct comparison
+The test runs the original master gain, staging, scaling, reader, producer,
+queued writer and WAV finalizer beside the new history/file pipeline in separate
+emulator instances. Both receive the same labeled fixture audio. The extra
+range is selected two blocks later but retains the initial starting sample.
+After repeated wraps and a 17-frame final block, both files have exactly 1041
+frames. Every master sample equals the corresponding extra sample times the
+original gain setting of 0.5. Thus the modeled gain difference is preserved
+without changing start/end alignment. Compressor and effects bodies are not
+executed; this is not a device timing or full-DSP test.
+
+Other verified cases
+- Unaligned delayed start and partial stop across continuous history wraps.
+- Exact 24000- and 96000-frame history ranges, representing the conditional
+  firmware branches without claiming they are active L6 settings.
+- Sample labels crossing the low 32-bit boundary.
+- Endpoint arriving before its audio, with no synthesized samples.
+- Overwritten/future starts, overwrite of an unread selected range, duplicate
+  and missing labels, and 64-bit label overflow.
+- Late stop behind queued audio, premature lifecycle finalization, queue
+  exhaustion, and short/error writes of the final partial block.
+- Continuous history reuse for a second unique take; non-power-of-two capacity;
+  selection of the oldest retained sample; queued full blocks followed by a
+  short tail without padding leakage.
+- Ordinary file and state sentinels remain unchanged in lifecycle tests. The
+  earlier capture regression separately exercises all seven ordinary writers.
+
+Resources and practical limits
+History metadata: 64 bytes, plus caller-supplied stereo sample storage.
+Capture state: 66080 bytes, including the 64-KiB sample queue, per-slot lengths
+and range-pending marker. Lifecycle-owned header/readback/path storage is extra.
+history_pump also uses two local 64-float arrays (512 bytes before other stack
+overhead). Five seconds of history uses 1920000 bytes; no physical address is
+assigned and no spare-device-RAM claim is made. Partial blocks can reduce write
+batching efficiency; CPU time, stack headroom and SD latency are unmeasured.
+
+Reproduction
+  /tmp/l6-re-tools/bin/python tools/build_extra_capture.py
+  /tmp/l6-re-tools/bin/python tools/verify_history_capture.py
+  /tmp/l6-re-tools/bin/python tools/verify_extra_capture.py
+  /tmp/l6-re-tools/bin/python tools/verify_extra_lifecycle.py
+  /tmp/l6-re-tools/bin/python tools/verify_record_events.py
+  /tmp/l6-re-tools/bin/python tools/verify_record_boundaries.py
+
+Remaining integration work
+The next boundary is supplying trustworthy sample labels from the actual audio
+callback and associating stock start/stop cursor snapshots with the correct
+history generation. Modulo cursor values alone are insufficient after a wrap.
+The stop endpoint must be published before the extra worker advances past it,
+or the optional file must fail as this prototype currently does.
+
+Then establish a real ownership/fence protocol: the audio callback must not
+block on file IO, and the worker must never read history while it is overwritten.
+The current serialization is a test precondition, not that protocol. Actual RAM
+ownership, cache coherency, processing/storage headroom, split-file behavior,
+pad-reader exclusion and assignment/persistence remain unresolved. No flashable
+image has been generated.
