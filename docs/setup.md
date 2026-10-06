@@ -33,6 +33,16 @@ Build only the capture-first candidate:
 python tools/firmware/build_extra_capture.py
 ```
 
+Run the separate offline stereo AUX feasibility checks (no custom ELF needed):
+
+```sh
+python tests/emulation/verify_stereo_aux.py
+```
+
+These execute original mixer/control/output windows with synthetic state. The
+proposed stereo gains are modeled; this does not create or install a stereo AUX
+firmware feature. See the [findings](research/stereo_aux_findings.txt).
+
 Build the smaller offline hook fixture and run its native capture checks:
 
 ```sh

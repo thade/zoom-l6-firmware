@@ -1,0 +1,188 @@
+Stereo AUX feasibility — 6 October 2026
+=======================================
+
+Result
+------
+An independent stereo send using AUX 1 as left and AUX 2 as right looks feasible
+as a firmware feature. The normal v1.10 mixer already has independent gains from
+each of ten input sample lanes to each AUX bus. Stereo source information is
+still available at that point. The current channel controls give both sides of
+a stereo input the same AUX gain, producing mono sums; the mixer itself does
+not require that policy.
+
+Eleven bounded emulator groups pass using original mixer/control/output
+instructions and synthetic audio. Changing the two AUX gain rows in the model
+preserves stereo separation without replacing the sample-mixing loops or
+changing the tested master mix and input buffers. Original integer conversion
+and output-copy windows also preserve the pair in separate output lanes.
+
+This establishes a practical software route, not an implemented stereo mode or
+proof of the complete analogue output chain. The proposed coefficient changes
+are host memory writes. No production firmware, settings or mixer were changed;
+no installable image was built. The user-facing choice between an independent
+send and a copy of the main mix remains open; this investigation establishes
+the more useful independent-send candidate without assuming that choice is final.
+
+Physical interface and stock behavior
+-------------------------------------
+The official original-L6 manual specifies two mono AUX buses and two impedance-
+balanced TRS output jacks, with matching +9.5 dBu maximum output specifications.
+It also documents independent channel send amounts and pre/post-level choices.
+There is no apparent connector-count obstacle to using the two jacks as L/R;
+this is a stereo pair across two cables, not stereo on one TRS connector.
+
+Source: https://zoomcorp.com/manuals/l6-en/
+Sections: Specifications; Using external effects; Selecting the signal send
+positions for AUX SEND 1 and 2. Checked 6 October 2026. This is the L6, not L6max.
+
+Firmware evidence
+-----------------
+Input: official L6 v1.10, SHA256
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+
+Let B = 0x20010a48 and C = 0x20016f68.
+
+1. Separate input lanes and four bus sums
+
+Original 0x20224b90 processes ten 64-frame float input lanes at B+0x10,
+with 0x100 bytes per lane. Original channel mapper 0x80040ae8 maps logical
+channels 0..5 to starting lanes [0, 1, 2, 4, 6, 8]. The last four channels
+have adjacent left/right lanes.
+
+Four rows of ten gains start at B+0x5e34. Their output blocks are:
+
+  Master L: gains B+0x5e34, samples B+0x33b8
+  Master R: gains B+0x5e5c, samples B+0x34b8
+  AUX 1:    gains B+0x5e84 = 0x200168cc, samples B+0x35b8 = 0x20014000
+  AUX 2:    gains B+0x5eac = 0x200168f4, samples B+0x36b8 = 0x20014100
+
+The AUX loops begin at 0x202257bc and 0x20225a80. They sum individual input
+lanes using their own gains, or their per-sample gain ramps when enabled.
+All 40 input-to-bus routes were exercised independently. Input sample buffers
+remained unchanged. EQ enable flags and gain-ramp flags were zero in these
+synthetic mixer tests; real channel processing remains separate validation.
+
+2. Why stock sends collapse stereo
+
+Original channel AUX setter 0x8003d998 maps the channel, then calls 0x80002878
+once for a mono channel and twice with the same send value for a stereo channel.
+The test executes this path while intercepting only the asynchronous ramp
+builder 0x80010398 to inspect its target addresses and target gains.
+
+Original 0x80002878 -> 0x8000cac8 stores send level. Original
+0x80002890 -> 0x8000cb28 stores the pre/post choice. Both reach the coefficient
+updater 0x80048c78. Its AUX branch uses send level, with channel level/mute
+multipliers when post is selected. It does not apply the channel pan factors.
+Non-ramping setter tests run these paths without interception and identify
+the AUX rows above for every input lane and both pre/post choices.
+
+Equal gains on the left and right input lanes sum them to mono. Merely linking
+the existing AUX 1 and AUX 2 knob values therefore produces two mono sends.
+It does not preserve the input's stereo image.
+
+3. Candidate stereo policy
+
+For each input lane j, derive a common send gain G[j] from the linked send
+amount and agreed pre/post/mute behavior. Then set:
+
+  AUX1_gain[j] = G[j] * channel_left_factor[j]
+  AUX2_gain[j] = G[j] * channel_right_factor[j]
+
+The native mono-pan setter 0x8000d630 and stereo-balance setter 0x8000cb70
+already maintain these factors at C+0xc0+8*j. Tests execute their left,
+centre and right positions. Mono centre produces factors 1/1; hard pan uses
+approximately 1.41254 on the selected side and zero on the other. Stereo centre
+keeps the input sides separate, while balance attenuates the opposite side.
+Use those factors rather than dividing master coefficients by channel volume:
+the latter would be undefined at zero level and would couple pre-fader sends
+to master-channel gain.
+
+Each stereo pair was tested with distinct left/right signals. An additional
+opposite-polarity test cancels under equal mono-send gains but survives as
+separate left/right signals with the proposed gains. Simultaneous input-lane
+tests preserve the original master output and the tested input buffers.
+
+No extra audio history or file I/O is needed for this matrix approach. It
+reuses the existing sample loops; added coefficient computation, control state,
+ramps and code size still require implementation and measurement.
+
+4. Separate output lanes
+
+Original 0x202291a0..0x20229538 converts the two AUX sample blocks into separate
+integer output blocks at 0x20010848 and 0x20010948. The test supplies synthetic
+scaled samples and expected conversion bounds, and checks exact output words.
+Original 0x800107a0..0x80010872 then interleaves them into the second output
+buffer, independently of the master pair. The containing audio task obtains
+that buffer through 0x80033510 with selector 2.
+
+These are separate bounded checks, not a continuous mixer-to-jack simulation.
+Static inspection also finds distinct optional gain-reduction/delay processing
+for the AUX blocks near 0x20227bdc and 0x20227e5c, controlled by state at
+B+0x6260 and B+0x6290. Its initialization, enabled behavior and stereo matching
+need testing. Do not bypass output protection just to obtain stereo. DMA/codec
+mapping, actual jack order, channel delay and analogue behavior remain hardware
+checks; no physical output measurement was made.
+
+Implementation scope
+--------------------
+This is more than a saved setting, but appears substantially smaller than the
+extra-recording and pad-handoff integration. It need not depend on SD capture.
+
+The smallest useful first version would offer:
+  - normal independent mono AUX operation, or a linked stereo pair;
+  - AUX 1 = L and AUX 2 = R;
+  - one send amount per logical input channel;
+  - channel pan/balance followed by the stereo send;
+  - one shared pre/post selection per logical channel;
+  - restoration of the original independent settings when leaving stereo mode.
+
+These controls are proposals pending user preference. A separate AUX pan can
+be added later if wanted; a main-mix mirror is another, less flexible feature.
+The scene proposal in docs/future-work.md keeps AUX routing mode global and
+send mixes in scenes. Existing scenes would supply AUX 1 values to stereo mode
+while retaining AUX 2 for mono operation. Scene-save and restoration rules
+remain open; this proposal adds no persistence or scene implementation.
+
+A one-time write of stereo gains is insufficient: a negative-control test
+shows that a subsequent stock AUX update overwrites a required zero. The native
+pan setter also updates master coefficients without updating the AUX pair.
+Integration must cover level, pan/balance, send mute, pre/post, scene recall,
+startup, MIDI/editor updates and channel-mode changes. Existing gain ramps must
+be synchronized across the pair and mode changes must avoid audible steps.
+
+MONO x2, mono-plug detection and USB input selection need explicit tests with
+the preceding channel-processing stages. The proposed first scope is the six
+input strips. The examined pad contribution enters the master sum separately;
+adding pad playback or internal effects directly to the AUX pair is additional
+routing work. Returning an external effect through an input strip would use
+that strip's routing, as normal.
+
+Remaining evidence and next experiment
+--------------------------------------
+1. Agree on independent send vs main mirror, control mapping, pan behavior and
+   whether pads/internal effects need sends.
+2. Prototype a compiled optional coefficient adapter, with mode disabled by
+   default, and preserve all native mono behavior when disabled. Extend tests
+   through real control changes, ramps and scene/startup paths.
+3. Exercise the intervening output gain/protection stages with actual initialized
+   state. Check matched delay, stereo balance under asymmetric peaks, clipping,
+   mute and mode transitions before reaching the integer conversion.
+4. Measure packed code margin and real-time overhead alongside capture. The
+   existing mixer routes need no extra sample loop, but this does not prove a
+   zero-cost control implementation or sufficient firmware space.
+5. After code-placement validation, make a bounded hardware trial with distinct
+   left/right tones. Measure each AUX jack, isolation, gain, delay and clipping;
+   then verify normal mode, recording, USB and restoration.
+
+Reproduction
+------------
+Use the research Python dependencies from docs/setup.md and the verified vendor
+input. Run from the repository root:
+
+  python tests/emulation/verify_stereo_aux.py
+
+Result: 11 passing groups. This is a standalone feasibility suite, not added to
+the consolidated redesign suite or its group count.
+Generated local report: analysis/stereo_aux_verification.json
+Tests require executable JIT memory for Unicorn; sandbox restrictions can prevent
+the emulator from initializing. No attached mixer or custom ELF is required.

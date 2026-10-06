@@ -15,4 +15,4 @@ The overdub prototype has not yet run on the mixer.
 
 Independent research, not an official Zoom project. Firmware binaries are not included.
 
-[Progress](docs/progress.md) · [Architecture](docs/architecture.md) · [Research setup](docs/setup.md)
+[Progress](docs/progress.md) · [Architecture](docs/architecture.md) · [Future work](docs/future-work.md) · [Research setup](docs/setup.md)
