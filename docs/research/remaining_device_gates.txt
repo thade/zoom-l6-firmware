@@ -24,9 +24,10 @@ experiments/03-added-code/README.md ran on 6 October 2026: USB reported ZOOM L6,
 the original VID/PID and MIDI ports remained available, and the editor connected
 after relaunch. The exact staged/read-back image hash distinguishes it from
 trial 2, which produces the same label. This proves that tiny insertion and
-return path. Stock restoration is staged and read-back verified; a person must
-perform the physical update/reboot before USB L6 and editor checks can complete
-restoration. No case opening is needed for this step.
+return path. After staging and read-back verification of untouched stock, the
+user completed the physical update/reboot. USB returned to L6, all three MIDI
+ports remained available, and the editor connected with firmware 1.10 and the
+existing pad assignments. Restoration from the working trial is verified.
 
 Next, approve and validate a bounded packed-code/loading test. Original startup
 decoder evidence is offline; loader acceptance, physical instruction visibility
@@ -72,10 +73,10 @@ Then validate full-song timing/count-in, repeated layers, clean stems, preserved
 ordinary masters, audio integrity, failures and restoration. Package the finished
 image and user instructions only after these tests pass.
 
-User input needed now
----------------------
-Perform the staged stock-restoration update and normal reboot, then report the
-LED sequence or completion so the host can verify USB L6 and editor connection.
+Next device step
+----------------
+The added-code trial and stock restoration are complete. Prepare and verify a
+bounded packed-code/loading trial before the next physical update is requested.
 Subsequent probe choices depend on available read-only diagnostics. Opening the
 device is not assumed; firmware alone has not established an externally
 accessible recovery/debug path.

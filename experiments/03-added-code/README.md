@@ -1,6 +1,6 @@
 # USB name: added-code detour
 
-**Result, 6 October 2026:** the exact trial image was staged and read-back verified. After the user-reported update and normal reboot, USB reported **ZOOM L6**, with VID/PID still `1686:089e`. The editor reconnected after relaunch, displayed firmware 1.10 and the existing pad assignments, and successfully entered and exited file-transfer mode. Stock restoration is staged and verified; its physical update and reboot are pending.
+**Result, 6 October 2026:** stock **L6 → added-code ZOOM L6 → restored L6**, observed over USB after the user-reported updates and normal reboots. Each staged image was read-back verified. VID/PID remained `1686:089e`. The editor connected with firmware 1.10 and the existing pad assignments after both updates; it needed relaunch after the trial. File-transfer mode also worked with the trial installed.
 
 This trial tests whether the mixer can branch to newly inserted instructions and return to the original code. The expected visible result is **L6 → ZOOM L6**. It uses the same existing string as trial 2, but a different execution path.
 
@@ -32,6 +32,6 @@ Static scans cannot exclude every computed pointer, indirect path or bootloader 
 
 Before installation, USB reported L6. The card-root trial matched the SHA256 above before the physical update and again when preparing restoration. This distinguishes it from trial 2, which produces the same label. All three normal MIDI ports remained available after reboot. These observations are recorded locally under ignored `deployment/03_added_code/`; device files and firmware binaries are not published.
 
-Untouched stock firmware has now replaced the trial at card-root `L6.BIN`, with an exact readback match to SHA256 `64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb`. The card was safely unmounted and transfer mode exited. The remaining step is the [physical update sequence](../01-usb-name/README.md), followed by checking that USB returns to L6 and the editor connects. Staging alone does not establish restoration.
+Untouched stock firmware replaced the trial at card-root `L6.BIN`, with an exact readback match to SHA256 `64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb`. The card was safely unmounted and transfer mode exited. After the user completed the [physical update sequence](../01-usb-name/README.md) and normal reboot, USB returned to L6 and the editor showed CONNECTED, firmware 1.10 and the existing pad assignments. All three normal MIDI ports remained available. This verifies restoration from the working trial.
 
 This trial proves the specific eight-byte code insertion and detour on hardware. It does not prove appended-payload loading, large-buffer ownership, the overdub prototype or recovery from broken firmware.
