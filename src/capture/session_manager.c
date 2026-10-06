@@ -5,7 +5,7 @@
 #include "capture.h"
 #include "exchange.h"
 #include <stddef.h>
-#define KEEP __attribute__((used,retain))
+#include "retention.h"
 #define LD(p) __atomic_load_n((p),__ATOMIC_ACQUIRE)
 #define ST(p,v) __atomic_store_n((p),(v),__ATOMIC_RELEASE)
 static SessionManager *manager_owner;
@@ -14,6 +14,7 @@ KEEP const uint32_t manager_layout[]={sizeof(SessionManager),offsetof(SessionMan
  offsetof(SessionManager,results),sizeof(ManagerResult)};
 extern const uint32_t ct_layout[],rr_layout[],bridge_layout[],exchange_layout[],life_layout[];
 extern uint32_t ct_manager_matches(const uint32_t*),bridge_manager_matches(void*,uint32_t);
+extern uint32_t ct_boot_close(void);
 extern uint32_t ct_close_admission(void*,uint32_t),ct_shutdown(void*,uint32_t);
 extern uint32_t ct_stage_next(const uint32_t*),ct_activate_next(void*,uint32_t);
 extern uint32_t ct_abort_stage(void*,uint32_t),ct_stage_is_published(void*);
@@ -31,14 +32,32 @@ static uint32_t bytes(const uint32_t *d,uint32_t i) {
 static int overlap(uint32_t a,uint32_t n,uint32_t b,uint32_t k){return a<b+k && b<a+n;}
 static int spans(SessionManager *m,const uint32_t *d) {
     uint32_t addr=(uint32_t)m;
-    if(!addr || (addr&3) || addr>UINT32_MAX-sizeof(*m) || d[7]<2 || d[7]>32 ||
-       (d[7]&(d[7]-1)) || !d[8] || !d[9])return 0;
+    if(!addr || (addr&3) || addr>UINT32_MAX-sizeof(*m) || d[7]<2 || d[7]>EXCHANGE_MAX_SLOTS ||
+        (d[7]&(d[7]-1)) || (d[6]&7u) || !d[8] || !d[9])return 0;
     for(uint32_t i=0;i<7;i++) {
         uint32_t n=bytes(d,i);
         if(!d[i] || (d[i]&3) || d[i]>UINT32_MAX-n || overlap(d[i],n,addr,sizeof(*m)))return 0;
         for(uint32_t j=0;j<i;j++)if(overlap(d[i],n,d[j],bytes(d,j)))return 0;
     }
     return 1;
+}
+KEEP uint32_t manager_storage_disjoint(SessionManager *m,const uint32_t *d,uint32_t a,uint32_t n) {
+    if(!m || !d || !a || !n || a>UINT32_MAX-n || !spans(m,d) ||
+       overlap(a,n,(uint32_t)m,sizeof(*m)))return 0;
+    for(uint32_t i=0;i<7;i++)if(overlap(a,n,d[i],bytes(d,i)))return 0;
+    return 1;
+}
+KEEP uint32_t manager_boot(SessionManager *m,const uint32_t *d,uint32_t pad,uint32_t serial) {
+    if(!m || !d || manager_owner || pad>3 || !serial || !spans(m,d))return 12;
+    /* Reject a dirty manager rather than silently discard its state/ownership. */
+    const uint8_t *raw=(const uint8_t*)m;
+    for(uint32_t i=0;i<sizeof(*m);i++)if(raw[i])return 12;
+    uint32_t s=ct_boot_close();if(s)return s;
+    for(uint32_t i=0;i<10;i++)m->descriptor[i]=d[i];
+    /* Existing RESET advances to the caller's first session and serial before
+     * clearing objects, preserving its bounded work and cancellation protocol. */
+    m->session=d[8]-1;m->serial=serial-1;m->pad=pad;m->state=M_RESET;
+    manager_owner=m;return 0;
 }
 KEEP uint32_t manager_init(SessionManager *m,const uint32_t *d,uint32_t pad) {
     /* Fresh zeroed Manager, live ARMED first session, strict audio installed.
@@ -105,8 +124,11 @@ static uint32_t run(SessionManager *m) {
             if(m->session==UINT32_MAX || m->serial==UINT32_MAX)return stopped(m,14,0);
             d[8]=++m->session;m->serial++;
         }
-        /* At most 4 KiB cleared per worker step, only after complete fencing. */
-        if(m->zero_index<7) {
+        /* Clear control objects only, at most 4 KiB per fenced worker step.
+         * exchange_prepare initializes slot ownership before publication;
+         * exchange_stage overwrites every timestamp/sample before READY.
+         * Old history payloads therefore need no clearing, even at cold boot. */
+        if(m->zero_index<6) {
             uint32_t n=bytes(d,m->zero_index)-m->zero_offset;if(n>4096)n=4096;
             uint8_t *p=(uint8_t*)object(m,m->zero_index)+m->zero_offset;
             for(uint32_t i=0;i<n;i++)p[i]=0;
@@ -118,6 +140,7 @@ static uint32_t run(SessionManager *m) {
     case M_PREPARE:
         if(LD(&m->cancel))return stopped(m,16,0);
         s=life_prepare(object(m,4),object(m,5),m->pad,m->serial);
+        if(s==10)return 10; /* bounded filename collision probing */
         if(s)return stopped(m,s,!life_resources_released(object(m,4)));
         m->serial=life_current_serial(object(m,4));m->state=M_STAGE;return 10;
     case M_STAGE:
@@ -203,7 +226,10 @@ static uint32_t publication(SessionManager *m,uint32_t token,uint32_t action) {
     } else if(m->publication_owner==token && m->state==M_RESET &&
               !m->zero_index && !m->zero_offset && m->count &&
               m->results[(m->head+3)&3].session==m->session) {
-        if(action==1) {
+        if(action==3) {
+            if(!LD(&m->publication_hold)){m->publication_session=m->session;r=0;}
+            else r=11;
+        } else if(action==1) {
             if(!m->error && !LD(&m->cancel) && !m->publication_hold && m->publication_session!=m->session) {
                 ST(&m->publication_hold,token);r=0;
             } else r=11;
@@ -216,3 +242,4 @@ static uint32_t publication(SessionManager *m,uint32_t token,uint32_t action) {
 KEEP uint32_t manager_bind_publication(SessionManager *m,uint32_t token){return publication(m,token,0);}
 KEEP uint32_t manager_hold_publication(SessionManager *m,uint32_t token){return publication(m,token,1);}
 KEEP uint32_t manager_release_publication(SessionManager *m,uint32_t token){return publication(m,token,2);}
+KEEP uint32_t manager_skip_publication(SessionManager *m,uint32_t token){return publication(m,token,3);}

@@ -1,0 +1,60 @@
+Smaller capture-only linked build — 6 October 2026
+=================================================
+
+Result
+------
+--layout placement --hooks-fixture --minimal-link creates a separate
+capture-only-minimal.elf. The shared retention.h keeps the existing research
+retention policy by default. Only this variant allows normal linker garbage
+collection of unreachable C entry points, with explicit roots for functions
+reached by patch addresses and external release/cancel/result APIs. Required
+layout records and two emulator observation helpers also remain rooted.
+The roots are grouped as C patch entry points, external control APIs and emulator
+observations. The C patch group is checked against plan_capture_hooks.SPECS;
+missing/extra C patch roots or duplicates in any group fail before compilation.
+Ordinary runtime dependencies still come from linker reachability, not automatic roots.
+
+No capture algorithm, structure layout or ownership protocol changes. All
+seventeen proposed MAIN/DSP jumps remain available. Examples removed include
+old ct_init/scope/request-op, bridge_bind/publish/route-scope/retire, manager_init,
+native_worker_bind_audio and unused publication/released-query APIs. Runtime
+dependencies reached from the worker, compiled hooks or callback pointers remain
+linked. Assembly hooks and startup fixture entries retain their original roots.
+
+Initialized code falls from 22,748 to 19,248 bytes: 3,500 fewer bytes. Packed
+code falls from 18,713 to 15,908 bytes. Including source alignment, spare packed
+space increases from 119 to 2,924 bytes. Global storage remains 96 bytes; manager,
+worker and history candidate arenas remain unchanged. This is space for future
+bindings, not evidence that those bindings exist or will fit every future build.
+
+Eleven groups verify omitted/required symbols, size and normal-profile separation;
+original boot with all MAIN patches present registers a sleeping worker. Both
+native folder/mount configurations complete the exact 1,600-frame take and
+preserve seven ordinary outputs. Cancellation closes the optional file while
+ordinary audio continues. An SD error retains its native stack/buffers while
+audio/Stop runs, until the existing MODEL join permits unwind.
+The follow-up adds the same exact control/DSP continuation and native FIFO checks
+as the full hooks fixture. It includes all kernel arguments, varied incoming R3,
+and rejection of unsupported queue-fixture arguments. These checks detected the
+old common-sender defect before its single continuation correction.
+
+The ordinary capture, placement and startup builds retain byte-identical PT_LOAD
+segments compared with the preceding milestone. ELF hashes may change from
+debug metadata/source-line changes. analysis/capture_profile_stability.json
+records the segment comparison. The full research profiles remain available.
+analysis/capture_queue_fix_profile_stability.json records the follow-up comparison
+after the common-sender correction; all three ordinary profiles still match.
+
+Limits
+------
+This remains an offline fixture with explicit startup release, deep ordinary
+file setup, scheduling/card state and physical-completion permissions. It must
+not be installed. Physical RAM/cache/IRQ behavior, outer storage transitions,
+truthful SD completion and measured scheduling remain unresolved.
+
+Reproduce
+---------
+python tools/firmware/build_extra_capture.py --layout placement --hooks-fixture --minimal-link
+python tests/emulation/verify_capture_minimal.py
+Reports: analysis/capture_minimal_plan.json and capture_minimal_verification.json.
+Full redesign regression: 575 groups across 53 suites pass.

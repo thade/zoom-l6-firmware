@@ -1,0 +1,82 @@
+Native AudioProcess completion binding — 5 October 2026
+
+Result
+native_audio.[ch] and native_audio_hooks.S connect the existing compiled
+completion protocol to original whole-audio callback entry and return in the
+emulator. The observer and original DSP now execute on the same emulator CPU;
+Python no longer supplies the begin/end calls in these new tests. This extends
+audio_completion.c and playback_shutdown.c rather than replacing their protocol.
+No device access, firmware image, installation, commit or push occurred.
+
+Native boundaries
+The v1.10 descriptor at 0x800a1bec identifies AudioProcess, entry 0x80010939,
+with task-handle word 0x80446d78. na_bind takes permanent, initially unused
+OcCoordinator storage and this task identity, once, before participants run.
+The observer checks thread mode, the native handle and the current-task getter
+at 0x800770e9. Binding is a cold initialization contract, not live replacement.
+
+At 0x8001078a, r0 contains the actual callback loaded by the stock dispatch.
+The entry trampoline passes it to na_begin, replays CBZ, then resumes the
+original BLX at 0x8001078c. The common return at 0x8001078e calls na_end and
+replays the displaced BL to 0x80010150 with its original link register.
+Both observers preserve r0-r12, lr, APSR, FPSCR and s0-s31, temporarily align
+the stack for the C call, and restore its exact original alignment. They do
+not acquire the control metadata lock or wait on another task.
+
+The primary selector is 0x20015e10; the secondary is 0x20016d54. The existing
+protocol recognizes primary callbacks 0x2022a791, 0x80010961, 0x800124d9 and
+0x800133e9, with secondary 0x2022a789. A callback acknowledges a shutdown
+request only if the whole invocation began after that request and returned
+with matching token/selectors. A null callback never acknowledges. Missing
+returns keep the request pending; nested entry, duplicate return, wrong task,
+interrupt context and selector changes latch a fault. Audio continues but
+publication cannot pass. No timeout invents a successful completion.
+
+Completion is not exclusion
+A negative control deliberately leaves a looping pad active: it reads samples
+again after successful acknowledgment. The acknowledgment describes a finished
+invocation; future readers must still be excluded by shutdown admission.
+
+verify_native_renderer_fence.py combines the native scan, playback IO and
+ordinary file-worker adapters with the compiled observer and existing shutdown
+coordinator. A queued refill keeps the playback owner alive after audio returns.
+Only its matching worker completion allows exclusive publication ownership.
+Starts and background scans remain blocked throughout the hold. A positive
+control first plays from the sample buffers; after shutdown those pages become
+inaccessible, and all four original callbacks run twice without accessing them.
+Explicit finish reopens admission for a new owner. Unknown refill delivery
+retains the whole ownership chain even when native pending flags are clear.
+An idle session and each subsequent cycle still require fresh audio completion.
+
+Verification
+verify_native_audio.py: 14 groups.
+verify_native_renderer_fence.py: 3 groups.
+All 431 groups across 33 related suites pass (17 new groups; the expanded
+regression set also includes 80 previously existing audio/control/shutdown
+groups beyond the prior 334-group scan regression).
+Reports: analysis/native_audio_verification.json,
+analysis/native_renderer_fence_verification.json,
+analysis/native_audio_regression.json.
+Build: 40,284 bytes text, 16 bytes exception index, 1,872 bytes BSS, still at
+synthetic emulator addresses. These sizes do not establish device placement.
+
+Limits and next work
+The full original DSP callbacks use Unicorn ARM MAX because its instruction
+coverage handles the stock double-precision operations. That model cannot
+execute M-profile MRS IPSR, so only the thread-context query is modeled in
+those runs. A separate Cortex-M7 check executes the actual IPSR helper. This
+model choice is not evidence identifying the device chipset.
+
+The connected shutdown test uses two emulator CPUs with explicit control and
+pad-state copies at scheduled boundaries; it is not concurrent hardware.
+Stop/fade, queue scheduling, filesystem data, task identities, output
+continuation effects and shutdown-port installation remain fixtures. Protected
+pages establish the tested inactive paths, not exhaustive pointer, DMA or
+cache behavior. Actual pad publication is not exercised by the new fence test.
+
+Capture's existing outer/return hooks occupy the SAME two firmware sites.
+Next compose capture and completion into one shared pair of hooks, and verify
+both observers together. Never install the two trampoline sets as competing
+replacements. Complete control admission, other direct callers, card/USB
+exclusion, startup activation, caller lock ordering, physical placement and
+fault recovery remain open. Hardware testing remains deferred.

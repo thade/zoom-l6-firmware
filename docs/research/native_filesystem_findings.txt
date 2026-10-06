@@ -1,0 +1,164 @@
+Native filesystem / FAT / cache attribution into the SD callback
+6 October 2026
+
+Result
+------
+Twenty-one new offline groups replace the synthetic file-to-sector route in a
+separate filesystem/SD composition. Original READ/WRITE/CLOSE drivers, FAT-chain
+translation, allocation's FAT-scan branch, cached partial sectors, both FAT
+copies, directory serialization and actual setjmp/longjmp instructions execute.
+The original SD dispatcher, commands, IRQ/event code, bounce copies and existing
+test-only completion probe then execute beneath those native sector requests.
+
+This establishes the examined payload AND metadata routes. The SD callback
+checkpoint retains their original buffers, native frames and file/unit tokens
+until an explicit MODEL join. Software errors cannot unwind these tested paths
+before that permission. Nominal success also needs the final checkpoint: an
+error-only negative control still releases ownership with modeled controller
+activity remaining. No physical completion detector or device guard is supplied.
+
+Native route and callback binding
+---------------------------------
+The filesystem table at 0x800a0b28 supplies OPEN 0x800604e9, CLOSE 0x8005c389,
+READ 0x80060819 and WRITE 0x800624a9. Public wrappers use these indirect entries.
+
+Four vendor records beginning at 0x800a1298, 0x800a12b0, 0x800a12c8 and
+0x800a12e0 contain the SD dispatcher pointer 0x80068379 at record+4. Native
+registration 0x8006b328 copies a descriptor's callback at +8 into volume+0x240
+at 0x8006b3aa. The fixture executes that registration with a controlled
+descriptor using the actual vendor pointer. It does not execute the complete
+device-record selection, mount or registration caller chain.
+
+File-byte requests are initialized by 0x8006f9b8 and split at 0x80050168.
+0x8006c218 coalesces adjacent FAT clusters into contiguous sector requests and
+splits at fragmentation. 0x80071a70 obtains the next cluster through the cache.
+0x80062e58 computes the sector relative to the volume's data area.
+
+The lower request passed to 0x80053130 has volume at +0, buffer at +4, sector
+count at +8 and relative sector at +0x18. It adds volume+0x234 partition offset
+and builds the native 20-byte packet:
+  byte 0 operation (2 READ / 3 WRITE);
+  byte 1 unit selector, populated from volume+0x206;
+  word +4 lower-device parameter, populated from volume+0x248;
+  word +8 buffer, word +12 sector count, word +16 absolute sector.
+0x80051838 invokes volume+0x240 indirectly at 0x8005186a. The registered pointer
+therefore reaches original 0x80068378, explaining its absence from the bounded
+direct-reference inventory.
+
+These helpers are not exhaustive storage hook boundaries. Known optimized FAT
+slot paths at 0x80062788 / 0x80062880 can call volume+0x240 directly. They are
+included in the bounded listing, but are not executed in these new fixtures.
+The shared registered SD callback is the lower convergence candidate.
+
+Cache, allocation and close
+--------------------------
+Partial reads/writes use 0x80067178 cache lookup and stock copy instructions.
+One aligned sector READ is deliberately converted to the cache path. A cached
+dirty sector can satisfy that read without any new SD transfer. Larger aligned
+reads use the direct path and 0x80050218 flushes overlapping dirty cache first.
+Direct writes call 0x800501a8 to invalidate overlapping cached bytes which the
+complete-sector write supersedes.
+
+Allocation 0x8004ea50 executes its FAT-scan branch in a controlled small FAT32
+volume. Empty-file creation's first WRITE and subsequent append allocate clusters
+2 then 3, update the chain and file length, and decrement the supplied free count.
+The file handle was supplied by the fixture: native OPEN/create, free-space
+bitmap, FSInfo and complete mounted-card configuration remain outside this test.
+
+Original CLOSE 0x8005c388 sets handle byte 0 to FF before directory lookup or
+flush. 0x8006f8c8 writes attributes, timestamp, first-cluster fields and file
+size into the directory entry. 0x80063490 flushes dirty cache nodes through
+0x80050298, including the two FAT copies with the native mirror stride, and
+submits operation 6 / subcommand 4. Only byte 8 denotes that subcommand; its
+other packet words are uninitialized stack bytes, not payload addresses.
+This close barrier is not evidence of physical completion or durable storage.
+
+0x80050298 clears the cache dirty byte BEFORE the SD callback. If that transfer
+fails, the native cache remains marked clean. A failed CLOSE also leaves the
+handle unused. Public close retry returns an error without resubmitting those
+writes. Neither cache bookkeeping nor a nominal subsequent barrier authorizes
+reuse or verified publication after failure.
+
+Error unwinding and partial effects
+----------------------------------
+0x80051838 maps lower driver failures to 0xffffd827 and invokes 0x80054970.
+That helper finds the current filesystem context, stores the error at +0xa8
+and calls actual longjmp 0x80001862. The fixture restores original setjmp
+0x80001848, rather than the modeled exception-frame helper in older tests.
+Native public wrappers then clear their context and release the proper tokens.
+
+A failure on the later fragment can occur after earlier payload sectors have
+changed, while the returned actual byte count and file position remain zero.
+This is not atomic I/O and does not justify whole-request retry or declaring a
+complete take. CLOSE failures on either FAT copy, cached payload, directory
+write or final barrier likewise withhold success. These are injected sector
+or IRQ outcomes, not physical-card fault measurements.
+
+Native SD composition
+---------------------
+verify_native_filesystem_sd.py removes the modeled block callback and executes
+the original dispatcher, decompressed callback table and driver instructions.
+It uses the existing analysis/capture_io_probe.elf; no new production C code or
+normal-profile symbols are added. Its modeled DMA effects use the original
+issued command argument, DMA address and programmed block count. Native SD
+copies into/out of the 0x2000c4d4 bounce buffer also execute. Exact byte checks
+cover both bounce directions, direct transfers, split requests, FAT mirrors,
+directory size and readback after a controlled reopen.
+
+The command clears ARG at 0x8006a6d6 after command completion, so the fixture
+observes the issued argument at 0x8006a528 before that cleanup. It also supplies
+consistent SDHC state at HOST+12 bit 30: the native split/bounce code uses this
+flag to advance arguments by sectors rather than bytes. These are controlled
+driver-state inputs, not a recovered full card-initialization proof.
+
+Five FAT/payload failure combinations retain the SD and file-domain-1 tokens,
+output count zero and original exception/file frames before join. Four close
+transfer failures additionally retain file domains 2 and 4 while handle/cache
+bookkeeping has already changed. MODEL permission resumes the same native call;
+actual error unwind follows, without request resubmission. Nominal completion
+withheld at the callback return retains ownership too. No Main/UI service is
+needed on these examined paths.
+
+Limits and next work
+-------------------
+Handles/reopen, geometry, directory/cache lists and allocator state are
+controlled fixtures. Sector/DMA bytes, MMIO W1C, IRQ timing, kernel scheduling,
+source exclusion, cache effects and physical completion permissions are modeled.
+These tests are separate from the compiled capture manager/lifecycle composition;
+the earlier capture I/O regression retains its synthetic router intentionally.
+
+The next software integration is native creation/open and normal mounted-card
+cache/allocator/FSInfo settings, composed with the capture lifecycle. Physical
+completion, error recovery, cache visibility and source exclusion still need
+native/hardware evidence. Outer card/USB admission must run before transition
+mutations. Storage startup release remains disabled. Hardware testing is deferred;
+no installable firmware image was constructed, transferred or installed in this milestone.
+
+Verification
+------------
+python tools/firmware/audit_native_filesystem.py
+python tests/emulation/verify_native_filesystem.py
+python tests/emulation/verify_native_filesystem_sd.py
+python tools/firmware/verify_redesign.py
+
+Bounded inventory: 22 entries, 131 direct references, four SD callback records.
+Reports: analysis/native_filesystem_inventory.json,
+         analysis/native_filesystem_verification.json,
+         analysis/native_filesystem_sd_verification.json.
+The consolidated runner now passes 499 groups across 47 suites. Normal/startup
+packed margins remain 302/155 bytes; capture code and device state are unchanged.
+
+Follow-up: capture_native_files_findings.txt now connects native OPEN/create,
+SEEK, INFO and reopen/readback to the compiled lifecycle and SD composition.
+Its ready-volume state remains controlled; full mount, bitmap and FSInfo
+initialization are still outside the proof. The current bounded inventory has
+32 targets and 164 direct references. This note's 21-group/499-total account
+records the preceding milestone.
+
+Further follow-up: native_mount_findings.txt now executes the original
+filesystem/cache/handle constructor, FAT32 partition/BPB mount and allocation
+bitmap/free-count scan with the compiled capture lifecycle. The tested paths
+count FAT entries without accessing FSInfo. Full card initialization/identity,
+physical completion and storage authorization remain unresolved. The current
+bounded inventory has 43 targets and 218 direct references; the consolidated
+runner passes 524 groups across 49 suites.

@@ -21,11 +21,35 @@ python tools/firmware/build_code_probe.py
 python tests/emulation/verify_code_probe.py
 ```
 
-Build the emulator-only prototypes before running tests that use them:
+Build and verify the current redesign (all offline):
+
+```sh
+python tools/firmware/verify_redesign.py
+```
+
+Build only the capture-first candidate:
+
+```sh
+python tools/firmware/build_extra_capture.py
+```
+
+Build the smaller offline hook fixture and run its native capture checks:
+
+```sh
+python tools/firmware/build_extra_capture.py --layout placement --hooks-fixture --minimal-link
+python tests/emulation/verify_capture_minimal.py
+```
+
+This variant retains all proposed hook targets while dropping unreachable
+research entry points. It is still an emulator artifact. The
+[remaining device gates](research/remaining_device_gates.txt) explain the
+hardware evidence needed before creating an installable capture image.
+
+Build the historical emulator prototypes before running their individual tests:
 
 ```sh
 python tools/firmware/build_overdub_prototype.py
-python tools/firmware/build_extra_capture.py
+python tools/firmware/build_extra_capture.py --profile research
 python tests/emulation/verify_extra_capture.py
 python tests/emulation/verify_recorder_file_worker.py
 ```

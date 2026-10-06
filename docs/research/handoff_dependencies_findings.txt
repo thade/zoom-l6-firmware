@@ -1,0 +1,127 @@
+HANDOFF / MAIN / SD COMPLETION DEPENDENCY AUDIT — 5 October 2026
+
+Follow-up: sd_completion_findings.txt now traces the actual clock helper,
+command-error reset and raw IRQ snapshot. The SD lifetime and completion suites
+are included in the current consolidated result: 324 groups across 32 suites.
+The 300/30 result below records this audit's earlier boundary.
+The later sd_transfer_probe_findings.txt adds a compiled, test-only join guard
+inside this same handoff fixture. Pending modeled recovery retains all tested
+ownership; rollback/release wait for explicit JOINED. Current consolidated
+verification at that stage was 337 groups across 33 suites.
+The sd_controller_setup_findings.txt follow-up adds twelve groups and corrects
+the actual transfer/clock register distinction. Current consolidated verification
+is 349 groups across 34 suites; physical cancellation remains open.
+
+Result
+The examined successful handoff read/write paths do not require Main event
+processing or the UI mutex. Initial audio reads and settings write/readback now
+execute with the registered native SD dispatcher, command engine and event-wait
+predicate on the SAME CPU fixture as the checked handoff and filesystem locks.
+The native SD IRQ/event-post path uses a separate SD event object, not the UI
+queue. This supports further investigation of the between-events candidate.
+
+It does not enable the candidate: a reproduced native timeout still releases
+software locks without proving physical controller/DMA completion. The current
+adapter then attempts safe rollback in this fixture. That behavior cannot be
+bound to hardware on public-return/lock-release evidence alone. Success also
+does not resolve the previously documented acceptance of SD error-event bits.
+The normal build remains without an input adapter or automatic gate binding.
+
+Bounded UI-mutex inventory
+audit_handoff_dependencies.py pins the v1.10 image and scans the main flash and
+startup-copied RAM region. It finds four adjacent MOVW/MOVT formations of slot
+0x80446810:
+  0x80020366/0x8002036e: backlog cleanup 0x80020360;
+  0x8002043c/0x80020444: queue flush 0x80020438;
+  0x8002054e/0x80020554: targeted deletion 0x80020548;
+  0x8006e4be/0x8006e4c4: event sender 0x8006e4b8.
+The inventory also records 61 bounded direct references to these entries, the
+SD dispatcher and SD event wait/post wrappers. These are search leads, not an
+exhaustive graph; other constant formation, literals and indirect calls remain.
+Report: analysis/handoff_dependencies_inventory.json.
+
+What changed in the test boundary
+Earlier handoff tests modeled filesystem driver reads as immediate logical file
+byte copies. A separately compiled TEST fixture now submits synthetic one-sector
+SD operations before invoking that same logical-byte model. It replaces driver
+boundaries 0x80060818 and 0x800624a8 in the emulator only. It is not a recovered
+filesystem-to-sector translator: block address, partial sectors, FAT/cache and
+physical data are modeled. It allocates its own sector buffer to avoid making a
+512-byte SD operation overwrite a smaller settings/header caller buffer.
+
+The router executes original 0x80068378, the callback table recovered by original
+startup decompression, read/write wrappers and actual command engine. Callback
+addresses match the previously recovered eleven-entry table at 0x801f5ff0.
+It is linked only into handoff-test.elf; profile verification rejects its symbols
+from either normal capture-only or handoff build.
+
+Dependency chain exercised
+  checked handoff -> public filesystem wrapper -> filesystem domain ownership
+  -> synthetic sector mapping -> original SD dispatcher -> per-unit token
+  -> original command wait (0x183) -> data wait (0x185)
+  -> final-status command wait (0x183) -> per-unit unlock
+  -> modeled logical bytes -> filesystem unlock -> pad conversion/settings.
+
+The wait wrapper 0x800328c0 reaches original event predicate 0x800326c0. Native
+event masks and timeout 5000 are observed from actual arguments. MMIO responses,
+event arrival, kernel time and critical-section endpoints remain fixtures.
+Both initial sample reads and settings writes/readback retain the filesystem
+domain through the SD waits. Sample prefetch also retains scratch ownership.
+Pending command/data waits preserve all those owners and the handoff gate.
+No Main event service is invoked to advance the waits.
+
+The UI token is deliberately unavailable in these tests: an attempted take
+would suspend the CPU and be recorded; releasing it would fail the test. Neither
+occurs on the examined successful paths, including a larger multi-chunk initial
+load with more than 500 synthetic sector operations. Main event receive, send,
+enqueue, dispatch and targeted-delete entry calls also fail the fixture if used.
+Open/close driver bytes, catalogue effects, conversion, gate and seal remain
+models. The absence of a dependency here is not a proof about those boundaries
+or every possible filesystem callback.
+
+SD interrupt independence
+Original IRQ 0x8006ea90 -> 0x8006ea98 decodes a modeled data-completion status,
+then calls 0x80032828 -> 0x800324b0. That original event-post body writes the SD
+event flags and calls kernel ISR give 0x80076628 with the SD event's token. The
+fixture models that kernel wake endpoint, not a native interrupt preemption.
+The event object at HOST+4 and its token differ from the UI mutex and queue.
+This runs without Main dispatch or UI-mutex access. It does not prove DMA/cache
+coherence or that the modeled completion status has the required physical meaning.
+
+Timeout counterexample and binding rule
+The fixture withholds a sample data event, then makes the kernel wait report
+timeout. Native driver returns an error, its unit token is given, public wrapper
+returns, and the existing checked adapter rolls back and releases the gate.
+No controller-idle/reset observation has occurred. This reproduces the relevant
+control flow in the combined fixture; it is not a real mixer fault.
+
+The BackingGate contract now explicitly covers NEW native I/O during handoff as
+well as preexisting users. A future gate cannot meet that contract merely by
+joining old readers before entry and checking software locks afterward. It must
+retain command/data errors and prove transfer completion or checked cancellation
+before any safe rollback, close, buffer reuse or admission release. A timeout
+deadline by itself cannot authorize any of those actions.
+
+Simply retaining a file handle is insufficient if the transfer may still write
+to a caller's stack or the shared prefetch buffer. Adding a wrapper that returns
+UNCERTAIN after releasing those lifetimes would not fix the physical problem.
+The existing gate remains unbound. Do not turn the diagnostic result into a
+hardware-safe rollback claim or add a terminal Main wait as an automatic fix.
+
+Next concrete work
+Identify a native transfer-completion/error observation that covers command,
+data and status work; preserve raw error events even when stock code returns
+success. Then establish checked timeout cancellation/controller-idle semantics
+before binding safe failure recovery. Native between-events wakeup and serialized
+manager ownership also remain necessary. UI-mutex independence of the tested SD
+chain removes one concern; it does not substitute for those proofs.
+
+Verification
+Seven groups: tests/emulation/verify_handoff_dependencies.py.
+Report: analysis/handoff_dependencies_verification.json.
+The consolidated redesign runner passes 300 groups across 30 suites; the
+separate original SD lifetime audit passes 15 groups. Reports:
+analysis/redesign_verification.json and analysis/sd_transfer_lifetime_verification.json.
+The synthetic router is tests/fixtures/sd_dependency_route.c.
+Original instruction and compiled-code execution is offline. No device access,
+firmware image, physical placement, chipset identity or measured latency claim.

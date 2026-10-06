@@ -1,0 +1,104 @@
+TRACKED READ RESERVATIONS AGAINST PAD LOAD/UNLOAD
+4 October 2026
+
+Result
+pad_file.c adds an optional per-pad reservation shared by tracked read producers
+and wrappers around the original pad loader/unloader. A tracked read captures
+and pins its handle before publication, then keeps that reservation through the
+file-worker return and read-ticket join. Wrapped pad replacement waits before
+entering the original body while a conflicting read remains pinned.
+
+This is the first storage-lifetime boundary, not complete filesystem/card
+ownership. Direct filesystem closes, raw handle-table stores, ordinary/periodic
+read traffic, media removal and card/USB teardown are not covered by this guard.
+All relevant mutation entry points must participate before deployment.
+
+Native evidence
+Unload 0x800096f8 first disables sampler state through 0x800368c0, obtains the
+retained handle through 0x80036318, and calls public close 0x8005c1f8. It then
+clears loaded state and retained handle, disables streaming and clears the
+file-worker handle via 0x80036860. Guarding only the close would let earlier
+state changes occur while a read was still live.
+
+Loader 0x800092a0 accepts (pad,path), with a null path selecting the configured
+path. It opens/parses/configures the sample and publishes sampler/file handles.
+Its failure branches can clear assignment state and close the opened file.
+The two wrappers therefore reserve the complete original load/unload operation.
+Forwarders replay each function's original PUSH and resume at 0x800092a2 and
+0x800096fa respectively. They do not recurse through the intercepted entries.
+
+Reservation protocol
+pf_bind installs a permanent coordinator and yield port once, before admission.
+The guard occupies 88 bytes of private state: a short metadata latch, monotonic
+token sequence, four mutation records and two producer read records. No metadata
+latch spans file IO or yield. Logical reservations do span the complete operation.
+
+pf_pin checks that the pad is loaded and that its retained handle at
+0x807348d4 + 0x22c*pad matches the nonzero file-worker handle at
+0x80735b24 + 20*pad. It atomically captures that handle and a fresh token while
+excluding mutation of that pad. An active mutator's saved handles also exclude
+new pins through another pad alias, even after it clears its public handle words.
+Tokens never wrap. They identify reservations, not filesystem open generations.
+
+Each requesting role has one pin slot. Two roles may pin the same pad; a mutation
+waits for both. pf_change_begin excludes pins on the target pad or either of its
+current handle aliases, then retains the calling native task ID and handle
+snapshots until pf_change_end. Only the matching owner can end the mutation.
+Busy admission changes no state; stale/duplicate pin releases do not clear a
+new reservation. This does not validate historical alias state after reopening
+a file, or serialize all possible direct filesystem operations.
+
+Producer integration
+rp_begin acquires the optional pin before publishing its immutable handle. The
+synchronous callback yields and retries begin when mutation temporarily prevents
+admission. It does not send until admission succeeds. Once rr_finish succeeds,
+a separate RP_RELEASE phase drops the pin; contention retries only that release,
+never the file IO or the already-completed read-ticket join. The producer state
+is now 72 bytes per role (one additional lease token).
+
+Missing delivery/completion retains the reservation. An observed IO failure can
+release it after the reader has returned and joined, while final reload failure
+remains recorded. A fault during tracking still parks and retains resources.
+Legacy tests without pf_bind retain their earlier handle snapshot with token
+zero; those configurations do not claim this added lifetime protection.
+
+Verification
+  python tools/firmware/build_overdub_prototype.py
+  python tests/emulation/verify_pad_file.py
+Report: analysis/pad_file_verification.json
+
+Nine groups pass:
+1. All eight reads through actual compact ingress pin/join/release, while the
+   original wrapped loader/unloader paths complete normally.
+2. An undelivered read keeps its pad pinned; another unrelated pad can mutate.
+3. Two readers coexist; wrong/duplicate releases cannot remove other ownership.
+4. A blocked native unload leaves sampler state, handle and close count unchanged.
+   After release, its saved continuation closes exactly once and clears state.
+   Reload obtains a fresh reservation token; the old token cannot release it.
+5. A blocked native loader cannot open a file or overwrite pad state.
+6. Mutation excludes new pins; mismatched native handle tables reject a snapshot.
+7. Handle aliases cannot bypass an existing pin or active mutation snapshot.
+8. Busy pin release retries only release, without repeating read-ticket joins.
+9. Joined failed/short reads release pins while preserving reload failure.
+
+All 143 preceding groups pass on the rebuilt ELF: 152 groups across fourteen
+suites. This is not a full repository test run.
+
+Limits and next work
+The integrated test executes original load/unload and compiled read/guard code.
+A focused native-unload test saves its suspended registers, releases a modeled
+pin, then resumes the exact continuation. Metadata contention, scheduling, public
+file effects, parsing and conversion remain fixtures. No device was accessed.
+
+pf_bind plus both mutation wrappers must activate together under a verified cold
+startup sequence; this is not yet wired. Ordinary reads are still unpinned, and
+no complete media owner exists. A task waiting in a wrapper may already hold
+stock resources needed by its counterpart, so a call-chain/lock-order audit is
+required before these waits are safe to install. Permanent parking still needs
+replacement with safe failure isolation. No patch, physical memory placement,
+startup release, power-loss durability or recovery capability is established.
+
+Follow-up: pad_close_findings.txt adds a public-close reservation before stock
+filesystem locks and read-admission revocation until guarded loading. State is
+now 220 bytes. Ordinary readers, lower close bypasses and media teardown remain
+outside the demonstrated protection.

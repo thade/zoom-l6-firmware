@@ -1,0 +1,170 @@
+STOPPED HANDOFF: ADMISSION AND COMPLETION MAP
+5 October 2026
+
+Result and decision
+There is no single verified stock pause flag or queue acknowledgement that
+supplies BackingGate.enter. The capture-only control drain intentionally keeps
+ordinary commands working, so it is not the missing device gate. A dedicated
+handoff admission boundary must cover the independent domains below while their
+existing work continues to completion. Do not reinstate the old broad ownership
+overlay merely to obtain a success response.
+
+The immediate design remains opportunistic: if pads, recording, a reload or
+card/USB activity are still in use, defer the optional handoff. Do not force-stop
+a playing pad, stop the audio task, suspend completion workers, or acquire a
+filesystem/scratch lock as the gate. Existing admitted stop/completion work must
+remain runnable. All entry coverage and matched completion evidence below are
+requirements before the current unbound gate can be implemented on the device.
+
+New reproducible artifacts
+  tools/firmware/audit_handoff_admission.py
+  analysis/handoff_admission_inventory.json
+  tests/emulation/verify_handoff_admission.py
+  analysis/handoff_admission_verification.json
+
+The inventory pins the v1.10 SHA256, decodes the main region at 0x80001000 and
+the startup-copied 0xd6dc-byte region at 0x20220000, and lists 35 entries with
+86 direct branch/call references after adding the three-argument pad command
+roots (see pad_commands_findings.txt). Seven callback/worker boundaries are recorded
+separately. Linear disassembly is an audit aid, not exhaustive coverage: data
+may resemble instructions, indirect stores/calls are not resolved, and absence
+of a direct reference is not evidence of absence of a caller.
+
+1. Pad controls and rendering
+Entry candidates: outer control handlers 0x8003efb0 and 0x8004b828; actual
+start/restart helper 0x80002c60. The bounded direct-call inventory reaches that
+helper at 0x8003efd8, 0x8003f016 and 0x8004b864. Guard before its stop/disable,
+seek and re-enable mutations, but preserve the outer command's semantics.
+
+New original-instruction probes show both outer handlers ignore the start
+helper's return and continue to 0x80008430 with the pad number for injected
+returns 0, 1 and 0xffffffff. A fabricated BUSY return at the helper would not
+defer the original command. Both handlers can instead call stop 0x80002d08
+when the inspected mode/playing conditions select it. Blanket blocking of
+the whole handler family could prevent a needed stop. No user-facing names
+for the handlers or LED/status helpers are inferred from these addresses.
+
+Completion: retain ownership through start/restart's seek and the entire playing
+interval, including gaps between refills. After stop/natural EOF, require a
+matching whole audio invocation to have returned plus no queued/running refill
+or file descendants. Common AudioProcess call/return are 0x8001078c/0x8001078e.
+A completion acknowledgement alone does not exclude the next callback; starts
+and relevant mode changes must remain closed. The normal and alternate pad
+renderers are both relevant. Existing native_renderer_fence tests demonstrate
+these relationships only under their modeled stop/queue/control contracts.
+
+2. Background refill and sample-file workers
+Registered callback 0x800366f0 -> scan 0x80036508 runs from the copied-RAM
+AudioSubProcess dispatcher 0x2022a7a8. Admission must precede scan mutations,
+not only the send at the publication path around 0x8003664a. Prevent NEW scans
+while allowing accepted refill/read work to complete.
+
+Refill queue: 0x801f8f34; worker 0x80036c60; call/return 0x80036c7c/0x80036c80
+around 0x800369a8. Sample-file queue: 0x801f8f30; worker 0x80036118; read
+0x80036184/0x80036188, seek 0x800361bc/0x800361c0. Completion includes actual
+status/count, error handling, signal tail and the waiting producer's return.
+An empty queue can coexist with an executing job. A signal or cleared native
+pending field cannot retire an uncertain/undelivered request. Initial handoff
+reads use the new synchronous callback; this does not remove ownership needs
+for pre-existing ordinary refills, reads or seeks.
+
+3. Recorder and transport
+Higher-level entries already observed by capture transport:
+  0x80034f40, 0x80034e58, 0x80034d18, 0x80035038, 0x800350d8.
+Their packet families include record callback 0x8004b9a0, alternate transport
+callback 0x8004b890 and stops 0x8004ba40/0x8004b910. There are inline send paths;
+intercepting only producer 0x8004b6d8 is incomplete. Queue 0x801f8f38 belongs
+to RecPlayCtl 0x80034bc8, with callback call/return 0x80034c20/0x80034c22.
+Direct backend/forced-cleanup paths also need coverage.
+
+Begin ownership BEFORE the original request's first mutation or enqueue, retain
+the session through audio producer/file/flush work, all finalizers and closes,
+postprocessor 0x800032b0 including reopening tail 0x800035d0, and enclosing
+callback return. A post-file-drain checkpoint at 0x8000b78c precedes these closes
+and later reopens. It is not sufficient for handoff admission. Close errors
+remain uncertainty even when the recorder subsequently clears its state.
+
+A new regression runs the CURRENT compiled capture drain: its marker is
+acknowledged successfully while a newer stock transport callback 0x8004b891
+remains queued. This is intentional capture-only behavior, not a new regression.
+The handoff must independently prevent new recorder sessions. Never wait for
+RecPlayCtl to become idle from inside the very callback it is executing.
+
+4. Pad assignment, catalogue and deferred reload
+Entry 0x80008c68 mutates before queueing; mode 2 clears synchronously. Other
+modes put a borrowed path pointer in a 32-byte packet. Deferral needs owned
+arguments or a preserved synchronous call, not a shallow packet copy.
+
+Catalogue scanner 0x800082c0 has independent direct callers; directory/card
+setup can scan before deferred reload producer 0x80008d68. That producer sends
+callback 0x80049da0 to queue 0x801f8f3c. Worker call/return are
+0x800362b4/0x800362b6. Event (category 4, code 26) subsequently reaches consumer
+0x8002d568 -> 0x80008b68, which stops, unloads, reloads and saves again.
+Join both worker and consumer, with actual I/O outcomes. Identical events and
+a shared busy flag are not unique completion acknowledgements; one reload's
+consumer can clear busy while another reload is still queued.
+
+Do not park Main on a new blocked request if an earlier accepted reload needs
+Main to consume its completion. The eventual caller-level deferral/retry ABI
+must resolve this dependency before a gate can remain closed across a join.
+
+5. Card and USB transitions
+Outer candidates 0x8000c220/0x8000c288/0x8000c2d8 include side effects before
+low-level USB requests. Independent setup 0x80009a40, release 0x80009b18 and
+directory route 0x80009938 also matter. The inventory finds six direct detach
+references and additional direct mount callers; guarding two USB wrappers
+would omit known paths. Admission at detach 0x80062230 is already too late
+for side effects in some enclosing workflows.
+
+USB request 0x8003b7e0 and stop 0x8003b8a0 use one shared command/parameter pair
+and untagged acknowledgement. The worker at 0x80045cf0 acknowledges before the
+host-access session ends, including tested failed transition outcomes. Retain
+the entire host session, verified stop, card readiness and reload descendants.
+Neither the USB-active byte nor a zero-returning remount proves readiness.
+
+Card release clears filesystem registration before pad/recorder cleanup. A
+physical card removal cannot be prevented by software admission: invalidate
+the card generation and retain failed/uncertain operations; never approve the
+handoff from a stale idle/ready flag.
+
+Pause ordering and release contract
+1. Identify and close new mutation/producer admissions, including the outer
+   caller ABI and lifetime of deferred arguments. Distinguish needed stops and
+   accepted completions from new work. Keep interrupts and service workers live.
+2. Join accepted control requests, renderer invocations, scan/refill/file work,
+   recorder postprocessing, and storage/reload sessions using matched evidence.
+   Logical ownership may persist; scratch/filesystem/SD locks must not.
+3. Only then return gate OK and run seal, synchronous assignment and persistence.
+4. Release with the I/O-free commit contract in backing_native.h. A failure must
+   leave admissions closed; no failure may be reported after users resume.
+
+The existing BackingGate.enter BUSY/SAFE contract leaves no reservations behind.
+A future multi-step closer therefore cannot silently keep partial admissions
+closed while returning BUSY: it needs a separate, explicit preparation state or
+must unwind the attempt. Prefer trying the handoff at an already quiet boundary
+and retaining the verified take when entry is unavailable. No implementation
+choice is permitted to substitute idle flags for the matched evidence above.
+
+Next implementation slice
+Update: pad_commands_findings.txt records the completed offline queue and
+three-argument caller evidence. Dispatcher ownership, retries, overflow and
+ordering of mode/Record state changes still need binding. The remaining goals
+below describe that integration, not a deployed gate.
+Establish the two outer pad controls' actual caller contexts and deferral ABI,
+including both start and stop branches and the Main reload dependency. Prove
+that a delayed start preserves its arguments and executes once after release,
+while a previously accepted completion can still progress. Keep the broad
+research overlay excluded; do not wire BackingGate.enter to any existing flag
+or capture-drain acknowledgement. The other domains remain explicit blockers
+to enabling an actual device gate, not implicit assumptions of that slice.
+
+Evidence and limits
+New: five groups in verify_handoff_admission.py. Existing focused suites rerun:
+control_drain, storage_lifetimes, pad_reload, native_scan, native_renderer_fence.
+All 66 groups across these six suites passed.
+Original instruction paths execute with modeled tasks, queue scheduling,
+file/audio effects and admission boundaries. No complete firmware scheduler,
+exhaustive caller graph, installed gate, new firmware image or device access.
+Related detailed evidence: handoff_locks_findings.txt, storage_lifetimes_findings.txt,
+pad_reload_findings.txt, native_scan_findings.txt, native_audio_findings.txt,
+playback_io_findings.txt and control_admission_findings.txt.

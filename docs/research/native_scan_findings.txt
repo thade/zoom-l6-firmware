@@ -1,0 +1,86 @@
+Native AudioSubProcess scan binding — 5 October 2026
+
+Result
+native_scan.[ch] and native_scan_hooks.S replace the scan producer's fixed
+ownership addresses with a permanent session/task/queue binding. The original
+registered sampler callback and original scan run through this adapter in the
+emulator, followed by the already-bound refill and file-worker adapters.
+The older emulator_stream_producer.c remains for historical tests but is not
+used by this path. No firmware image or device installation was produced.
+
+Native boundaries
+The v1.10 descriptor at 0x800a1c04 identifies AudioSubProcess, entry 0x2022a7a9,
+and task-handle word 0x80446d7c. Startup copies 0xd6dc bytes from 0x800a9408
+to 0x20220000; the original callback dispatcher is in this RAM block.
+Original registration 0x80002870 registers sampler callback 0x800366f1. Tests
+redirect that callback entry to ns_callback, which intentionally takes no
+arguments: the dispatcher has a callback address in r0, not a parent ticket.
+
+ns_callback validates thread mode, the actual AudioSubProcess identity, saved
+stream-worker identity at 0x80446dcc and queue handle at 0x801f8f34, then calls
+od_session_scan on the bound session. Its ns_scan port verifies that the session
+operation latch is held and the explicit parent equals the session owner.
+Missing, busy or closing sessions skip the original scan. Full-ledger rejection
+before admission also skips it without native mutations. No ordinary root or
+permission to bypass admission is inferred from a global active-session flag.
+
+Owned scan and publication
+The whole original scan at 0x80036508 executes under a claimed OWN_SCAN child
+of the session. This covers stock mutations that precede queue publication.
+The publication trampoline replaces the block beginning at 0x8003664a, before
+both requested-count and pending stores. It preserves live scratch registers
+and original stack arguments and resumes at 0x800365d8.
+
+Each refill reserves an OWN_STREAM child beneath the scan, prepares its ticket
+packet, then publishes pending state and sends exactly once. Stock send success
+means ACCEPTED; other stock returns mean UNCERTAIN. Only an explicit port with
+positive NOT_SENT evidence can restore the old requested/pending state. Unknown
+delivery retains the child and its ancestors even if native idle flags change.
+The scan's execution can finish while its children remain outstanding; ledger
+retirement retains the correct ancestor chain until all descendants finish.
+
+Ledger contention after admission retries only the current metadata operation,
+on the same suspended native stack. It cannot restart the scan, send again or
+repeat file IO. A refill may finish before the sending call returns; submission
+acknowledgment and producer return still keep the running scan reserved.
+No scan-private lock is held across native queue send. The session operation
+latch remains held by od_session_scan; refill/file workers do not need it.
+Other session callers use try-only admission rather than waiting for that latch.
+
+Binding
+NsBinding is copied once (20 bytes): session, task, queue, send and yield ports.
+The session's scan port must already be ns_scan. pi_scan_ready checks that the
+receiving adapter uses the same session and queue and has not started traffic.
+Native IDs must be distinct from Main, the stream worker and the file worker.
+Binding assumes a single cold initialization caller, before participants run;
+it is not a live replacement protocol or queue-draining audit.
+
+Verification
+verify_native_scan.py adds twelve groups. It runs original RAM registration and
+dispatch with the original callback address, original scan/publication, bound
+refill and ordinary file IO. It checks no-session/busy/closing skips, queue
+uncertainty, positive nonpublication, send-ack and scan-return contention,
+worker completion before sender return, full-ledger admission and binding errors.
+A second run relocates the ledger to 0x21032000. Both runs fill the legacy scan
+context at 0x21003900 with a sentinel and verify it remains untouched.
+The transport driver's fixture assertion now follows the coordinator's ledger
+pointer so it can check ownership at either address.
+
+All 334 groups across 25 suites pass. Reports:
+analysis/native_scan_verification.json
+analysis/native_scan_regression.json
+Current ELF: 39,668 bytes of text, 16-byte exception index, 1,856-byte BSS,
+still in the original synthetic emulator arena. No memory-helper runtime was
+pulled into this build. These sizes do not prove physical device placement.
+
+Remaining work
+The scan/session/refill/read ownership chain no longer depends on the fixed
+scan fixture addresses. Kernel scheduling, file effects, valid refill-window
+state, audio fade/stop, conversion and renderer fence are still modeled.
+Next investigate a native renderer completion boundary: sound stop or empty
+queues alone cannot authorize replacing files/buffers still used by rendering.
+Other direct callers and global callback coverage also need an audit.
+Final native entry patches, callback/startup activation, card/USB exclusion,
+full caller lock ordering, fault isolation and physical placement remain open.
+Invariant failures still park participants and can stall shared tasks. No
+device access, SD staging, firmware deployment, commit or push occurred.

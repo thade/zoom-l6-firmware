@@ -1,0 +1,160 @@
+SD CONTROLLER SETUP / RECOVERY BOUNDARY — 5 October 2026
+
+Follow-up: sd_card_recovery_findings.txt traces CMD12 and upper card negotiation,
+and tests a single stop attempt inside the retained-stack join. The stop return
+still does not establish idle, and card reinit does not validate live files.
+
+Result
+Twelve new offline groups trace original address/mode programming, boot and
+reset callbacks, completion-event creation, IRQ enable ordering and bus-width
+configuration. This supplies the restoration constraints for the scoped probe;
+it does not implement a physical join. Normal build profiles remain unbound.
+
+Register-label correction
+The previous completion fixture mislabeled 0x402c00c0 as MIX_CTRL. The NXP
+candidate headers place MIX_CTRL at offset 0x48, VEND_SPEC at 0xc0 and VEND_SPEC2
+at 0xc8. Original command engine 0x8006a54e writes the actual MIX_CTRL. Operation
+5 at 0x8006a2ea clears VEND_SPEC bit 8, FRC_SDCLK_ON, not DMAEN. The corrected
+fixture now seeds BOTH registers and verifies that cleanup never touches actual
+MIX_CTRL and leaves its DMA-enable bit set. The earlier no-checked-reset and
+clock-not-idle conclusions hold; their DMA assertion now tests the right register.
+
+Examined transfer programming
+With PROT_CTRL DMASEL=0 and VEND_SPEC2 ACMD23_ARGU2_EN=0, the original path
+uses DS_ADDR (0x402c0000), rather than ADMA_SYS_ADDR (0x402c0058). Compiled probe
+plus original command/IRQ/event instructions run on one CPU for these cases:
+  one block, two blocks, nine blocks; aligned, word-offset and byte-offset buffers.
+MIX_CTRL low-byte data settings are:
+  read single: 0x11; read multi: 0x37;
+  write single: 0x01; write multi: 0x27.
+These combine DMA enable with direction, count and auto-CMD12 for multi-block.
+BLK_ATT carries 512-byte blocks and the chunk's count; unaligned/short paths use
+the previously recovered per-unit bounce area. The examined paths do not write
+ADMA_SYS_ADDR or program a descriptor table. This bounds descriptor ownership
+for these paths only; it is not a claim about every firmware transfer.
+
+Command setup replaces only MIX_CTRL low byte; higher fields survive. Transfer
+submission does not repair PROT_CTRL DMA mode/endian or VEND_SPEC2 argument mode.
+Negative seeded ADMA, shared-argument and big-endian cases still return success
+with synthetic completion. They show the setup dependency, not successful DMA.
+The aligned direct read writes 32 consecutive cache-maintenance addresses at
+0xe000ef70 before submission, with original DSB/DSB/ISB instructions. Cache,
+MPU and bus effects remain outside the model.
+
+Fresh status must precede transfer-address programming
+Native DS_ADDR programming precedes the command engine's INT_STATUS write at
+0x8006a526. In a negative case seeded with old TC, that bit is still visible
+when the native path writes the new address. Recovery/admission therefore cannot
+rely on the LATER command acknowledgement to make its earlier address safe.
+The ordinary sequence may rely on its previous IRQ/end-of-transfer clearing;
+the experiment does not assert that normal device transfers violate this rule.
+
+Boot/controller callbacks cannot be reused as checked recovery APIs
+0x80069b20 (first registered controller callback) stores the base-clock value
+and clears HOST+4, the completion-event handle. It changes clock settings,
+requests SYS_CTRL.RSTA, then polls only PRES_STATE.CIHB/CDIHB for up to ten
+modeled delays. It sets initialization clocks even if inhibit remains asserted,
+disables status/signal interrupts, disables shared auto-CMD23 argument mode,
+sets one-bit bus width/wakeup fields and sets timeout fields. It returns zero.
+Synthetic reset-stuck and retained activity cases also return zero. This callback
+does not verify reset self-clear or completion of the initialization clocks.
+
+0x80069a18 (second callback) also clears the completion-event handle and disables
+status/signal interrupts. It requests RSTA and polls that bit for ten delays,
+but returns zero for both modeled reset self-clear and timeout. Clock-probe
+failure does not prevent this reset attempt. It makes no post-reset activity
+check and does not recreate the event. Neither callback explicitly repairs
+DMA/endian/watermark state or performs the external card negotiation itself.
+Model registers deliberately have no reset side effects; unchanged seeded
+fields are evidence about explicit code writes, not real reset retention.
+
+0x8006a718 changes only PROT_CTRL bus-width bits. Inputs 0/1/2 select one/four/
+eight bits respectively; input 3 fails without writing. DMA selection, endian
+and wakeup fields survive this helper. It cannot restore a whole controller.
+
+Completion event / IRQ admission
+0x800699b8 creates a semaphore, enables IRQ110, and only then creates/stores the
+event at HOST+4. The enable wrapper 0x80032258 -> 0x80033e38 writes NVIC ISER
+bank 3, bit 14 at 0xe000e10c. These original instructions execute in the fixture.
+If event creation fails, the semaphore is deleted and both handles are cleared,
+but this callback does not issue the corresponding NVIC disable. The model
+records requested writes; it does not simulate NVIC pending/priority/delivery.
+An explicitly injected IRQ after reset and before event recreation reaches the
+stock event-post call with handle zero. This demonstrates the precondition for
+safe recovery ordering; it does not reproduce an interrupt race in stock boot.
+
+An original transfer executes again after MODELED reset and explicit event
+recreation, with injected good response/wait events. That establishes an
+executable software sequence only, without card recovery or physical idle proof.
+Recreating/deleting live kernel objects under other users would require joining
+those users. Preserve existing event identities where possible; do not call a
+boot callback merely because its return value looks successful.
+
+Primary reference constraints
+NXP IMXRT1060RM Rev.3, sections 26.5.3.5.1-.2 describe multi-block error recovery
+using CMD12 and, for DMA errors, data reset. Section 26.7.1.5 describes abort
+command behavior followed by software reset. Section 26.7.1.13 says RSTD also
+resets DMA, requires reset self-clear, and cautions against reset during
+incomplete data transfer. It recommends external-card reset/reinitialization
+after RSTA. Section 26.6.5 requires clearing TC BEFORE programming DMA addresses;
+26.6.7 covers force-clock/clock-stable ordering around clock changes/reset.
+
+These are candidate-family constraints, not a hardware recovery guarantee.
+The installed part/revision remains unproved. In particular, the manual does
+not justify replacing the probe's pending JOIN with an unconditional RSTA write
+while DMA/card activity is unresolved. CMD12/abort and reset need their own
+error/timeouts and terminal unresolved-recovery policy before binding.
+
+NXP's current product pages require an account for the latest manuals. We read
+the original NXP Rev.3 document from PJRC's public mirror; the newer RT1040/1060
+manuals and exact applicable errata still need checking after silicon is known.
+The A/B errata listed by NXP were inspected; neither retained version lists a
+uSDHC-specific entry. That absence does not identify our revision or prove safety.
+
+Minimal recovery/admission contract (inference from code + candidate manual)
+1. Close admission and retain the active stack, buffer and SD unit ownership.
+   Mask/serialize IRQ observation before altering status or completion handles;
+   joining in-progress ISR/event-post work is distinct from disabling signals.
+2. Stop/join the actual transaction using an applicable controller/card sequence.
+   Check each outcome and retain uncertainty on timeout. Reset is not assumed
+   to be an arbitrary active-transfer abort. Card programming/persistence is
+   separate from stopping host memory accesses.
+3. Check the applicable idle/reset/cache conditions before failed buffers unwind.
+   Preserve or recreate valid completion objects only with all users joined.
+   Restore controller/card mode, bus width, clock/timeout and software card state
+   that the chosen recovery affects; do not infer them from a reset return code.
+4. Drain old hardware TC/errors, software events and pending IRQ work BEFORE
+   setting a new DMA address. Serialize that drain with arming a new observation
+   scope and enabling IRQs. A software generation counter alone is insufficient.
+5. Allow retry/rollback only after explicit checked recovery; discard failed read
+   data. If recovery remains unresolved, retain ownership for deliberate recovery
+   rather than admitting new I/O or reporting a successful reset.
+
+Next concrete slice
+Trace the stock CMD12/abort representation and upper card-init/reselection path,
+including which card mode/address/bus-width state they change. Test the recovered
+command sequence and stale-event/IRQ ordering inside the existing probe, with
+physical abort/reset completion still explicit model inputs. Do not bind the
+device gate until the applicable silicon contract and measurements are available.
+
+Sources (read 5 October 2026)
+Local Reference/chipset_headers/MIMXRT1042.h and MIMXRT1062.h, register layouts.
+https://raw.githubusercontent.com/nxp-mcuxpresso/mcux-sdk/main/drivers/usdhc/fsl_usdhc.c
+https://www.pjrc.com/teensy/IMXRT1060RM_rev3.pdf
+  Original NXP IMXRT1060RM Rev.3, 07/2021, sections above; reset fields pp1554-1555.
+  SHA-256 a2e342e492eded2a1d626cf955de953ca28d8db8675b10937a5176fd6f2c9200.
+https://www.nxp.com/products/i.MX-RT1040
+https://www.nxp.com/products/i.MX-RT1060?tab=Documentation_Tab
+https://www.nxp.com/docs/en/errata/IMXRT1060CE_A.pdf (Rev.1.3)
+https://www.nxp.com/docs/en/errata/IMXRT1060CE_B.pdf (Rev.1.1)
+SDK/manual correspondence does not establish that Zoom uses this SDK.
+
+Verification / limits
+tests/emulation/verify_sd_controller_setup.py: twelve groups.
+analysis/sd_controller_setup_verification.json and sd_controller_setup_disassembly.txt.
+The consolidated redesign runner includes this suite; see its current report.
+Original v1.10 firmware hash is pinned. Generic ARM/VFP executes double-precision
+init arithmetic; the M7 fixture executes compiled transfer/IRQ/event probes.
+This split is an emulator limitation, not evidence about installed CPU/FPU.
+No physical MMIO/cache/NVIC/DMA/card behavior, recovery binding, mixer/card access,
+deployment image or installation. Test guards remain excluded from normal builds.

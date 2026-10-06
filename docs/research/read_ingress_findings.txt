@@ -1,0 +1,100 @@
+READ TRACKING CONNECTED TO COMPACT RELOAD INGRESS
+4 October 2026
+
+Result
+rc_bind_reads now connects the producer and file-worker adapters to the SAME
+coordinator and task contexts used by compact reload ingress. The combined test
+runs rc_worker/rc_ui -> rt_receive/rt_run -> original reload/prefetch -> compiled
+read dispatcher/callback -> original file worker with its compiled adapter.
+
+Unlike earlier read tests, this test does not manufacture RT_RUNNING phases or
+copy envelopes into task state. The compiled ingress and transport create,
+claim, execute and complete those states from compact queue messages. All eight
+initial reads acquire distinct tickets under the correct branch and root.
+
+Cold binding
+rc_bind_reads is optional and called after rc_bind, before admission or hook
+activation. It requires a single initialization caller and quiescent queues.
+It verifies:
+- Both adapters use the exact ingress coordinator, task pointers and native IDs.
+- Producer read slots match the file-worker table at both advertised indices.
+- The file worker is distinct from assignment/Main, and its queue is distinct
+  from their queues. Stock reload queue handles match the ingress binding.
+- Existing adapter preflights accept native task/queue/semaphore handles and
+  permanent configuration. Neither endpoint may already be bound.
+- Coordinator/ledger locks and admission are idle, no reload job is live, both
+  task contexts are initially idle, and every bound read slot is empty.
+
+rp_can_bind and rw_can_bind perform read-only preflight. Both complete, along
+with all cross-checks, before either binding is consumed. The adapter binders
+then copy their configurations. An unexpected failure during that final sequence
+faults the coordinator; there is no reset or rollback of permanent state.
+This sequence is safe only under the single cold caller contract, not concurrent
+initialization. RcBinding/runtime configuration must remain fixed thereafter;
+their existing diagnostic fields can still change.
+
+Invalid configuration, occupied state and prior endpoint binding are rejected
+without consuming the other binding. This API does not install hooks, prove the
+queues quiescent, or support hot cutover. The caller may activate read hooks only
+after success. No startup installation site or allocation is selected here.
+
+Shared stock receive boundary
+The compact reload fixture intercepts stock receive entry 0x800483a8. Directly
+using that address as the file adapter's receive port would route file work into
+rc_next, which expects a reload worker/UI queue and task. rc_stock_receive now
+replays PUSH {r4,lr} and resumes at 0x800483aa, retaining the original blocking
+receive wrapper while bypassing the intercepted entry. The file-worker adapter
+uses this forwarder; its sender uses the existing rc_stock_send forwarder.
+These are compiled emulator forwarders, not installed branches or a placement
+solution. Real RTOS queue operations remain fixtures.
+
+Verification
+  python tools/firmware/build_overdub_prototype.py
+  python tests/emulation/verify_read_ingress.py
+Report: analysis/read_ingress_verification.json
+
+Eight groups pass:
+1. Compact queue ingress creates live scopes for all eight reads; both actual
+   rt_run bodies finish, exact bytes reach conversion, and verified retirement
+   releases the root.
+2. Short reads and raw read errors in either assignment or Main retain failure
+   through original successful-looking reload completion and reject retirement.
+3. A lost read keeps rt_run's real stack, task lock/phase and root live, without
+   conversion or publishing a UI continuation.
+4. Two reload jobs, including reversed UI delivery, retain the correct roots
+   across shared task reuse and sixteen distinct read tickets.
+5. Mismatched coordinators/tasks/IDs/slots/queues reject initialization before
+   consuming either permanent adapter binding; corrected cold inputs then bind.
+6. Existing reload admission rejects late binding.
+7. Occupied metadata, task and read-slot state rejects binding without a partial
+   result; corrected cold state then binds.
+8. A prebound producer or reader is detected before the other is consumed.
+
+All 135 preceding groups pass on the rebuilt ELF. Total: 143 groups across
+thirteen suites (ingress 8, routing 9, callback 7, producer 7, worker 9, read
+queue 7, read evidence 8, ownership 19, transport 14, compact 14, manager 19,
+publication workflow 17, prefetch 5). This is not a full repository test run.
+
+Test boundaries
+Original reload producer/assignment/Main/prefetch/file-worker instructions and
+compiled transports/read adapters share one CPU and memory. Scheduling uses
+explicit register save/restore and a separate file-worker stack at yield points.
+The fixture supplies native handles, call-entry/call-site redirection, kernel
+queue copies, semaphore results, public file effects, WAV parsing and conversion.
+It deliberately permits an early read-semaphore wake before actual completion.
+Enclosing reload envelopes/phases now come from compiled ingress, not the fixture.
+
+The bytearray storage, fixture scheduler and emulator instruction support do not
+establish real SD timing/durability, IRQ/DMA behavior, physical memory placement,
+chip identity or audio output. No device access, firmware patch or startup release
+occurred. The separate capture-manager startup is not wired to these results.
+
+Remaining work
+Establish file/card lifetime ownership around these reads and ordinary traffic,
+including close/reopen and removal. Replace the prototype's parking policy with
+safe caller/file-worker failure isolation. Then select and wire cold installation
+and verified startup release with the actual memory/allocation constraints.
+
+Follow-up: pad_file_findings.txt records optional tracked-read pins and guarded
+native pad load/unload bodies. This is a partial storage-lifetime boundary;
+ordinary reads, direct closes and card teardown remain outside it.

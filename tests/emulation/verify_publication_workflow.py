@@ -161,10 +161,12 @@ def main():
     r.assert_sources()
     passed('post_publication_option_drift_fails_independent_prepublication_plan_and_keeps_capture_and_parent_held')
 
-    r=Workflow();r.fail=('write',1,'short')
-    assert r.begin()==FAULT and not r.q[WQ] and r.word(WF+12) and r.word(LEDGER)&F
-    assert r.capture_call('step')==11 and r.pw('step')==FAULT;r.assert_sources()
-    passed('publication_error_never_launches_reload_or_next_take_and_is_not_automatically_retried')
+    r=Workflow();r.fail=('write',1,'short');old=r.paths()
+    assert r.begin()==BUSY and not (r.word(LEDGER)&F)
+    r.reload();assert r.pw('step')==OK and r.paths()==old
+    assert r.m.invoke(r.m.symbols['pw_main_ready'],[])==OK
+    assert r.capture_call('step')==10 and r.word(WF+8);r.assert_sources()
+    passed('safe_publication_error_reloads_old_plan_releases_controls_and_allows_next_take')
 
     r=Workflow();assert r.begin()==BUSY and r.step()==BUSY;r.worker();assert r.service()==OK
     r.files[SETTINGS][0]^=1

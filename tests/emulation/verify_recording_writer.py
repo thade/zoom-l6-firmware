@@ -15,8 +15,9 @@ from verify_scheduling_boundaries import stop
 C=0x8077ca30
 
 class WriterRig(TapRig):
+    cpu_options={}
     def __init__(self,index=10,channels=2):
-        super().__init__();m=self.m
+        super().__init__(**self.cpu_options);m=self.m
         self.index=index;self.channels=channels;self.frames=64;self.position=0
         self.files={1:bytearray()};self.cursor={1:0};self.queue=[];self.messages=[]
         self.fail_write=None;self.write_calls=[];self.reader_args=[]

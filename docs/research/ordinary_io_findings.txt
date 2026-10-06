@@ -1,0 +1,73 @@
+Ordinary pad read/seek lifetime core — 5 October 2026
+
+Follow-on: ordinary_routing_findings.txt records compiled callback and worker
+integration added after this core-only checkpoint. Native ownership-provider
+binding and final firmware patches remain outstanding.
+
+Purpose
+Keep an ordinary playback read or seek's file reserved until the original file
+worker has finished using it. Initial reload reads require an exact count;
+ordinary reads may validly end short and receive zero padding. Sharing the
+reload-specific success policy would incorrectly fail normal playback.
+
+Stock evidence
+The file worker at 0x80036118 receives four-word requests. Kind 0 calls public
+read at 0x80036184, performs short-read zero filling at 0x800361e0..0x800361ec,
+then signals the semaphore at 0x804467fc. Kind 1 calls public seek at
+0x800361bc and signals the distinct semaphore at 0x80446800. The next receive
+at 0x80036152 follows complete callback/zero-fill/signal return.
+Read callback 0x80036208 and seek callback 0x80036250 send stock packets and
+wait; a semaphore wake alone does not identify which request finished.
+Periodic refill requests use a separate queue at 0x801f8f34. Finishing one file
+operation does not establish that the renderer or playback session is finished.
+
+Implementation
+ordinary_io.[ch] adds eight fixed operation contexts, separate from the two
+initial-read contexts. Each has a permanently assigned pad-file pin slot 2..9.
+The pad guard now has ten pin slots; its private storage is 316 bytes. OiIo is
+76 bytes and OiTask is 12 bytes on the target. Allocation and placement remain
+the native binding's responsibility; this module does not install hooks.
+
+Begin requires the bound pad-file guard and copies read/seek arguments plus an
+explicit optional parent ticket. Prepare reserves an ordinary lifetime root
+(or child), pins the loaded file, then activates the internal session. The
+ledger's ACCEPTED flag refers to that session, not RTOS queue acceptance.
+Once reserved, contention retains that same ticket. Ordinary root admission
+cannot pass an exclusive promotion. A child keeps its supplied parent alive.
+
+The 16-byte packet is [0x4f494f31, context_index, ticket, 0]. Decode checks the
+fixed context table and matching ticket, reconstructs stock arguments, and
+associates the consuming task with this operation. A pre-IO check compares the
+actual handle and arguments to the snapshot. Raw handle-table writes outside
+the guard are not made safe by this comparison.
+
+Observation saves the original status and count without interpreting a short
+read as reload failure. Return must be acknowledged only after the complete
+original operation, error callback, zero fill and semaphore signal return.
+The requesting side then drops the file pin and retires the lifetime session.
+Each metadata step can retry without resending or repeating IO. IO errors can
+retire once their lifetime ends; callers must still honor the saved error.
+Uncertain delivery, missing observation and early wakeups retain ownership.
+
+Verification
+verify_ordinary_io.py has ten groups: ordinary full/short/EOF/zero-byte/error
+reads and seeks, missing delivery, duplicate/stale packets, argument mismatch,
+prepare/completion contention, eight shared-handle pins, explicit parents,
+promotion exclusion, and validation before reservation. Decoded requests also
+execute the original file worker in a fixture CPU: EOF zero padding and the
+distinct read/seek signals are checked. The harness explicitly supplies the
+new decode/observation/return handoff; these are not native integration hooks.
+Native reload supplies the loaded pad handles. Files, IO results and scheduling
+are fixtures. All 171 groups across 16 related suites pass; machine-readable
+reports are analysis/ordinary_io_verification.json and ordinary_io_regression.json.
+
+Remaining integration
+Bind permanent contexts uniquely to native producers and pin slots; route
+ordinary read AND seek callbacks alongside initial reload reads; retain the
+correct explicit refill/playback parent; add worker decode, pre-IO validation,
+result observation and post-signal return hooks. Existing stock forwarding is
+still unchanged, so ordinary native traffic is not protected end-to-end yet.
+Do not hold a stock resource while waiting on a participant needing it: the
+caller lock audit is still open. Queue rejection/cancellation recovery, fault
+isolation, lower-level close bypasses, card teardown, physical RAM/code layout
+and hardware validation also remain open. No device access or firmware staging.

@@ -1,0 +1,105 @@
+DIRECT PAD RELOAD READS AND STARTUP READINESS
+4 October 2026
+
+Result
+The examined direct pad-prefetch path joins its queued file read before returning
+to reload. It is not simply an unjoined background request at this boundary.
+However, the wait result reports semaphore completion, not successful sample IO.
+Original read errors and short reads can both reach the ordinary reload event and
+the later clear of the loading flag. Those indicators cannot release our waiting
+worker by themselves.
+
+This extends the existing reload audit by executing the original prefetch loop,
+read-request producer and sample file-worker body together with the original
+assignment/UI reload paths. Earlier reload fixtures replaced the whole prefetch
+function. There is no new production release hook or firmware patch in this step.
+
+Recovered chain
+1. Original sampler initialization 0x80036688 installs read callback 0x80036209
+   in the four source slots and seek callback 0x80036251 in the stream controls.
+2. Direct initial pad prefetch goes through 0x80036360 -> 0x800369a8. The UI's
+   second reload calls that same prefetch body from 0x80009748. The original
+   loader's stream format, handle, frame count and cursor setters now execute.
+3. Prefetch 0x800369a8 calls the configured read callback at 0x80036b56 (or
+   0x80036b0c when carrying bytes from a prior chunk), then the conversion callback
+   at 0x80036b7e, and finally stream completion 0x80036488.
+4. Read producer 0x80036208 sends a 16-byte request [0,pad,buffer,byte_count] to
+   queue 0x801f8f30 through 0x800483f8. It then waits indefinitely on the semaphore
+   at 0x804467fc through 0x80076950. It does not check the queue-send result.
+5. Sample file task 0x80036118 receives the message, loads the pad's handle and
+   calls public read 0x80060620 at 0x80036184. It handles the result before signaling
+   the read semaphore at 0x8003614a. In the tested schedule, the producer resumes
+   only after that signal, then conversion and prefetch completion return.
+
+The direct assignment callback 0x80049da0 performs four such reads before sending
+the reload event. Main's handler subsequently unloads/loads again and performs four
+more before clearing busy word 0x807348cc. This joins these specific direct reads;
+it does not join unrelated periodic refill requests or prevent new ones.
+
+Failure evidence
+- The file worker retains the first raw read error at
+  0x80735180 + 0x9b0 + 20*pad. Its producer still returns the semaphore result.
+  Injecting 0xffffd825 for pad 0 leaves that error latched, yet the assignment
+  callback returns zero, all expected paths remain assigned, the second UI reload
+  finishes, and busy becomes zero. Conversion is still called. Poisoned fixture
+  scratch demonstrates this continuation; it is not a claim about audible device
+  output or the real driver's failure-buffer contents.
+- With raw status zero and 64 fewer bytes than requested, original code at
+  0x800361e0..0x800361ec zero-fills the missing suffix. No error is latched. Expected
+  paths and the cleared busy word again look normal. Checking the sticky error
+  alone would miss this case. A release policy must observe the actual read count
+  for the expected initial sample range and distinguish it from intentional EOF
+  padding; this audit injects a short read while the complete data exists.
+- If the read queue send fails without delivery, the original producer still
+  enters its indefinite wait. The fixture suspends execution there; it does not
+  return a fabricated timeout or successful completion. No conversion or reload
+  event occurs, and busy remains set. Lost work cannot be treated as complete
+  because a chosen delay elapsed.
+
+Verification
+  python tests/emulation/verify_reload_prefetch.py
+  python tests/emulation/verify_pad_reload.py
+  python tests/emulation/verify_storage_readiness.py
+
+Five new groups and 26 related regression groups pass (31 total): four initial
+joined reads; four additional UI reads; hidden read error; hidden short read;
+and failed-undelivered read submission. Successful conversions receive the exact
+8192 fixture sample bytes for each pad. No new capture/overdub ELF build is needed
+because this step changes only the test harness and documentation.
+
+Reports are analysis/reload_prefetch_verification.json,
+analysis/pad_reload_verification.json and analysis/storage_readiness_verification.json.
+
+Fixture limits
+The reload CPU and file-worker CPU are separate Unicorn instances. At each explicit
+semaphore wait, the harness copies sampler state to the file CPU, runs its original
+worker body, checks its signal, and copies state/scratch back. This is a controlled
+schedule, not arbitrary preemption or whole-device emulation. The public file-read
+boundary, WAV parser, sample conversion, settings input/save and driver/RTOS effects
+remain fixtures. The parser fixture supplies frame counts for these audio reads.
+Conversion captures input bytes and returns consumed length; no actual audio output
+or DSP accuracy is asserted. No SD durability or DMA completion is measured.
+
+Startup-release implications
+There is now a concrete candidate read-completion boundary: return from the direct
+prefetch AFTER its file-worker signal and conversion. Successful initialization
+still needs attributed read results/counts, both worker/UI returns, and any separate
+refill descendants joined under continuing card/storage ownership. Prior compiled
+reload ownership can track those branches, but the native read-result attribution
+and card-session admission must be connected before authorizing release.
+
+Do not replace the waiting worker's explicit release with a poll of the loading
+flag, reload event, path assignment, semaphore result, or sticky error alone.
+Empty/unassigned pads must remain a valid startup case; release cannot require
+four loaded pads. Define expected work from the actual startup selection and
+allow only attributable, completed operations for that selection.
+
+Next implementation target: retain per-operation public-read status and actual
+count in the existing reload ownership path, including the expected-length/EOF
+policy, before connecting that evidence to native_worker_release. Registration
+placement, stock allocation capacity and physical code/RAM placement remain open.
+No device access occurred; hardware testing remains deferred.
+
+Follow-up: reload_read_findings.txt records compiled per-read reservations and
+status/count validation coupled to these original paths in the emulator. Native
+queue attribution and startup-worker release remain unbound.

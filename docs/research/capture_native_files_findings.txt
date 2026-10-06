@@ -1,0 +1,121 @@
+Capture lifecycle with native file creation and SD instructions
+6 October 2026
+
+Result
+------
+The unchanged normal capture-only ELF now completes a take through original
+OPEN/create, WRITE, SEEK, CLOSE, reopen, INFO and READ instructions. Its worker,
+manager, lifecycle, public file wrappers, FAT allocator and cached directory
+metadata execute on one emulator CPU. A second configuration also executes the
+original SD dispatcher, commands, bounce copies and IRQ/event instructions,
+with the existing separate test-only completion probe.
+
+Both configurations produce the same 13,312-byte private TMP: a 512-byte WAV
+header and 1,600 exact stereo float32 frames. Native readback includes three
+4-KiB payload chunks and a 512-byte tail. Independent inspection of the modeled
+card's persisted FAT/directory/payload sectors agrees with that verification.
+The original WAV parser accepts the file and reports the exact frame count.
+All seven ordinary recording outputs remain byte-identical to the disabled
+capture baseline in the existing integration harness. Those ordinary files
+still use its bytearray backend; this is not seven real FAT files or a device
+recording test. Selected original audio/producer/finalizer instructions run.
+
+Native creation and startup dependencies
+---------------------------------------
+The public OPEN at 0x8005ffe8 selects a native handle from the 100-slot pool
+at 0x801f9270, stride 0x2c4. The file table at 0x800a0b28 invokes OPEN
+0x800604e8, SEEK 0x8005f350 and INFO 0x8005f0a0. Native OPEN creates/checks
+long names through 0x800676a0 / 0x80063368 / 0x8006bd30. Its exclusive flags
+0x501 reject an existing file with 0xffffd75b and clear the output handle.
+Read-only missing-file lookup returns 0xffffd75a, as required by life_prepare.
+No Python filename lookup, logical extra-file handle or byte-level router is
+used to provide these outcomes.
+
+The fixtures contain an already-mounted small FAT32 volume, root cluster 2,
+SOUND_PAD cluster 3 and PAD1..4 clusters 4..7. The root has a valid long name
+and short alias. The firmware traverses these entries and writes its own new
+LFN/SFN entries. Filename scratch must first be initialized by original
+0x80074d08. Omitting it causes native LFN parsing to write through a null
+pointer. Its immutable locale tables already reside in the loaded MAIN bytes.
+This is an additional startup prerequisite, not a new production initializer.
+
+SEEK crosses a real FAT cluster boundary in the fixture. INFO returns native
+length, position and cluster slack. INFO constructs a filesystem exception
+context but takes no filesystem tokens; its driver only copies handle fields.
+It must not be treated as storage completion evidence or a durability check.
+
+Collision and failure handling
+------------------------------
+Native creation is tested in all four pad folders. Pool exhaustion fails before
+a file driver or sector operation. Existing WAV and abandoned TMP collisions
+advance the compiled naming search without changing those files. After 32
+colliding candidates the private-file profile yields MORE, then searches the
+next batch; it does not permanently fail just because one batch was full.
+Two observed life_prepare calls issue 64 then two native OPENs and create
+serial 33, preserving all 32 prior files.
+
+Injected lookup errors and a controlled zero free count disable optional
+capture while ordinary recording continues. Failures while closing either FAT
+copy, directory metadata or the final barrier leave the manager BLOCKED, no
+eligible result and no close retry, even though the stock handle is already FF.
+A native readback error or independently changed payload sector also withholds
+the result. These sector outcomes are modeled, not measured card faults.
+
+Retained call lifetime
+----------------------
+A failed native OPEN lookup retains all five filesystem tokens, SD unit token,
+exception frame and compiled worker/lifecycle stack until an explicit MODEL
+join. Repeated resume attempts preserve the same frame and sector request.
+
+Failed payload I/O and nominal I/O held at the final completion checkpoint
+likewise retain the full capture call. Ordinary audio and STOP are scheduled on
+a separate fixture stack while the worker remains suspended. Their outputs
+stay exact, the pending frame remains unchanged and no extra transfer is
+resubmitted. After MODEL permission, that same native request resumes; the
+failed take remains ineligible and the successful take completes verification.
+Late modeled controller activity in the nominal case is supplied only after
+native bounce/status completion, so it cannot turn the intended nominal test
+into an earlier native busy/status timeout.
+
+The shared Main-service observer now distinguishes the task owning the retained
+filesystem context from a separately scheduled ordinary caller. Calls by the
+file-owning task are still rejected as a Main dependency. Permitting an unrelated
+ordinary service is a scheduling fixture, not evidence about real preemption
+or all filesystem/UI callers.
+
+Remaining work
+--------------
+Mounted geometry, ready-volume flags, cache lists, allocator free count and
+initial directory bytes are controlled inputs. Normal BPB mount, bitmap and
+FSInfo initialization remain to be connected and tested. The small fixture
+does not cover directory growth, every filesystem mode or long song capacity.
+
+DMA bytes, IRQ timing, source exclusion, CPU cache effects, kernel scheduling
+and physical completion permissions are explicit models. No production join
+detector or storage gate has been bound. Automatic startup release stays
+disabled; outer card/USB admission, device RAM ownership and measured scheduling
+remain necessary before an eventual capture-only device trial. Hardware testing
+is deferred. No firmware image, transfer or device change occurred.
+
+Verification
+------------
+python tools/firmware/audit_native_filesystem.py
+python tests/emulation/verify_capture_native_files.py
+python tools/firmware/verify_redesign.py
+
+New suite: 13 groups. Updated bounded inventory: 32 targets, 164 direct
+references, four SD callback records. Reports:
+  analysis/capture_native_files_verification.json
+  analysis/native_filesystem_inventory.json
+  analysis/redesign_verification.json
+Full redesign regression: 512 groups across 48 suites pass. Normal/startup
+packed margins remain 302/155 bytes; no production C code changed.
+
+Follow-up: native_mount_findings.txt replaces the manually mounted volume/cache
+and allocator settings with original filesystem construction, MBR/BPB parsing
+and bitmap/free-count scanning. Both capture configurations complete the same
+exact take. The examined FAT32 paths do not access FSInfo. Initial card/folder
+bytes and initialized SD-card state remain controlled; physical completion and
+storage authorization are still unbound. The current inventory is 43 targets
+and 218 direct references, with 524 groups across 49 suites passing. This note's
+13-group/512-total account records the preceding milestone.

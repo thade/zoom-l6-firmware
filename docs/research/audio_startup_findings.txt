@@ -1,0 +1,87 @@
+Shared-audio startup readiness — 5 October 2026
+
+Result
+The native worker can now bind the shared capture/completion observer while
+the manager's optional gateways remain closed. Worker release requests audio
+arming, waits for a whole callback, then permits manager initialization. Nine
+new emulator groups cover the composed startup on one CPU and two exact takes.
+This is a compiled initialization protocol, not an installed stock startup hook
+or evidence that storage is ready.
+
+Why the old cold binding was insufficient
+manager_boot deliberately uses bridge_boot_close, selecting strict audio mode
+and closing the permanent capture gateway. na_bind_capture previously used
+bridge_audio_enable, which rejects a nonzero gateway count, including its closed
+bit. Treating that rejection as readiness would leave composition unbound.
+Also, hooks encountering audio before binding must remain dormant without
+consuming the one-time binding opportunity or accessing dirty session arenas.
+
+New sequence
+1. native_worker_register calls manager_boot and creates the optional worker in
+   W_WAITING. As before, it performs no file preparation and cannot prove stock
+   initialization success or reserve capacity for later stock allocations.
+2. Before scheduler start, native_worker_bind_audio takes a permanent WorkerAudio
+   configuration: na_prepare, na_arm, na_ready, coordinator storage, AudioProcess
+   identity. It verifies the coordinator span is disjoint from manager, worker
+   and resettable arenas, then calls prepare with the real bridge functions.
+3. na_prepare binds the coordinator and capture port while dormant. The new
+   bridge_audio_boot_ready is read-only: strict mode must be selected, the
+   gateway closed without outstanding readers, with no current/pending session
+   or audio invocation. Failure after partial native preparation latches fault;
+   native_worker_bind_audio marks the worker W_FAILED on any prepare failure.
+4. After an external caller has established initialization and storage admission,
+   Main calls native_worker_release. na_arm requires scheduler-running, thread
+   context and Main identity. It requests activation without fabricating a
+   completed callback. Release returns 11 while na_ready is busy; Main must retry.
+5. The next AudioProcess entry enables the shared observer. Only a successful
+   complete non-null callback publishes readiness. A dormant invocation whose
+   entry preceded arming cannot acknowledge through its later return. Completion
+   faults override readiness; a missing first return leaves it pending.
+6. Main's retry releases the worker. The manager clears/prepares the session,
+   stages it, and the existing later audio-boundary adoption makes capture live.
+   Audio readiness does not itself open capture or prepare a file.
+
+The activation/readiness words use acquire/release atomics. Early hooks return
+before loading coordinator or capture state. na_bind remains the immediate
+binding API for existing isolated component tests; na_prepare is the dormant
+startup path. Worker registration without an audio binding also remains for
+isolated tests. A production composition must check every setup result, bind
+audio successfully before release, and never treat a rejected binding as a
+reason to fall back to releasing an unbound worker.
+
+NativeWorker grows from 44 to 52 bytes for permanent arm/readiness ports.
+WorkerAudio is 20 bytes; its fields are consumed during the cold binding call.
+The callback functions and coordinator storage must outlive the hooks/worker.
+No function exchanges floating-point arguments across the two ELF ABIs.
+
+Verification
+verify_audio_startup.py exercises:
+- callbacks before manager boot and after dormant binding with capture arenas
+  inaccessible, no file IO, and no completion fault/sequence advancement;
+- waiting worker sleep, explicit Main arming, first full callback, two exact
+  recordings and preservation of the earlier file;
+- Main arming while an older callback is suspended before its original BLX;
+- null callback and missing first return retaining the waiting worker;
+- failed identity, gateway check or dirty coordinator preparation disabling it;
+- task creation failure leaving the observer unbound;
+- scheduler/Main/AudioProcess identity checks and duplicate release;
+- overlapping/wrapping coordinator storage and binding replacement rejection;
+- file preparation failure leaving capture unpublished while audio continues.
+
+Both builds use warnings as errors. All 610 groups across 52 related emulator
+suites pass, including the nine new startup groups. Reports:
+analysis/audio_startup_verification.json
+analysis/audio_startup_regression.json (both ELF hashes)
+Current synthetic ELF sizes: overdub text 40,956, exception index 16, BSS 1,888;
+capture text 26,512, exception index 56, BSS 96 bytes. No physical placement is
+established by these sizes.
+
+Remaining work
+Choose and verify the actual stock startup/release sites. The earlier startup
+audit still applies: preserve the first initializer result, do not trust its
+done byte or mount return, and preserve allocation capacity for stock tasks.
+Main release in this suite is explicit fixture authorization. The original
+dispatch executes around a synthetic DSP body; full DSP/shared-hook checks
+remain in verify_shared_audio.py. Native preemption, timer interrupts, DMA,
+cache behavior, timing, storage admission and caller coverage remain unproven.
+No device/card access, image staging, deployment, commit or push occurred.

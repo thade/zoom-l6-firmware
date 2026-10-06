@@ -6,7 +6,7 @@ from verify_session_handover import HandoverRig,DESC,RESULT
 from verify_control_transport import T
 from verify_request_router import ROUTER
 from verify_emulator_bridge import BR
-from verify_block_exchange import P,SLOTS
+from verify_block_exchange import P,SLOTS,OBS
 from verify_extra_capture import STATE,ELF
 from verify_extra_lifecycle import LIFE
 from verify_record_scheduler import word
@@ -17,10 +17,15 @@ from verify_firmware_workflow import put32
 MAN=0x2201d000
 LIVE,FINISH,FENCE,RESET,PREPARE,STAGE,ACTIVATE,ABORT,STOPPED,BLOCKED,UNPUBLISHED=range(1,12)
 class ManagerRig(HandoverRig):
-    def __init__(self):
+    def __init__(self,slot_count=32):
         super().__init__()
         self.mlayout=struct.unpack('<7I',self.raw(self.syms['manager_layout'],28))
-        self.m.uc.mem_write(DESC,struct.pack('<10I',T,ROUTER,BR,P,LIFE,STATE,SLOTS,32,self.session,0x21032000))
+        slot_bytes=slot_count*self.xlayout[1]
+        if slot_bytes>0x20000:
+            self.m.uc.mem_map(SLOTS+0x20000,((slot_bytes+4095)&~4095)-0x20000)
+        # Constructor-only fixture setup; no callback or worker owns slots yet.
+        assert self.xcall('exchange_init',SLOTS,slot_count,OBS)==0
+        self.m.uc.mem_write(DESC,struct.pack('<10I',T,ROUTER,BR,P,LIFE,STATE,SLOTS,slot_count,self.session,0x21032000))
         assert self.m.invoke(self.syms['manager_init'],[MAN,DESC,0])==0
     def mstate(self):return word(self.m,MAN)
     def tick(self):

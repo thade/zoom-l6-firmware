@@ -1,0 +1,134 @@
+Capture-only file/SD transfer lifetime experiment
+6 October 2026
+
+Follow-up: native_filesystem_findings.txt executes original file/FAT/cache
+requests in a separate SD composition, including allocation and close metadata.
+That suite replaces the synthetic router for its own controlled handles; the
+manager/lifecycle composition below intentionally retains its earlier fixture.
+
+Result
+------
+Thirteen new offline groups compose the unchanged capture-only ELF, original
+public file read/write wrappers and original SD dispatcher/commands/IRQ/events
+with the existing test-only recovery guard. A separate emulator fixture supplies
+the synthetic file-to-sector route; it is excluded from all normal profiles.
+
+Command, data and final-status failures now retain the native call chain and
+file/SD tokens until an explicit MODEL join. Initial-header, final-header and
+audio-readback failures use the same boundary. Cancellation can be requested
+while waiting, but cannot close the file, reset capture arenas or reenter its
+worker. After supplied completion, errors reach normal optional cleanup and
+withhold an eligible result. This closes the previous unsafe-close example
+within the documented fixture contracts, not on the device.
+
+The experiment also adds a final MODEL completion checkpoint for nominal
+success. An error-only guard can still release the SD token when completion
+flags arrive with controller activity remaining. The new checkpoint keeps
+the sector/file frames owned before that release. A physical provider for this
+checkpoint, native file-to-sector attribution and storage-transition admission
+remain unbound. No production firmware behavior changes.
+
+Small change and its ownership boundary
+---------------------------------------
+sd_transfer_probe.c gains one optional sdp_finish_port, zero by default. Its
+transfer wrapper invokes this port after the original driver callback returns,
+before marking the scope finished and before returning to the original
+dispatcher. The dispatcher owns the unit token AROUND that callback; therefore
+the checkpoint still holds it. It supplies unit/event/buffer/bytes, the native
+return status and the sticky failure observation. Only exactly 1 permits return.
+Other replies retain the call and yield through the original task-delay helper.
+Existing error waits still join inside their failing native frames first.
+
+There is no new generic unlock interception, no file-API-level nominal busy
+return, no extra payload retry and no automatic publication/rearm. The core
+manager and lifecycle are unchanged. Existing probe experiments retain their
+behavior because sdp_finish_port stays zero unless explicitly selected.
+
+The final checkpoint is necessary even after a successful command/data/status
+sequence. The negative control disables it, supplies ordinary completion events
+while keeping controller activity set, and observes original unit release.
+The positive case retains ownership at that same callback-return boundary until
+the model supplies completion. This is not proof that a particular status bit,
+event, reset or elapsed time establishes physical completion.
+
+Composition and limitations
+----------------------------
+The normal capture-only ELF is loaded first. build_capture_io_probe.py separately
+links only dependency/SD probe sources at emulator address 0x10020000. The test
+loads that second ELF beside capture code and patches selected SD entries in
+emulator memory. No SD symbols are added to the normal capture build. The
+separate linker map is not a proposed L6 address or image loading route.
+
+Actual code exercised:
+  compiled worker/manager/bridge/lifecycle;
+  public file OPEN/WRITE/READ/CLOSE wrappers and lock/context selectors;
+  original startup callback-table decompression;
+  original 0x80068378 SD dispatcher and its per-unit ownership;
+  original read/write, command, data, IRQ decode/event-post and event predicate;
+  compiled sticky-error join and optional checked abort/reset recovery.
+
+Modeled boundaries:
+  file lookup/open/close/seek/info driver effects and logical file bytes;
+  synthetic one-sector mapping at block 7, including partial-byte callers;
+  controller/MMIO status, W1C/reset effects, IRQ delivery and kernel tokens;
+  task switches using saved CPU contexts and separate stacks;
+  physical/cache/card/filesystem/source validity and reset permission.
+
+The synthetic router has its own live sector buffer. It does not perform actual
+FAT/cache/metadata translation, make DMA overwrite a file caller's smaller
+buffer, or validate physical bytes on an SD card. OPEN/CLOSE metadata transfers
+are not represented by this router. Cortex-M7 remains an emulator configuration.
+Native IRQ exclusion, memory/cache behavior, timing, sustained recording and
+all interleavings remain unverified. Ordinary file I/O retains the earlier
+integration model; this suite does not establish its progress while another
+operation holds the filesystem domain.
+
+What the tests establish
+------------------------
+* The normal run produces the exact verified extra TMP through native public
+  read/write wrappers and synthetic SD operations. Ordinary file expectations
+  and pad state retain the previous integration checks.
+* All nine combinations of command/data/status and timeout/error/hidden raw
+  error wait before file cleanup. Native frames survive Main cancellation;
+  reentrant worker polls report busy without new I/O.
+* Failures during new-file header writing, finalization and audio readback pin
+  the corresponding native source/destination buffers. After explicit join,
+  cleanup closes the optional file and produces no verified result.
+* Nominal success still waits when final completion permission is withheld.
+  Replies 2 and -1 cannot authorize release. A completed error join cannot bypass
+  that final checkpoint, and its native error status remains visible there.
+* With the final checkpoint disabled, the negative control observes unit
+  release on a nominally successful completion with controller activity left.
+* Checked recovery retains file/SD ownership through one abort/reset and waits
+  for final MODEL card/cache validity. Missing reset permission or an unmodified
+  non-abort stock command never permits reset or release.
+* Pending fault cases do not resubmit payload sectors or issue reentrant cleanup.
+
+Checked reset is still counterfactual research: the fixture alters the examined
+stop-command table to add abort semantics and provides source/reset permissions.
+No table patch or reset sequence has been approved for installation. A stalled
+worker/frame is a conservative ownership result, not a complete product fault
+policy; other filesystem users may block behind its retained domain token.
+
+Next native dependency
+-----------------------
+Trace the real file-driver/FAT/sector route for extra payload and metadata I/O,
+including how the registered SD callback is reached and which callers share it.
+Replace the synthetic router with attributed native observations before selecting
+an actual completion/error hook. Hardware evidence must establish completion or
+checked recovery, cache visibility and source exclusion. Then a small outer
+card/USB admission binding can cancel and join the extra worker before transition
+effects; it cannot infer readiness from the outer failure-discarding returns.
+Storage release and device integration remain disabled. Hardware testing remains
+deferred as requested.
+
+Verification
+------------
+python tools/firmware/build_capture_io_probe.py
+python tests/emulation/verify_capture_io_lifetime.py
+python tools/firmware/verify_redesign.py
+
+Report: analysis/capture_io_lifetime_verification.json.
+The consolidated runner builds the separate fixture and retains normal-profile
+symbol isolation: 478 groups across 45 suites pass. Normal/startup packed margins
+remain 302/155 bytes. No firmware image was constructed, transferred or installed.

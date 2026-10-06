@@ -1,0 +1,95 @@
+Playback ownership for restart seeks and queued refill reads — 5 October 2026
+
+Follow-on: native_scan_findings.txt replaces the fixed scan ownership context
+with a bound AudioSubProcess adapter and tests a relocated ledger. The renderer
+fence and final device hooks remain outstanding.
+
+Result
+playback_io.[ch] replaces the ordinary producer's fixture-supplied parent value
+with a compiled provider for two explicit contexts: Main inside a session
+start/restart, and SamplerUpdatePlyStream inside a claimed refill job. A live
+session alone never grants attribution to an arbitrary callback. Original
+start, seek, refill and file-worker instructions execute through this provider
+in the emulator. No physical hooks or firmware image are installed.
+
+Recovered native identity and paths
+The task descriptor at 0x800a1d3c contains entry 0x80036c61, the name
+SamplerUpdatePlyStream, and handle storage 0x80446dcc. The test checks these
+against the immutable v1.10 image. Its queue handle lives at 0x801f8f34.
+The receive BL at 0x80036c70 precedes refill BL 0x80036c7c -> 0x800369a8.
+Main uses the already recovered identity word at 0x80446da4.
+
+Original start/restart 0x80002c60 disables scanning, starts audio state, waits
+for pending refill, then calls 0x80036750 at 0x80002c8a. The seek helper computes
+the byte offset and tail-branches at 0x800367b0 to callback 0x80036250.
+The refill body invokes the read callback through BLX sites 0x80036b0c and
+0x80036b56, the same body also used for initial prefetch. Task identity and
+claimed job scope therefore matter; the call site alone does not identify the
+owner. Initial reload reads keep the existing strict reload route.
+
+Session start scope
+pi_start is an OdSessionPort.start adapter. The session coordinator already
+holds its operation latch and has reserved its owner before invoking the port.
+The adapter checks Main identity, the owner and the pad's playing bit, captures
+that exact owner, then calls the bound stock start adapter without holding its
+own metadata lock. pi_parent exposes this owner only to Main inside this scope.
+The scope ends after the entire start operation returns. Retriggers reuse the
+existing session; finishing the seek child cannot retire that session.
+
+Refill scope
+pi_next retains a dequeued 16-byte stream ticket across decode and claim
+contention, reconstructing stock arguments from the ledger. Stale tickets are
+discarded without running a refill; malformed/raw stock packets fail closed.
+pi_refill checks those arguments, enters RUNNING and calls the original refill
+outside the metadata lock. Only this interval exposes the claimed refill ticket
+to pi_parent. Ordinary read children therefore attach to that refill, not a
+global currently-playing owner. The original callback synchronously joins its
+file operation before refill returns. Refill completion retries metadata without
+executing the body again, then clears the task-local attribution.
+
+The stream receiver releases the shared lock before its potentially infinite
+native queue wait. Main can still enter and complete a restart/seek while the
+stream worker sleeps. The explicit RECEIVING state reserves the worker slot
+without blocking the independent Main attribution scope.
+
+Binding and admission
+PiBinding is copied once (32 bytes), with a stable session, Main/stream native
+IDs, queue and receive/start/refill/yield ports. Startup requires idle session
+and ledger state and the session start port already pointing to pi_start.
+When OpBinding selects pi_parent, op_bind checks that the provider is ready,
+uses the same ledger, and both Main and stream-worker IDs/identity words are
+present. Even an empty stream receive closes this cold-binding window.
+No context can silently fall back to an ordinary root through this provider.
+The older arbitrary parent port remains available for other explicit bindings
+and existing tests; selecting it is not equivalent to this playback integration.
+
+Verification
+verify_playback_io.py has 15 new groups. The tests exercise original restart
+seek and queued refill through the compiled provider, retained session ownership,
+retriggering, an empty blocked stream receive concurrent with Main, duplicates
+from the current and a replacement session, lost file-read delivery, busy
+decode/completion, unscoped callers, native binding mismatches and raw packets.
+They inspect the ordinary operation's real saved parent and ledger ancestors;
+the parent itself is no longer supplied by a Python hook.
+All 307 groups across 23 suites pass. Reports:
+analysis/playback_io_verification.json
+analysis/playback_io_regression.json
+The current ELF has 38,304 bytes of text, 16 bytes of exception index and 1,812
+bytes of BSS in the original synthetic emulator arena. This is not device RAM
+or flash placement evidence.
+
+Remaining work and limits
+The scan producer still uses emulator_stream_producer.c's fixed ledger/context
+addresses, although its actual original scan and compiled ticket publication
+execute here. Next replace that context with a permanent native AudioSubProcess
+binding and explicit session handoff, then audit other direct/start callers.
+This provider intentionally covers only Main start/restart and claimed refills;
+it is not a completed inventory/binding of every possible direct file caller.
+
+The test seeds a valid refill window because the short fixture file was fully
+consumed by initial preload. File effects, audio fade/stop, conversion, kernel
+queues and scheduling are modeled. The renderer fence is synthetic and remains
+unbound on hardware. Finishing a read or refill does not prove playback ended.
+Faults still park shared participants; full lock-order audit, storage/card/USB
+lifetime binding, failure recovery, physical placement and entry patching remain
+open. No device access, card staging, firmware deployment or commit/push.

@@ -4,7 +4,7 @@
 #include "capture.h"
 #include "exchange.h"
 #include <stddef.h>
-#define KEEP __attribute__((used,retain))
+#include "retention.h"
 #define LD(p) __atomic_load_n((p),__ATOMIC_ACQUIRE)
 #define ST(p,v) __atomic_store_n((p),(v),__ATOMIC_RELEASE)
 #define W(a) (*(volatile uint32_t *)(a))
@@ -45,16 +45,28 @@ KEEP uint32_t bridge_audio_calls;
 static uint32_t audio_mode,audio_overlap,audio_gateway,audio_actor,audio_phase,audio_expected;
 static Bridge *audio_bridge;
 static Bridge *pending_bridge;
-static Slot *pending_slots;
-static uint32_t pending_count,handover_session,handover_state;
+static uint32_t handover_session,handover_state;
 static Bridge *adopt_pending(uint32_t callback);
-extern uint32_t exchange_init(Exchange*,Slot*,uint32_t,const Observation*);
 extern uint32_t life_is_prepared(const void*);
 static void audio_begin(uint32_t callback),audio_end(void),audio_hook(uint32_t kind);
 KEEP uint32_t bridge_audio_enable(void) {
     /* Initialization-only, externally quiescent. */
     if(LD(&bridge_audio_calls) || LD(&bridge_gateway_readers))return 11;
     ST(&audio_mode,1);return 0;
+}
+/* Cold runtime only, before installing hooks or allowing any caller to enter.
+ * This cannot reset a previously bound, detached or staged session. */
+KEEP uint32_t bridge_boot_close(void) {
+    if(audio_mode || last_session || LD(&emulator_bridge_current) || detached_bridge ||
+       LD(&pending_bridge) || LD(&bridge_audio_calls) || LD(&bridge_gateway_readers))return 12;
+    ST(&bridge_gateway_readers,0x80000000u);ST(&audio_mode,1);return 0;
+}
+/* Read-only startup composition check after manager_boot, before worker release.
+ * Unlike bridge_audio_enable, this accepts the intentionally closed gateway. */
+KEEP uint32_t bridge_audio_boot_ready(void) {
+    return LD(&audio_mode) && LD(&bridge_gateway_readers)==0x80000000u &&
+           !LD(&bridge_audio_calls) && !LD(&emulator_bridge_current) &&
+           !LD(&pending_bridge)?0:11;
 }
 KEEP const uint32_t bridge_layout[]={sizeof(Bridge),offsetof(Bridge,error),offsetof(Bridge,phase),
     offsetof(Bridge,start),offsetof(Bridge,stop),offsetof(Bridge,cursor)};
@@ -281,8 +293,13 @@ static uint32_t step(Bridge *b) {
     if(result || released)return cancel(b,result?result:released);
     b->cursor+=n;
     if(LD(&b->error))return cancel(b,LD(&b->error));
-    result=extra_drain(b->capture);
-    if(result!=0 && result!=1)return cancel(b,result);
+    /* Only this worker fills/drains staging. Retention belongs to Exchange;
+     * accumulate a batch here instead of issuing a 512-byte write per step.
+     * The lifecycle drains any partial batch after the exact stop boundary. */
+    if(b->capture->write-b->capture->read==EXTRA_SLOTS) {
+        result=extra_drain(b->capture);
+        if(result!=0 && result!=1)return cancel(b,result);
+    }
     return 10;
 }
 KEEP uint32_t bridge_step(Bridge *b,uint32_t session) {
@@ -389,9 +406,12 @@ KEEP uint32_t bridge_prepare_next(Bridge *b,Exchange *p,void *life,Capture *c,ui
     b->session=session;b->exchange=p;b->life=life;b->capture=c;b->bound=1;return 0;
 }
 KEEP uint32_t bridge_queue_next(Bridge *b,Slot *slots,uint32_t count) {
-    if(!slots || count<2 || count>32 || (count&(count-1)) || !b->bound || !b->context ||
+    if(!slots || count<2 || count>EXCHANGE_MAX_SLOTS || (count&(count-1)) || !b->bound || !b->context ||
        !b->routed || b->session<=last_session || LD(&pending_bridge))return 12;
-    pending_slots=slots;pending_count=count;handover_session=b->session;
+    /* Worker owns the fenced storage. Finish all slot-count-dependent work
+     * before publishing the pointer that the audio callback can adopt. */
+    uint32_t status=exchange_prepare(b->exchange,slots,count);if(status)return status;
+    handover_session=b->session;
     last_session=b->session;ST(&handover_state,1);ST(&pending_bridge,b);return 0;
 }
 static Bridge *adopt_pending(uint32_t callback) {
@@ -405,7 +425,7 @@ static Bridge *adopt_pending(uint32_t callback) {
     /* A manager may have withdrawn this stage after our first pointer load. */
     if(b!=LD(&pending_bridge)){gateway_leave();return 0;}
     Observation o=observe();
-    if(callback!=0x2022a791u || exchange_init(b->exchange,pending_slots,pending_count,&o)) {
+    if(callback!=0x2022a791u || exchange_begin(b->exchange,&o)) {
         ST(&pending_bridge,(Bridge*)0);ST(&handover_state,18);gateway_leave();return 0;
     }
     ST(&emulator_bridge_current,b);ST(&pending_bridge,(Bridge*)0);

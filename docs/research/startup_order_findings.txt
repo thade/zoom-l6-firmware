@@ -1,0 +1,119 @@
+STARTUP ORDER AND OPTIONAL WORKER RELEASE
+4 October 2026
+
+Result
+The proposed interval after task/queue creation and before scheduler start is
+not sufficient to authorize file preparation. Registration now leaves the added
+worker waiting. A separate, explicit release is required from the stock Main
+task after verified initialization and storage admission. No production release
+site is approved or wired. Scheduler state and task identity alone cannot prove
+readiness; the new API deliberately leaves that obligation with its caller.
+
+Five new original-instruction audit groups and all seven native-worker groups
+pass. The capture ELF builds with warnings treated as errors. No device access,
+firmware image generation or installation occurred.
+
+1. Early boot already configures an interrupt source
+Original main 0x80067a60 calls cache/board setup, clock configuration, the timer
+wrapper at 0x8007773a, task/queue initialization, then scheduler startup. The
+timer wrapper reaches copied code 0x2022a988. With the stock clock constants it
+writes SysTick reload 599999, priority 0xf0, and control 7 before task creation.
+The control bits enable the timer and its interrupt source. This does NOT show
+that an interrupt has already executed: inherited masks, exception delivery and
+peripheral activity are outside this fixture. It rules out assuming that no
+interrupt source has been enabled at the candidate registration point.
+
+The audit executes main, clock setup, the original copied timer routine and
+the complete task/queue initializer. Cache/board bodies are intercepted, task
+creation and synchronization allocation are fixtures, and queue allocation uses
+the original code over synthetic heap backing. No exceptions are delivered.
+
+2. A queue handle or the initialization flag is insufficient
+Initializer 0x80048248 attempts all 35 tasks, 86 synchronization objects and
+eight queues. It accumulates failure as -1 but still sets its done byte at
+0x801f8f1c to 1. A repeated call sees that byte and returns zero without retry.
+The caller at 0x80067a80 immediately invokes scheduler startup at 0x80067a84;
+it does not test the returned status.
+
+Tests force failures of the first task, first synchronization object, first
+queue and RecPlayCtl queue. All reach the scheduler call with r0=-1 and the done
+byte set. The first three retain a nonzero RecPlayCtl queue. Therefore checking
+only that queue (as native_worker_register currently does) cannot establish
+successful stock initialization. Any actual registration hook must additionally
+preserve and inspect the original initializer result. Optional setup must be
+skipped on failure without rewriting the stock result or attempting a second
+initialization to infer success.
+
+3. The essential idle task has not yet been allocated
+Scheduler entry 0x800745b8 first creates an idle task with 90 stack words,
+priority 0, then sets the scheduler-running flag and enters the kernel. The
+original creator also allocates a 148-byte task object, plus allocator overhead.
+The candidate optional registration interval precedes that allocation.
+
+The original scheduler success branch and forced creator-failure branch execute
+in the audit. Failure -1 enters the terminal loop at 0x80074628 before setting
+the running flag. An optional allocation succeeding does not prove that stock
+startup can still succeed afterwards. A production design must reserve stock
+allocation capacity or move optional registration after successful idle-task
+creation while preserving the other initialization checks. This audit does not
+establish a complete reserve: later stock initialization also allocates memory.
+
+4. Scheduler start precedes substantial Main-task initialization
+Task Main starts at 0x8006dd70. After its timestamp and early setup it calls
+0x8001b0e8, then 0x8002f8a0, then enters 0x8002c1e8. The original control flow
+of 0x8001b0e8 contains multiple timed waits. A fixture clock held at zero takes
+four such waits on the examined normal branch. Other tasks could run while
+Main waits; a lower worker priority does not itself enforce initialization order.
+
+The UI startup prefix at 0x8002c1e8 calls card setup 0x80009a40 AFTER those two
+Main-task initialization bodies. The audit executes that prefix up to mode
+selection, with child drivers and their results intercepted. This proves call
+ordering, not successful mounting, pad loading, or storage exclusion. Prior
+storage_publication_findings.txt also demonstrates that card setup returning
+zero can occur without usable storage or completed pad reloads. Neither the
+return from the board initializer nor a zero mount/setup result is a release
+condition by itself.
+
+5. Compiled worker now requires explicit release
+Successful native_worker_register publishes W_WAITING, retaining the closed
+optional audio/control gateways set by manager_boot. Worker entry sleeps using
+idle_ticks while waiting; it performs no manager steps, arena clearing or file
+operations. native_worker_release requires thread context, a running scheduler,
+a nonzero stock Main handle at 0x80446da4, and matching current-task identity.
+An atomic one-way transition W_WAITING -> W_READY admits manager polling.
+Duplicate release and release from other states are rejected. This API is not
+a readiness detector and has no installed caller.
+
+The additional test runs five waiting entry-loop passes and checks unchanged
+manager state, no file operations and closed active bindings. Missing/wrong
+Main identity and stopped-scheduler release are rejected. An explicit fixture
+release then permits normal activation and an exact-payload take. Existing
+worker tests now explicitly supply that fixture authorization, rather than
+treating registration as proof of readiness.
+
+Reproduction
+  python tools/firmware/build_extra_capture.py
+  python tests/emulation/verify_startup_order.py
+  python tests/emulation/verify_native_worker.py
+Reports:
+  analysis/startup_order_verification.json
+  analysis/native_worker_verification.json
+
+Limits and next work
+No whole-device boot, real preemption, timer interrupts, DMA or storage operation
+is simulated. Early board/cache initialization is not executed. The scheduler
+audit uses Cortex-M7 instruction support for BASEPRI; this is not identification
+of the physical chip. The startup fixture does not execute the added worker in
+the same CPU: its waiting/release behavior is covered by the separate compiled
+worker suite.
+
+Next trace the actual normal-mode storage/reload completion and ownership path
+to define a release condition, then choose registration placement that preserves
+stock initialization status and allocation needs. Early hook safety, code/RAM
+placement, stack/priority budgets and measured timing remain open. Until then
+the adapter's default is to remain waiting. Hardware testing remains deferred.
+
+Follow-up: reload_prefetch_findings.txt executes the original direct-prefetch
+read handshake. Those reads are joined before reload return in the tested
+schedule, but read status/count must also be observed because normal completion
+indicators hide failures. No startup-release hook is approved by that result.

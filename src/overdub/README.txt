@@ -4,6 +4,53 @@ normal master and adds a separate pre-master stereo recording for the pad.
 See ../capture/README.txt and ../../docs/research/extra_capture_findings.txt.
 The tests below remain useful but do not implement that additional writer.
 
+Initial reload read tracking (4 October 2026)
+reload_read.c binds exact initial-read status/count to a unique child of the
+requesting reload branch. Missing results retain ownership; errors and short
+reads prevent successful retirement despite normal-looking stock state. Eight
+new groups and 88 related regression groups pass. Native queue attribution and
+startup release are not installed. See ../../docs/research/reload_read_findings.txt.
+The subsequent read-queue adapter carries slot/ticket identity in 16 bytes and
+requires file-worker return before read retirement. Seven new checks and 96
+affected regression groups pass. Native task binding and receive-loop retention
+remain open; see ../../docs/research/reload_read_queue_findings.txt.
+read_worker.c subsequently binds the native file-task identity and retains
+dequeued packets, read results and completion across busy retries. Nine new
+groups and 103 affected regression groups pass. Producer binding, storage
+lifetime, fault isolation and installed hooks remain open. See
+../../docs/research/read_worker_findings.txt.
+read_producer.c now binds assignment/Main task identities and retains request
+tags and file handles before publication. Early wakeups retry ticket completion
+without resending or waiting on the semaphore twice. Seven new groups and all
+112 preceding groups pass. Synchronous caller glue, storage lifetime and fault
+isolation remain open; see ../../docs/research/read_producer_findings.txt.
+rp_callback subsequently adds synchronous continuation through the original
+initial-prefetch callers. Seven new groups and all 119 preceding groups pass.
+Tracked callbacks stay suspended until joined; invariant failures park the
+caller. Scoped native routing, safe fault recovery and storage ownership still
+need integration. See ../../docs/research/read_callback_findings.txt.
+rp_read_entry/rp_dispatch now choose tracked initial reads from native task state
+and the original caller LR; ordinary reads use a stock forwarder. Nine routing
+groups plus all 126 preceding groups pass. Shared ingress binding, installation,
+storage ownership and fault recovery remain unfinished. See
+../../docs/research/read_routing_findings.txt.
+rc_bind_reads now validates shared ingress/producer/reader configuration before
+binding either read endpoint. The combined test runs actual compact ingress and
+rt_run state transitions through eight initial reads, without fixture-generated
+task phases or envelopes. Eight new groups and all 135 preceding groups pass.
+See ../../docs/research/read_ingress_findings.txt. Storage lifetime, installation,
+safe failure handling and startup release remain open.
+pad_file.c optionally pins tracked reads against complete native pad load/unload
+wrappers. Producer release retries cannot repeat IO or ticket retirement. Nine
+new groups plus all 143 preceding groups pass. Direct closes, ordinary readers,
+card teardown and lock ordering remain uncovered; see
+../../docs/research/pad_file_findings.txt.
+pf_close now guards public close before filesystem lock acquisition, retains
+close-completion retries and revokes tracked-read admission until guarded load.
+Nine new groups plus all 152 preceding groups pass. Ordinary readers, lower
+close bypasses, media teardown and the full caller lock audit remain open.
+See ../../docs/research/pad_close_findings.txt.
+
 L6 AUTOMATIC MASTER-TO-PAD HISTORY: OFFLINE ARM PROTOTYPE
 3 October 2026
 
@@ -359,3 +406,87 @@ The ordinary recorder/card/USB exclusion port remains external and modeled.
 Stock auto-assignment of an unassigned pad with catalogue files is rejected,
 not silently accepted. See docs/research/publication_workflow_findings.txt and
 tests/emulation/verify_publication_workflow.py. Emulator-only; no firmware patch.
+
+2026-10-05 — ordinary read/seek lifetime core
+ordinary_io.[ch] retains a root or explicit child session and a pad-file pin
+until matching decode, result observation, full worker return and producer
+join. Short reads/EOF and original errors remain results, not reload failures.
+Eight ordinary contexts use pin slots 2..9 alongside initial-read slots 0/1.
+Ten new groups and 171 groups across 16 related suites pass. Native ordinary
+callback routing and file-worker hooks remain uninstalled; this is a core
+adapter test, not end-to-end ordinary playback protection. See
+docs/research/ordinary_io_findings.txt. No device access or firmware staging.
+
+2026-10-05 — ordinary callback and file-worker integration
+ordinary_producer.[ch] binds permanent task identities, explicit parent
+attribution, distinct read/seek semaphores and one context/pin per task.
+rp_dispatch and the new seek entry select it alongside strict reload reads.
+rw_next/read/seek now decode, check and observe ordinary operations, and only
+acknowledge return after original error handling/zero fill/signal completes.
+Once enabled, raw ordinary packets cannot bypass ownership. The parent port
+and physical entry patches remain unbound; the test harness supplies them.
+Nineteen new groups include two independently suspended native callers;
+all 236 groups across 19 suites pass. Faults still park shared participants,
+and the full caller lock audit remains open. See
+docs/research/ordinary_routing_findings.txt. No device access or firmware staging.
+
+2026-10-05 — playback IO ownership provider
+playback_io.[ch] binds Main restart seeks to the held OdSession owner and
+queued refill reads to the stream worker's claimed ticket. The receiver retains
+packets through contention and releases its shared lock before native waits;
+completion cannot repeat the stock refill. pi_parent never infers attribution
+from a globally active session. op_bind checks shared ledger/caller binding.
+Fifteen new groups and 307 groups across 23 suites pass. The fixed-address scan
+producer context, renderer fence and final firmware hooks remain unbound.
+See docs/research/playback_io_findings.txt. No device access or staging.
+
+2026-10-05 — native background scan binding
+native_scan.[ch] and native_scan_hooks.S bind AudioSubProcess to the session
+and shared stream queue. The no-argument callback uses session admission;
+whole-scan and refill child tickets retain ownership through queue delivery,
+completion and producer return. Metadata retries do not repeat native work.
+Tests run the original registered callback/dispatcher and full refill/read path,
+including a relocated ledger and a poisoned, untouched legacy scan context.
+Twelve new groups and 334 groups across 25 suites pass. Renderer completion,
+other direct callers, final activation patches and physical placement remain
+open. See docs/research/native_scan_findings.txt. No device access or staging.
+
+2026-10-05 — native whole-audio completion observer
+native_audio.[ch] and native_audio_hooks.S wrap original callback dispatch and
+return with the existing nonblocking completion protocol. The compiled observer
+and four original DSP callbacks run on one emulator CPU. Shutdown integration
+also joins the native scan/refill/read chain, retains unknown delivery, blocks
+new playback during exclusive access, and requires fresh completion per cycle.
+Seventeen new groups; all 431 groups across 33 related suites pass. ARM MAX's
+IPSR probe is modeled, with the actual helper checked separately on Cortex-M7.
+Capture already uses both hook sites: compose the observers before installation.
+Completion alone does not exclude later readers. Control ingress, other direct
+callers and hardware placement remain open. See
+docs/research/native_audio_findings.txt. No device access or staging.
+
+2026-10-05 — shared capture/completion hooks
+na_bind_capture binds the permanent capture bridge after na_bind, before the
+first observation, and enables strict invocation capture. na_entry_hook and
+na_return_hook now use na_observe_begin/end: completion begins before capture,
+and capture releases its scope before completion can acknowledge. These are the
+only outer/return replacements for a combined integration. Historical capture
+outer/return hooks must not also be installed. Tap/commit hooks are unchanged.
+Fifteen new groups include exact file samples through full original DSP and
+unchanged stock DSP/ring memory. All 601 groups across 51 related suites pass.
+Next bind startup readiness; physical patches, timing and admission coverage
+remain open. See docs/research/shared_audio_findings.txt. No device access.
+
+2026-10-05 — dormant shared-audio startup
+na_prepare composes both observers without enabling them. Main's na_arm request
+is adopted at the next AudioProcess entry; na_ready waits for its successful
+full return. Earlier dormant returns cannot acknowledge activation. The native
+worker binds this protocol after manager_boot closes capture, and release waits
+for readiness before manager/file work. Storage readiness remains an external
+precondition with no installed caller. Nine new groups and all 610 groups across
+52 suites pass. See docs/research/audio_startup_findings.txt. No device access.
+CURRENT STATUS (2026-10-05): this directory's broad ownership/reload/read/USB
+overlay and four-pad copy workflow are retained as research, not included in
+the capture-only or handoff profiles. The replacement is
+../capture/backing_handoff.c. See ../../docs/architecture.md. Bounded completion
+waits and safe publication rollback are fixed here for regression coverage;
+remaining startup guards and terminal parking must not be installed by default.

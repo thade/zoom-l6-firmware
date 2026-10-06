@@ -5,7 +5,7 @@ Ordinary file handles and RAM are sentinel-protected. No filesystem/card access.
 """
 import hashlib,json,struct
 from verify_extra_capture import ExtraRig,STATE,ELF
-from verify_uncompressed_tap import packed,B
+from verify_uncompressed_tap import packed,B,MIX
 from verify_record_catalogue import getstr
 from verify_firmware_workflow import put32
 from verify_pad_protocol import ROOT,IMAGE
@@ -15,7 +15,7 @@ LIFE=0x22011000
 class LifeRig(ExtraRig):
     def __init__(self):
         super().__init__();m=self.m
-        self.life_layout=struct.unpack('<4I',self.raw(self.syms['life_layout'],16))
+        self.life_layout=struct.unpack('<3I',self.raw(self.syms['life_layout'],12))
         self.disk={};self.opened={};self.next_handle=100
         self.calls=[];self.counts={};self.inject=None;self.corruption=None
         for h in range(1,8):self.files[h]=bytearray(('ordinary_take_file_%d'%h).encode()*31)
@@ -39,7 +39,7 @@ class LifeRig(ExtraRig):
         assert self.raw(0x801f8edc,128)==self.original_header_state
     def open_file(self,a):
         out,p,flags,attrs=a[:4];path=getstr(self.m,p)
-        assert path.startswith('A:\\SOUND_PAD\\PAD') and path.endswith('.WAV')
+        assert path.startswith('A:\\SOUND_PAD\\PAD') and path.endswith(('.WAV','.TMP'))
         put32(self.m,out,0)
         if self.hit('create' if flags else 'reopen'):return 0xffffd825
         if flags:
@@ -86,9 +86,10 @@ class LifeRig(ExtraRig):
             elif self.corruption=='truncate':del f[-1:]
             elif self.corruption=='append':f.extend(b'\0')
         return 0xffffd825 if failure else 0
-    def feed(self,blocks=12):
+    def feed(self,blocks=8):
         expected=[]
         for i in range(blocks):
+            if i and i%self.layout[2]==0:assert self.call('extra_drain')==0
             left=[(j+i)/256 for j in range(64)];right=[-(j+i)/512 for j in range(64)]
             assert self.capture([v*2**31 for v in left],[v*2**31 for v in right])==0
             expected.extend(v for pair in zip(left,right) for v in pair)
@@ -188,6 +189,35 @@ def main():
     assert status==0
     assert all(x.count('audio')<=1 and x.count('read_audio')<=1 for x in sizes)
     passed('incremental_drain_and_readback_withhold_eligibility_until_final_success')
+    # Reuse only drained staging. Poison its obsolete samples before readback;
+    # verify several full reads plus a partial tail without altering metadata.
+    r=LifeRig();r.life('life_prepare',0,1);r.life('life_start_quiesced')
+    expected=r.feed(27)
+    left=[2**29]*64;right=[-2**28]*64;r.floats(MIX,left+right)
+    assert r.call('extra_capture_frames',MIX,MIX+256,17)==0
+    expected+=packed([.25,-.125]*17)
+    assert r.life('life_stop_quiesced')==0
+    while r.phase()==3:assert r.life('life_step')==10
+    assert r.phase()==4 and r.call('extra_ready')==1
+    scratch=STATE+r.layout[1];scratch_size=r.layout[2]*512
+    prefix=bytearray(r.raw(STATE,r.layout[1]));struct.pack_into('<I',prefix,16,0) # finalization retires write handle
+    suffix=r.raw(scratch+scratch_size,r.layout[0]-r.layout[1]-scratch_size)
+    r.m.uc.mem_write(scratch,b'\xa5'*scratch_size)
+    reads=[];original_read=r.read_file
+    def read_staging(a):
+        write,read,fault,active,handle,byte_count=struct.unpack('<6I',r.raw(STATE,24))
+        assert a[1]==scratch and 0<a[2]<=scratch_size and write==read and not fault and not active and not handle
+        reads.append(a[2]);return original_read(a)
+    r.m.hooks[0x80060620]=read_staging
+    while True:
+        status=r.life('life_step')
+        if status!=10:break
+    assert status==0 and reads==[512,4096,4096,4096,len(expected)-12288]
+    assert r.raw(STATE,r.layout[1])==prefix
+    assert r.raw(scratch+scratch_size,r.layout[0]-r.layout[1]-scratch_size)==suffix
+    r.validate(expected)
+    passed('drained_staging_reused_for_header_and_multichunk_partial_readback_without_metadata_changes',
+           read_sizes=reads,lifecycle_state_bytes=r.life_layout[0])
     # Independently parse the new header with the original firmware WAV parser.
     r=LifeRig();r.life('life_prepare',0,1);r.life('life_start_quiesced')
     r.feed(3);assert r.finish()==0

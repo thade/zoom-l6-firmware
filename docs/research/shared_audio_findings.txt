@@ -1,0 +1,88 @@
+Shared capture and completion hooks — 5 October 2026
+
+Result
+The existing native_audio entry/return trampolines now dispatch both completion
+and optional capture through one compiled pair. na_bind_capture binds the
+permanent capture bridge_hook and bridge_audio_enable functions after na_bind,
+before any observation. It enables strict whole-invocation capture before
+publishing the function pointer. Missing functions, failed enable, active state,
+replacement, and late binding (including after a null callback) are rejected.
+This is an initialization contract under external quiescence, not live binding.
+
+The separate overdub and capture ELFs communicate through integer-only function
+ports, so their soft-float and hard-float build choices do not pass floating
+arguments across the boundary. Both ELFs execute on the same emulator CPU in
+the new suite. No bridge, completion or DSP implementation is copied into a
+second version merely to combine the observers.
+
+Ordering and ownership
+At 0x8001078a, na_entry_hook calls na_observe_begin with the actual loaded
+callback. It checks native AudioProcess/thread identity, calls na_begin, then
+capture bridge_hook(10, callback). The original CBZ and BLX semantics remain.
+At 0x8001078e, na_return_hook calls na_observe_end: capture bridge_hook(11, 0)
+releases its invocation reservation before na_end can acknowledge completion.
+The original continuation BL/LR is replayed. The existing single preservation
+frame protects all live integer/FPU registers, flags and original stack state.
+Tap/commit hooks stay at their existing locations inside the normal callback.
+
+Wrong-task entry or return cannot enter or release a capture scope. Nested
+entry latches completion failure, while balanced capture returns drain their
+reservations and cancel the optional file. A missing return retains ownership;
+no timeout supplies a completion. A capture protocol error does not turn an
+otherwise completed audio callback into an incomplete one: capture eligibility
+and audio completion remain separate conditions in the publication workflow.
+After capture detaches, completion still runs without accessing retired capture
+storage. An alternate callback can complete while capture correctly rejects the
+unsupported recording mode. Null dispatch cannot acknowledge completion.
+
+Installation rule
+Install only na_entry_hook and na_return_hook at the shared outer/return sites
+when using both observers. Do NOT additionally install emulator_outer_hook,
+emulator_audio_outer_hook or emulator_audio_return_hook there. Those historical
+capture-only adapters remain for isolated tests. There is still no patch writer
+or physical hook installation for this integration.
+
+Verification
+verify_shared_audio.py adds 15 groups:
+- exact six-block recording and completion order on Cortex-M7;
+- suspended callbacks retain both scopes until actual return;
+- a request arriving after entry waits for the next whole callback;
+- missing tap/commit and duplicate tap cancel optional capture without leaks;
+- null and alternate callbacks, detach with inaccessible capture storage;
+- wrong-task entry/return, duplicate return and balanced nested callbacks;
+- register/FP/status preservation with four- and eight-byte stack alignment;
+- cold binding validation and rejection of replacement/late binding;
+- four full original normal DSP callbacks producing an exact additional file;
+- unchanged DSP state and all twelve stock ring lanes with observers on/off;
+- all three original alternate DSP bodies returning through both observers.
+
+Full-DSP tests include non-silent pad input, normal stock mixer stages, capture
+tap/commit and compiled return. Expected file samples come from a read-only
+snapshot at the pre-gain tap, scaled/interleaved using the existing file format.
+The earlier stock gain at B+0x61bc is initialized to 1; otherwise zeroed fixture
+memory mutes that signal before the tap. This is a fixture setting, not a new
+claim about compressor acoustics. Differential runs compare B..B+0x63b0 and
+the first 1024 bytes of each of twelve stock ring lanes after two blocks, with
+nonzero input-delay/pad data and master gain 0.5. The compared bytes match.
+
+All 601 groups in 51 suites pass. This adds 15 new groups to the prior 431,
+and includes another 155 existing recording/manager/handover groups because
+this change connects those components. Reports:
+analysis/shared_audio_verification.json
+analysis/shared_audio_regression.json (includes both ELF hashes)
+Build sizes: overdub text 40,556, exception index 16, BSS 1,880 bytes;
+capture text 26,176, exception index 56, BSS 96 bytes. Synthetic placements
+remain separate; these sizes do not establish physical RAM/flash availability.
+
+Limits and next step
+Cortex-M7 tests execute the actual thread-context query with a controlled DSP
+body. Full original DSP runs use ARM MAX, modeling only the unsupported IPSR
+query as in the prior native-audio suite. Input routing, file data, task IDs,
+queue scheduling and output-continuation effects are fixtures. No timing,
+stack-headroom, cache/DMA or complete global-admission claim follows.
+
+Next connect this cold binding to startup and session-manager initialization,
+ensuring AudioProcess cannot reach the shared hooks before both permanent
+components are ready. The full caller/admission audit, card/USB exclusion,
+physical placement, native entry patches and recovery remain unfinished.
+No mixer/card access, firmware staging, deployment, commit or push occurred.

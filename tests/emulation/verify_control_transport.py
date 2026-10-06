@@ -23,6 +23,10 @@ WORKER=0x21033100
 OTHER=0x21033200
 DEPTH=0x801f6090
 
+def assert_fifo_send(args):
+    # Only the common stock sender's queue contract, not every kernel API.
+    assert args[2:4]==[0xffffffff,0],('unexpected stock queue timeout/mode',args[2:4])
+
 class TransportRig(RequestRig):
     def __init__(self):
         super().__init__();m=self.m
@@ -59,6 +63,7 @@ class TransportRig(RequestRig):
         return super().rr(name,q,*args)
     def kernel_send(self,a):
         if a[0]!=QHANDLE:return 1
+        assert_fifo_send(a)
         assert word(self.m,DEPTH)==0,'Blocking send under critical section'
         msg=bytes(self.m.uc.mem_read(a[1],32));self.sent.append(msg)
         if self.send_result==0:self.wire.append(msg);return 1

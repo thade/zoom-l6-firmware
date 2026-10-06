@@ -11,6 +11,10 @@ FN rc_stock_send
  push {r4,lr}
  ldr r12,=0x800483fb
  bx r12
+FN rc_stock_receive
+ push {r4,lr}
+ ldr r12,=0x800483ab
+ bx r12
 FN rc_stock_event
  push.w {r4,r5,r6,r7,r8,r9,r10,lr}
  ldr r12,=0x8006e4bd

@@ -1,0 +1,130 @@
+SD COMPLETION SOURCES / EXCLUSION BOUNDARY — 5 October 2026
+
+Result
+Eleven new offline groups identify two known SD event-source families: the
+controller IRQ and a software notification. Original task-context notification,
+ISR-context notification, binary token give, outer notification, detach and IRQ
+instructions execute. No native exclusion provider has been established.
+
+The investigation exposed and fixed a test-guard defect: a matching success
+flag previously overrode accompanying error/software-wakeup flags. The compiled
+guard now rejects those mixed results, including during the once-only stop.
+The change is confined to the test profile; normal builds exclude all sdp_ code.
+The consolidated runner now passes 409 groups across 38 suites.
+
+Bounded reference evidence
+tools/firmware/audit_sd_event_sources.py reuses the pinned dependency scanner,
+with explicit targets instead of changing its global target list. It scans the
+main image and the startup-copied RAM region. The v1.10 image SHA-256 is:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+
+Thirteen direct references target ISR event post 0x80032828; thirteen target
+task event post 0x80032888. Six ISR posts in the controller body and one ISR/
+one task branch in the software notifier use the examined SD event slots.
+Other direct callers load different event slots in their bounded instruction
+windows. Different slots do not establish non-aliasing throughout runtime.
+Indirect calls, alternative constructions, compressed dispatch and mutable
+registrations remain outside an exhaustive coverage claim.
+
+Controller source
+0x8006ea90 supplies unit zero and enters common body 0x8006ea98. Six posts at
+0x8006eb0a/3c/54/72/8c/a4 map recognized raw status to event flags. The body
+reads raw status 0x402c0030 and signal mask 0x402c0038, acknowledges selected
+bits, disables controller signal delivery after a selected observation and
+posts to event slot 0x808e28e0 + unit*16. Status alone is not request identity.
+
+With TC status 2 and signal mask zero, the original handler leaves TC pending
+in the modeled controller and posts nothing. Reopening signal mask 2 causes
+the SAME status to post event flag 4 and one token. Clearing a software event
+or disabling an NVIC IRQ has not stopped the source from holding status.
+Register effects and delivery order here are fixtures, not physical timing.
+
+The registration descriptor at 0x800a07bc also contains callback 0x80053b81,
+IRQ111. That wrapper supplies unit one and enters the same common body. Its
+examined body uses the same fixed MMIO address but a different event slot. A
+synthetically configured unit-one test acknowledges that controller status and
+posts only to its own event. Actual use/enable/configuration of this second
+descriptor on the L6 is not established. A device binding must resolve it rather
+than assume masking IRQ110 excludes every possible handler of that source.
+
+Software source and caller ownership
+0x80068508 loads the SD event for its unit and posts flags 0x100. Original IPSR
+predicate 0x800328a8 -> 0x800325d0 chooses task post in Thread mode and ISR post
+in Handler mode. Neither branch takes the per-unit SD token or checks the target
+IRQ's enable state. Tests run the original task binary give 0x800763d8, alongside
+the original ISR give 0x80076628, with zero/one real fixture token counts.
+
+The one bounded direct caller is 0x80036cca inside outer notification function
+0x80036c98. In the examined branch it requires argument one to be 1, a nonnull
+callback at 0x802350e4, and argument zero to be 0. It first posts to SD unit zero,
+then invokes the callback with (1,0). With argument zero nonzero, it invokes the
+callback with (1,1) without posting. A null callback or argument one other than
+1 returns without this SD notification. No stronger user-facing meaning is
+assigned to these argument values from code alone.
+
+The outer function has three bounded direct caller sites:
+  0x80045d46 in the USB task: relevant notification path; other task branches
+    and its whole host-access lifetime still require the existing admission audit.
+  0x8005fd00 in mount: examined arguments (1,1) take the non-posting branch.
+  0x80062292 in detach: examined A-volume branch passes (0,1) and posts.
+
+The original detach test starts with registration metadata and a held synthetic
+SD unit lock. Before notifying, it clears registration fields at 0x801f8f58.
+The notification then posts 0x100 while the IRQ is disabled and the lock remains
+held. A modeled callback acknowledges the transition so the original detach
+returns 1; controller activity/busy bits remain unchanged. Return and notification
+do not establish DMA/card idle. Protecting only the low-level post would be too
+late to exclude the outer registration mutation.
+
+Mixed-flag correction
+The original event ANY predicate can return flags 0x102 or 0x104: command/data
+completion plus software wakeup. The old guard only tested whether the expected
+success bit was present. It therefore accepted those combinations when its raw
+IRQ observer recorded no hardware error. Flags 1/0x80 have the same mixed-result
+problem. Auto-clear mode then erased the event flags after returning the mixed
+result, so a later peek could not reconstruct it.
+
+sdp_wait now treats any accompanying bit in 0x181 as BAD_FLAGS. It retains the
+native call and ownership until checked recovery joins, rather than letting a
+matching success bit override an observed fault/wakeup. The stop branch likewise
+rejects mixed flags even with fresh raw command completion 1, and requests no
+reset afterward. Six command/data coexistence cases and the stop case exercise
+compiled code and the original post/ANY predicate. Exact concurrent arrivals
+are timing fixtures; this is not a reproduced physical fault or a native cancel.
+
+Exclusion counterexamples
+One deliberately false QUIET provider permits old TC to appear after compiled
+admission/readback, at the stock lower data trampoline before DS_ADDR. The CPU
+then writes the DMA address with TC still present; stock command status clearing
+comes afterward. The operation can return success with no guard fault. The
+fixture normally asserts clean state at every DMA-address write; this negative
+case explicitly records dirty state instead of claiming QUIET was honored.
+
+Another deliberately false QUIET provider labels an injected data-complete
+observation as belonging to a previous transfer. The original handler posts
+ordinary flag 4 and the new software scope accepts it. The origin label exists
+only in fixture metadata; no observed controller field or software event carries
+it. Adding a software sequence number alone cannot repair that attribution.
+
+These counterexamples define the remaining contract: no old controller/DMA/card
+work may reassert a relevant completion after clearing or during the new wait.
+The event/registration and all users must stay valid. Relevant outer detach/USB
+mutations and task/ISR notifications must remain excluded while accepted work
+can still finish. Normal software mutex ownership, disabled IRQ110, empty flags,
+zero tokens and a fresh software scope do not supply this physical/source join.
+Abort acceptance/reset safety and cache/card/filesystem validity remain MODEL
+obligations. No production gate or recovery path is enabled.
+
+Verification and next step
+tests/emulation/verify_sd_event_sources.py: eleven groups.
+analysis/sd_event_sources_inventory.json and sd_event_sources_disassembly.txt:
+bounded leads and original instruction evidence.
+analysis/sd_event_sources_verification.json pins firmware/test-ELF hashes.
+Normal profile isolation and the full redesign regression suite pass.
+
+Review the simplified capture/optional-handoff design and these research guards
+for correctness and needless complexity before adding another binding layer.
+The next device-facing milestone remains capture-only. For optional handoff,
+source exclusion, physical recovery, seal semantics and admission are still
+unbound; this audit does not justify a firmware deployment. Hardware testing
+remains deferred. No device/card access, deployment image, commit or push here.

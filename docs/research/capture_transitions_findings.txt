@@ -1,0 +1,143 @@
+Capture-only cancellation, file locks and card/USB transitions
+5 October 2026
+
+Follow-up, 6 October: capture_io_lifetime_findings.txt now composes the unchanged
+capture-only core with a separate offline SD guard. It retains error frames and
+adds final MODEL completion permission before dispatcher unlock. Direct device
+ports remain unbound; the unsafe-close counterexample below still describes the
+unguarded capture path. The consolidated result is 478 groups across 45 suites.
+
+Result
+------
+Fourteen offline groups now compose the normal capture-only ELF with original
+public OPEN, WRITE and CLOSE wrappers. Optional cancellation can close its extra
+file without sending ordinary recorder STOP. Ordinary recording then continues
+and its seven modeled files finish with the expected bytes. The unavailable UI
+token is not needed by the examined extra-file paths.
+
+This establishes a useful dependency boundary, not a safe storage gate. A new
+negative control returns a software write error while physical completion is
+withheld. The compiled capture lifecycle attempts CLOSE. Its driver is intercepted
+before effects; the retained frame demonstrates why the current direct file ports
+cannot be enabled on the device yet. A transition guard alone would not repair
+that transfer-lifetime gap. Production capture code and packed margins are unchanged.
+
+Native file ownership
+---------------------
+Original lock selectors, public wrappers and task-context getter execute. RTOS
+token acquisition/release, path validation, volume lookup, exception-frame setup
+and file-driver bytes are models. Cortex-M7/M-class is an emulator configuration,
+not new evidence of the physical processor.
+
+For the tested already-registered volume/vtable path:
+  OPEN  0x8005ffe8: domain 1, domain 2, resource 6, resource 5, resource 4;
+                   releases 4,5,6,1,2 after modeled driver return.
+  WRITE 0x800622b0: domain 1, retained until modeled driver return.
+  CLOSE 0x8005c1f8: domain 1, domain 2, resource 4;
+                   releases 4,1,2 after modeled driver return.
+
+Domain slots are 0x801f8da4/0x801f8da8; resource slots are 0x801f8db0,
+0x801f8db4 and 0x801f8db8. The driver observes the calling task at 0x801f8df0;
+the public wrapper retires that context on success and error. Open preserves
+exclusive-create flags 0x501/attributes 0x80 and uses the original handle pool.
+Pool exhaustion and invalid close release the acquired tokens without driver work.
+
+A prospective guard holding any required token blocks its own open or close.
+Admission must therefore be independent of these locks and occur before entering
+the native file operation. Original selectors and wrappers were tested; lower
+close/FAT/cache metadata, lazy volume registration and all callback paths were
+not traced. The UI result is confined to these paths and driver models.
+
+Compiled cancellation with retained native frames
+-------------------------------------------------
+The added worker, manager, bridge and lifecycle execute from capture-only.elf.
+The logical in-memory file model is moved down to the original native drivers
+for extra OPEN/WRITE/CLOSE. Ordinary I/O retains the existing integration model.
+No historical ownership overlay or new guard module is added to this profile.
+
+Suspended create, payload write and close retain the full original public frame
+and compiled worker call chain. Main cancellation and attempted worker polling
+use another stack while preserving the suspended CPU context. A reentrant poll
+returns busy and performs no additional file work. Audio can advance during a
+pending extra write; its retained stack bytes remain identical in the fixture.
+
+Cancellation during creation waits for its driver, then closes the unpublished
+file. Cancellation during a payload write waits for its modeled physical join,
+then closes and drains the control fence. Neither requires ordinary STOP. A
+pending close prevents STOPPED; a close error makes the manager BLOCKED, keeps
+the unresolved modeled handle and prevents retries or resume. Cancellation does
+not produce an eligible result. These are controlled scheduling examples, not
+real task preemption, measured latency or a whole-RTOS liveness proof.
+
+Critical negative control
+-------------------------
+With an extra native payload write pending, Main sets cancellation. The fixture
+then returns IO_ERROR from that driver WITHOUT marking physical work joined.
+Original public WRITE releases its software domain/context. Compiled error
+cleanup reaches original public CLOSE, takes domains 1/2 and resource 4, and
+attempts its driver. The test stops there before file effects. Manager/worker
+busy latches and the live call frame remain owned.
+
+The current direct lifecycle ports therefore cannot infer a join from public
+return, software lock release, cancellation or a timer. The physical transfer
+must finish or undergo checked recovery BEFORE the file call unwinds and permits
+close/buffer reuse. This is the same issue found in earlier handoff SD tests,
+now reproduced in the actual simplified capture path. This suite supplies no
+physical join detector or recovery implementation. Storage release stays unbound.
+
+Outer native transition ordering
+--------------------------------
+Original instructions execute; lower effects and their failing returns are
+modeled independently from the successful final UI-state tail return.
+
+  0x8000c220(1,profile): card release 0x80009b18, helper 0x80061f60,
+      clear 0x8045b620, delay, USB request 0x8003b7e0, UI-state tail.
+      All three profile selectors (6,8,10) preserve the request parameter.
+
+  0x8000c288(1): USB stop 0x8003b8a0, clear 0x8045b620, presence check,
+      mount 0x80009a40 or card release, UI-state tail.
+
+  0x8000c2d8(1): helpers 0x80034568/0x80008608 BEFORE USB stop, then
+      clear state. For examined mode 1, mount or release is followed by another
+      release, helper, clear/delay, new USB request. Absent media takes two
+      releases. Mode 0, all profiles and both presence outcomes are also tested.
+
+  0x80009b18: detach 0x80062230 FIRST, then ordinary cleanup helpers,
+      direct pad reload 0x80009930, transport cleanup 0x8000b2a8 and catalogue
+      cleanup 0x800088d0. A modeled detach error does not prevent the later work.
+
+Consequences: intercepting only the USB mailbox request is too late to protect
+card release or earlier mutation. Returning busy/error from raw detach is also
+insufficient: its outer caller continues cleanup. A future binding must cover
+the outer transitions before their first effects and retain the first lower
+failure; their final status cannot authorize worker release. This is bounded
+entry-path evidence, not exhaustive indirect-caller or physical-removal coverage.
+
+Smallest next implementation
+----------------------------
+Keep normal recording and pad I/O on their existing locks. Use one admission
+state for the added worker and cancel it before outer storage transitions. That
+state must wait for actual file/transfer and control-hook completion without
+holding a token needed by those operations. If joins remain uncertain, keep
+admission closed and retain the live frame; do not return a nominal busy result
+into an outer transition that ignores it. Missing completion evidence must not
+be repaired by an arbitrary permanent Main wait, because unexamined lower file
+callbacks may need Main service.
+
+Before binding that state, the concrete next dependency is the extra-file native
+transfer/error route: preserve native errors and establish completion or checked
+recovery before its caller unwinds. The prior synthetic handoff recovery probes
+remain offline research, not an approved provider for this capture path. Mount
+and target-directory authorization within the protected storage generation,
+complete transition coverage, startup release and reauthorization after a
+transition remain unfinished. Hardware testing is still deferred.
+
+Verification
+------------
+tests/emulation/verify_capture_transitions.py: 14 groups.
+analysis/capture_transitions_verification.json records cases and limits.
+audit_capture_storage.py now includes public CLOSE and the three outer USB
+entries in its bounded inventory/disassembly. The consolidated redesign runner
+passes 465 groups across 44 suites. The expanded inventory records 261 bounded
+direct references across 19 targets. No firmware image was generated,
+transferred or installed.

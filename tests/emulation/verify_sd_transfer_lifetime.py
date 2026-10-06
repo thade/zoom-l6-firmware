@@ -15,8 +15,8 @@ EXPECTED=[0x80069b21,0x80069a19,0x800699b9,0x8006a249,0x8006a749,0x8006a349,
           0x80069c59,0x8006a7f9,0x8006a281,0x800698a1,0x8006a719]
 
 class Sd:
-    def __init__(self):
-        self.m=Emulator();m=self.m
+    def __init__(self,emulator=None):
+        self.m=emulator if emulator is not None else Emulator();m=self.m
         assert m.invoke(0x80001994,[0x800a6980,0x801f5400,0x3780])==0
         assert list(struct.unpack('<11I',m.uc.mem_read(TABLE,44)))==EXPECTED
         for base in (0x402c0000,0x400fc000,0xe000e000):m.uc.mem_map(base,0x1000)
@@ -90,12 +90,12 @@ def native_commands(op,flags=4):
     put32(m,0x402c0010,0x100) # synthetic command response with ready bit
     return r,r.request(op)
 
-def cleanup5(reset_stuck=False):
+def cleanup5(clock_unstable=False):
     r=Sd();m=r.m
     def divider(a):put32(m,a[0],1);put32(m,a[1],1);return 0
     m.hooks[0x80069510]=divider
     m.hooks[0x80032878]=lambda a:put32(m,a[1],0) or 0
-    m.hooks[0x8006a760]=lambda a:r.events.append(('readiness_probe',int(reset_stuck))) or int(reset_stuck)
+    m.hooks[0x8006a760]=lambda a:r.events.append(('clock_probe',int(clock_unstable))) or int(clock_unstable)
     result=r.request(op=5);return r,result
 
 def cleanup1(delete_error=0,event_error=0):
@@ -162,12 +162,12 @@ def main():
     assert len([e for e in r.events if e[0]=='delay'])==6000 and not r.held
     passed('write_ready_poll_exhaustion_returns_failure_after_6000_modeled_delays_before_unlock')
 
-    for stuck in (False,True):
-        r,result=cleanup5(stuck)
+    for unstable in (False,True):
+        r,result=cleanup5(unstable)
         assert result==0 and not r.held and r.m.uc.mem_read(0x802142b4,1)==b'\0'
-        assert ('readiness_probe',int(stuck)) in r.events
-    passed('operation5_disables_driver_and_runs_actual_cleanup_but_returns_zero_when_low_level_readiness_probe_fails',
-           limitation='Divider and register-readiness helper modeled; physical controller idle/cache/clock semantics unverified')
+        assert ('clock_probe',int(unstable)) in r.events
+    passed('operation5_disables_driver_and_runs_actual_cleanup_but_returns_zero_when_clock_stability_probe_fails',
+           limitation='Divider and clock helper modeled here; verify_sd_completion.py executes the actual clock helper. Physical idle/cache/clock behavior remains unverified')
     for error,event_error in ((0,0),(0,0xffff1234),(0xffff1234,0)):
         r,result=cleanup1(error,event_error)
         assert result==(0xffffd8ef if error else 0)

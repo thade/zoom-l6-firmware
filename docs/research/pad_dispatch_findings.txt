@@ -1,0 +1,104 @@
+MAIN EVENT OWNERSHIP AND PAD DEFERRAL AUDIT — 5 October 2026
+
+Decision
+Do not connect pad_commands.c by replacing the raw three-argument pad handlers.
+Original-instruction tests reproduce semantic and overflow failures in exactly
+that naive binding. Keep the small FIFO as an unbound research component while
+moving the integration boundary to full UI events. Adding another raw-command
+queue or increasing its capacity would not repair the semantic mismatch.
+
+Verified path
+The stock Main UI queue (slot 0x801f8f28) contains 4096 packets of five 32-bit
+words. Existing verify_reload_queue_audit.py executes allocation and identifies
+Main in the native task table. This audit starts at initialized loop boundaries,
+not boot, and uses modeled kernel copying/scheduling.
+
+Normal loop: receive at 0x8002c440 through 0x80020690, then word 0 selects:
+  0 -> 0x8002c9d8, physical-style control dispatch;
+  1 -> 0x8002d568, including reload completion;
+  2 -> 0x8002c510, parameter/command dispatch.
+Alternate loop: 0x8002c408 uses 0x8002d090 for category 0 and 0x8002c960 for
+category 2. Do not infer the user-facing mode solely from these entry addresses.
+Both loops call 0x8003bd58 between handled events; those effects are modeled.
+
+For (0, subtype, 0x15 + pad, payload0, payload1), original 0x80020c60 maps
+subtypes 0..9 to events [1,0,2,4,3,5,6,7,1,0]. The normal handler passes
+(pad,0,event) to 0x800408b0; the alternate passes them to 0x8003f4d8. This
+executes the previously inventoried 0x8002cac6/0x8002d192 call sites.
+
+Normal category-2 dispatch also reaches 0x800408b0 through three paths:
+  code 0x11 + pad -> (pad,1,low_byte(payload0));
+  code 0x54 + pad -> (pad,1,1);
+  code 0x58 + pad -> (pad,1,0).
+The first calls 0x80009fd8 BEFORE the raw handler; on the tested press branch
+that enters 0x80030fb0. A handler-only hook cannot defer that preceding effect.
+Transport provenance for every category-2 packet is not established by this test.
+
+Receive is already an operation, not a peek
+0x80020690 calls blocking 0x800483a8 -> kernel receive 0x80076710 with timeout
+0xffffffff. The kernel copies/removes the 20-byte packet before UI dispatch.
+There is no later acknowledgement restoring it when a handler returns BUSY.
+The caller-owned message buffer is overwritten by the next receive.
+On the tested category-0 pad path, 0x80034530 and 0x800344e0 run before receive
+returns; their timer/device effects are modeled here. Inspection shows timer
+stop/rearm calls and state writes. Other receiver paths drain/coalesce a backlog.
+Deferring after receive cannot claim to have deferred all input side effects.
+
+A forced kernel receive failure becomes an all-ones packet while 0x80020690
+returns zero. Changing the wait to a timeout is therefore not a complete retry
+API. The wake/retry design must explicitly handle receiver behavior and all
+relevant Main loop branches, not assume a failure propagates to the dispatcher.
+
+Native duplicate deletion: correction to the earlier command note
+After playback, 0x800408b0 calls 0x80020548 at 0x8004098a and 0x8004099a.
+These calls REMOVE pending events matching the first three words:
+  (0,0,0x15 + pad) and (2,3,0x54 + pad).
+They do not enqueue notifications. The deletion routine drains/requeues the
+original UI queue, as already documented in reload_queue_audit_findings.txt.
+This audit executes it through the actual pad handler and Main loop.
+
+Reproduced mismatch
+Input: two queued category-0 presses on pad 3 in toggle mode, then completion.
+Stock path: the first starts playback and removes the second; one start.
+Naive deferred path: Main consumes both into the compiled PadCommands FIFO.
+When replayed, original queue deletion cannot see either diverted command.
+Both execute, producing start then stop. The completion still dispatches.
+The negative control executes the compiled FIFO and original pad/deletion code
+on two emulator CPUs connected by scalar copies. It is not an RTOS simulation.
+The FIFO's earlier two-toggle test is correct for its own input contract, but
+does NOT prove equivalence to the stock UI event stream.
+
+Saturation counterexamples
+Nine pad events while the eight-slot FIFO is held:
+  - Returning BUSY from the ninth handler is ignored by Main. The packet is
+    consumed; completion progresses, but the ninth command is lost.
+  - Parking Main at the ninth handler retains its continuation but prevents
+    the following reload-completion event from reaching its consumer.
+These deliberately unsafe hook fixtures are tests only. Neither is installed
+or selected as production behavior. Moving the ninth event into one more slot
+only moves the capacity boundary; it does not define bounded overflow behavior.
+
+Integration requirements and next concrete step
+Investigate admission at full event ownership, before command-specific effects.
+Preserve ordered mode/Record changes and the stock deletion/coalescing semantics
+across retained and pending events. An event classifier needs a positive list of
+completion paths that can run without violating handoff exclusion; category 1
+alone is not evidence that an event is safe. Existing reload completion performs
+I/O and must be joined before exclusive handoff, not permitted during mutation.
+
+Define bounded overload behavior explicitly. A finite private queue cannot
+promise lossless acceptance of unlimited input while its consumer is held.
+Do not block Main or report discarded events as accepted. If the required stock
+semantics would force a second UI dispatcher, reconsider the interaction policy
+instead of rebuilding the firmware's event system inside the optional feature.
+No safe full-event adapter or final overload policy is claimed in this slice.
+
+Verification
+tests/emulation/verify_pad_dispatch.py: 11 groups, including deliberate negative
+controls. Report: analysis/pad_dispatch_verification.json.
+The consolidated redesign run passes 282 groups across 28 suites; the separate
+original reload-queue audit passes 14 groups. See analysis/redesign_verification.json
+and analysis/reload_queue_audit_verification.json for the respective reports.
+State getters, RTOS copying, timer effects, audio and reload-body effects are
+modeled. These tests establish caller/control flow and the counterexamples, not
+physical timing, complete producer coverage, storage safety or installation.

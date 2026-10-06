@@ -1,0 +1,95 @@
+Ordinary read/seek callback and file-worker integration — 5 October 2026
+
+Follow-on: playback_io_findings.txt replaces the parent-value fixture with a
+compiled Main restart/claimed-refill provider for those paths. The remaining
+scan producer context and renderer fence are still emulator bindings.
+
+Result
+The ordinary_io lifetime core now has compiled synchronous producer routing
+and file-worker integration. Tests redirect the original read and seek callback
+entries and worker call sites to these adapters. Original reload/prefetch and
+ordinary file-worker instructions execute on the same emulator CPU. Physical
+firmware patches are still uninstalled; playback/refill parent attribution is
+an explicit fixture port, not a recovered native binding yet.
+
+Cold binding
+ordinary_producer.[ch] copies a 100-byte OpBinding, owns eight permanent 76-byte
+OiIo contexts and eight 12-byte producer states, and assigns each context its
+own pin slot 2..9. Nonzero native IDs require distinct aligned permanent RAM
+identity words whose contents match. Unused entries are zero pairs. The file
+worker cannot also be a producer. Task recycling and live cutover are excluded.
+The parent port is mandatory: it supplies the current caller's live session or
+refill owner, or explicitly supplies zero for a new ordinary root. A busy port
+retries before reservation. It must keep that ownership valid across the call.
+
+op_bind requires the existing reload producer/worker and pad-file bindings,
+the same coordinator and queue, distinct native read/seek semaphores, inactive
+reload tasks and quiescent coordinator/ledger. rw_bind_ordinary is a one-time
+extension before the worker's first receive, including an empty receive.
+All fallible validation precedes producer publication; binding assumes one cold
+caller and no active participants. The worker copies its context table and seek
+port. RwBinding stays 56 bytes; private RwState is now 172 bytes.
+Explicit bounded configuration copying avoids pulling compiler memory-helper
+runtime code into the freestanding image. Final text is 36,240 bytes, with
+16-byte exception index and 1,720-byte BSS. It fits the original synthetic
+0x10000000..0x1000ffff arena. These are not physical placement measurements.
+
+Producer routing
+rp_read_entry still captures the real LR. Attributed initial-prefetch reads
+from the assignment worker and Main retain the existing strict reload route.
+Inactive/other tasks use op_read when enabled. rp_seek_entry routes ordinary
+seek callbacks through the same native binding checks; an unexpected seek
+inside an attributed reload branch parks rather than inventing ordinary scope.
+Without the optional binding, the dispatcher retains stock forwarding.
+The seek forwarder replays the original CMP/IT/BXHI logic at 0x80036250..54
+and branches to 0x80036257. Valid callback no-op argument cases are preserved.
+
+Each bound ordinary task can have one synchronous callback outstanding. It
+obtains explicit parent attribution, reserves its operation and file pin,
+publishes one ticket packet, sends once and waits once on the corresponding
+read or seek semaphore. It then retries only its matching oi_finish. An early
+wake or failed wait does not permit early return; missing delivery retains
+the callback, root and pin. Completed IO returns the original wait result.
+Send failure/cancellation recovery is not implemented. Unknown callers or
+changed bindings fault and park instead of falling back to untracked IO.
+
+Worker integration
+rw_next at original 0x80036152 now decodes either reload or ordinary tickets.
+Once ordinary binding is enabled it rejects raw kind-0/kind-1 packets; every
+ordinary producer must be covered before activation. Stale ordinary packets
+are discarded without executing IO or completing a newer operation.
+rw_read at 0x80036184 and rw_seek at 0x800361bc compare actual handle/arguments
+with the immutable operation and current native handle table. Read count is
+initialized before public IO. Both retain raw results before returning to the
+original worker. Seek uses the original public wrapper through a bound port.
+The next receive acknowledges observation and return only after the original
+error handling, short-read zero fill and semaphore signal have fully returned.
+Contention retries retained metadata without repeating IO or its signal. Only
+the corresponding producer join drops its pin and retires its lifetime scope.
+
+Verification
+verify_ordinary_routing.py has 19 groups covering both callback types, ordinary
+full/short/EOF/error reads, seek failures, three bound task identities, distinct
+semaphores, missing delivery, early wake and failed waits, post-IO contention,
+stale packets, parent attribution and rejection, invalid argument no-ops,
+cold-binding validation, unknown callers and changed/missing handles.
+Two separately suspended native callers share the worker: one read and one
+seek complete, but the first file pin remains until its own saved stack resumes.
+All 236 groups across 19 regression suites pass, including the 35-group overdub
+prototype and 11-group pad publisher. Reports:
+analysis/ordinary_routing_verification.json
+analysis/ordinary_routing_regression.json
+
+Evidence limits and next step
+Entry/call-site interception, kernel queues, task scheduling, file effects and
+the ownership-provider port are fixtures. The third test task's identity word
+is a fixture location, not a discovered firmware task slot. No audio rendering,
+card removal, physical timing or recovery claim follows from these tests.
+Next identify every native caller and connect the parent port to the existing
+playback/refill ownership path. Completion of one file operation must not
+release the whole playback session; renderer completion remains separate.
+Still open: full caller lock-order audit, fault isolation (currently parking
+can stop shared tasks), queue rejection recovery, lower-level close bypasses,
+card/USB lifecycle binding, final startup/entry patches and physical placement.
+The explicit cold-binding contract is not an audit of the stock queue contents.
+No device access, SD-card staging, firmware installation or commit/push.

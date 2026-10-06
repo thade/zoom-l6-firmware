@@ -1,0 +1,140 @@
+L6 MEMORY PLACEMENT AUDIT
+4 October 2026
+
+Result
+The candidate [0x80960078, 0x80bb9400) interval remains a plausible place for
+additional capture buffers, not an approved allocation. We have now bounded one
+stock allocator below it and recovered the stock MPU configuration. Neither
+check proves the interval is unused by all firmware or bootloader paths.
+
+Reproduce: python tests/emulation/verify_memory_layout.py
+Local output: analysis/memory_layout_verification.json
+Input: untouched v1.10 image, SHA-256
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+
+1. Startup destinations and existing recording buffers
+
+Entry 0x80001400 sets SP from 0x80001410 (0x20220000), invokes the scatter
+initializer at 0x80001964, then enters main at 0x80067a60. The initializer's
+eight records at [0x800a68dc, 0x800a695c) describe these half-open destinations:
+
+  decompress  [0x801f5400, 0x801f8b80)
+  decompress  [0x80bb9400, 0x80c74c00)
+  copy        [0x00000000, 0x00000034)
+  decompress  [0x20000000, 0x2000bb00)
+  copy        [0x20220000, 0x2022d6dc)
+  zero        [0x801f8b80, 0x80960078)
+  zero        [0x80c74c00, 0x81f26000)
+  zero        [0x2000bb00, 0x20018cb4)
+
+This audit parses the original table; it does not execute full startup.
+record_boundaries_findings.txt separately establishes the ordinary twelve
+source rings at [0x81429800, 0x81f26000). Those buffers are occupied.
+
+The gap between scatter destinations is 2,462,600 bytes. A five-second stereo
+float history at 48 kHz consumes 1,920,000 bytes; a separate 65,536-byte queue
+would leave 477,064 bytes before other state, alignment, code and stacks.
+This arithmetic is a capacity estimate, not permission to use the gap.
+
+2. One allocator is bounded below the gap
+
+Original allocation routine: 0x8006de78. Release: 0x80073f48.
+State: 0x801f901c, inside the startup-zeroed region.
+Raw pool base: 0x808e2fdd. Configured extent: 0x7d000 (512,000 bytes).
+Aligned first block: 0x808e2fe0.
+End sentinel: 0x8095ffd0. Exclusive aligned end: 0x8095ffd8.
+Initial free block size: 511,984 bytes, including allocator block metadata.
+
+The emulator executes the original initialization, allocation and free code.
+It stubs calls at 0x80074780 and 0x80077540; real scheduler exclusion and
+concurrent allocation are outside this test. Heap state starts at zero as
+specified by the startup table; this is not a measurement of the running mixer.
+
+Passing checks:
+- Zero-sized allocation initializes the pool and returns null.
+- Requests of 1, 7, 8, 9, 4096 and 65536 bytes return aligned, nonoverlapping
+  blocks within the pool.
+- Freeing alternating blocks then the remainder coalesces the original pool.
+- Oversized and overflow-sized requests return null.
+- A near-capacity request consumes the whole free block; another allocation
+  fails rather than extending the pool. Releasing it restores the initial list.
+- All 189 observed writes stay within the pool, its 28-byte state, or the
+  synthetic call stack.
+
+Thus this allocator's tested paths do not consume the candidate gap. This does
+not establish live free heap capacity, the absence of other allocators, or the
+ownership of static/derived pointers and DMA destinations elsewhere.
+
+3. Memory protection setup allows execution in the candidate interval
+
+Main calls 0x8001b320 before subsequent board/task initialization. We execute
+from that entry through the MPU setup, stopping at 0x8001b51a before cache
+re-enable. RAM-backed register fixtures use CCR cache flags both clear and set,
+with CCSIDR=0. Both runs produce the same 13 region configurations.
+
+Region 10: RBAR=0x8000001a, RASR=0x03030031. Decoded fields:
+  base 0x80000000, size 32 MiB, exclusive end 0x82000000;
+  enabled, XN=0, AP=3, TEX=0, S=0, C=1, B=1, no disabled subregions.
+The final MPU control write is 5. Regions 11 and 12 address peripheral ranges.
+The candidate interval lies inside region 10, alongside existing application
+code and data. Its permission settings therefore do not exclude new code.
+
+Field definitions were checked against Arm's official CMSIS Cortex-M7 header:
+https://github.com/ARM-software/CMSIS_5/blob/develop/CMSIS/Core/Include/core_cm7.h
+(MPU_Type, MPU_RBAR_* and MPU_RASR_* definitions).
+
+These are observed firmware configuration writes, not simulated MPU/cache
+enforcement or evidence of physical RAM size, aliasing, DMA coherence or
+bootloader behavior. Runtime reconfiguration has not been excluded.
+
+4. New code loading remains a separate question
+
+The main payload length field at file 0x2851f8 is 0xb5ae4, giving effective
+runtime end 0x800b6ae4 when loaded at 0x80001000. The update container reserves
+a larger main span. Padding in that span does not establish that the loader
+copies it, or that increasing the length field is accepted.
+
+The two completed hardware probes altered bytes inside the existing payload.
+They establish modified data/instruction execution and restoration, not new
+code loading. No new firmware image was generated or staged in this audit.
+
+Next placement work
+Trace remaining static/derived uses, memory pools and startup consumers of the
+candidate interval. Establish a small code location inside a demonstrably
+loaded region, or a justified extension of the payload length, then prepare a
+bounded added-function trial. Keep code placement separate from approval of a
+large persistent audio buffer. A successful tiny function alone will not
+establish long-running recording safety.
+
+Follow-up: bounded reference audit and an added-code candidate
+
+The added-code verifier now decodes 391,622 candidate instructions by attempting
+a decode at every halfword of the effective MAIN payload and copied RAM code.
+It searches MOVW/MOVT pairs within a 32-byte forward window, conservatively
+retaining pairs across clobbers. No such construction resolves into the large
+buffer gap. Nearby constructions resolve to 0x8095ffe0, 0x80960028, 0x8096002c,
+0x80960030, 0x80960034 and 0x80960038. These observations extend the earlier
+bounded search but still do not cover arbitrary arithmetic or indirect uses.
+
+One adjacent consumer, 0x800740b8, compares against eight pointer slots at
+0x80960038 + 4 + 8*i, i=0..7. On a match it clears that pair, then tail-calls
+the stock free routine 0x80073f48. The final pointer occupies [0x80960074,
+0x80960078), ending exactly at the candidate gap. This statically inspected
+consumer does not itself access beyond the boundary. Its table population and
+other indirect consumers remain separate investigation work.
+
+A tiny code test can proceed independently of the large buffer question:
+eight bytes at 0x800360e4 fit within a 14-byte zero interval after the return at
+0x800360de and before the function at 0x800360f0. This lies inside the existing
+payload length, avoiding an unproven payload extension. The experiment changes
+USB name construction through an out-and-back branch and leaves all package
+lengths unchanged. See experiments/03-added-code/README.md and
+tests/emulation/verify_added_code_probe.py for the exact scope and checks.
+
+The location audit searches direct/immediate references, PC-relative accesses,
+bounded MOVW/MOVT constructions and raw pointers into that interval. Raw-pointer
+searches include all startup copied/decompressed regions, executing the original
+decompressor first. None were found. A negative example at 0x800530c0 is rejected
+because it is a PC-relative floating-point literal, despite appearing to be
+zero padding after a return. The chosen interval remains subject to the limits
+of static analysis; the device has not yet executed the new routine.

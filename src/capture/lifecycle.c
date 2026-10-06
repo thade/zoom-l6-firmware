@@ -3,7 +3,7 @@
  * or ordinary-recorder start/stop hook exists. No pad mutation occurs here. */
 #include "capture.h"
 #include <stddef.h>
-#define KEEP __attribute__((used,retain))
+#include "retention.h"
 typedef int32_t (*Open)(uint32_t*,const uint16_t*,uint32_t,uint32_t);
 typedef int32_t (*Transfer)(uint32_t,void*,uint32_t,uint32_t*);
 typedef int32_t (*Close)(uint32_t);
@@ -20,9 +20,10 @@ enum { DONE=0,MORE=10,BUSY=11,INVALID=12,ERROR=13,COLLISION=14,CORRUPT=15,CANCEL
 typedef struct {
     uint32_t phase,handle,error,uncertain_close,pad,serial,left,hash;
     uint16_t path[261];
-    uint8_t header[512],buffer[4096];
+    uint8_t header[512];
+    uint32_t naming;
 } Life;
-KEEP const uint32_t life_layout[]={sizeof(Life),offsetof(Life,path),offsetof(Life,header),offsetof(Life,buffer)};
+KEEP const uint32_t life_layout[]={sizeof(Life),offsetof(Life,path),offsetof(Life,header)};
 static int same(const uint8_t *a,const uint8_t *b,uint32_t n) {
     while(n--)if(*a++!=*b++)return 0;return 1;
 }
@@ -55,7 +56,8 @@ KEEP uint32_t life_prepare(Life *s,Capture *c,uint32_t pad,uint32_t serial) {
     if(s->phase!=IDLE)return BUSY;
     if(pad>3)return INVALID;
     extra_init(c,0);extra_stop_quiesced(c);
-    s->pad=pad;s->serial=serial;
+    if(!s->naming){s->pad=pad;s->serial=serial;s->naming=1;}
+    else if(s->pad!=pad)return INVALID;
     const char *prefix="A:\\SOUND_PAD\\PAD1\\OD_";uint32_t n=0;
     while(prefix[n]){s->path[n]=(uint16_t)prefix[n];n++;}
     s->path[16]=(uint16_t)('1'+pad);
@@ -64,13 +66,35 @@ KEEP uint32_t life_prepare(Life *s,Capture *c,uint32_t pad,uint32_t serial) {
         for(uint32_t i=0;i<8;i++)s->path[n+i]=(uint16_t)hex[(s->serial>>(28-i*4))&15];
         const char *ext=".WAV";
         for(uint32_t i=0;i<5;i++)s->path[n+8+i]=(uint16_t)ext[i];
+#ifdef L6_CAPTURE_PRIVATE_FILES
+        /* On reboot, skip both completed WAVs and abandoned TMPs. Probe the
+         * final name read-only; only the known not-found result permits create.
+         * No startup directory scan, deletion or persistent counter required. */
+        int32_t existing=OPEN(&s->handle,s->path,0,0x100);
+        if(!existing) {
+            if(close_file(s))return fail(s,ERROR);
+            if(s->serial==UINT32_MAX)return fail(s,COLLISION);
+            s->serial++;
+            if(tries==31)return MORE;
+            continue;
+        }
+        if(s->handle || (uint32_t)existing!=0xffffd75au)return fail(s,ERROR);
+        s->path[n+9]='T';s->path[n+10]='M';s->path[n+11]='P';
+#endif
         int32_t status=OPEN(&s->handle,s->path,0x501,0x80);
         if(!status)break;
         /* The verified stock public open contract clears handle on error. */
         if(s->handle)return fail(s,ERROR);
         if((uint32_t)status!=0xffffd75bu)return fail(s,ERROR);
-        if(tries==31 || s->serial==0xffffffffu)return fail(s,COLLISION);
+        if(s->serial==0xffffffffu)return fail(s,COLLISION);
         s->serial++;
+        if(tries==31) {
+#ifdef L6_CAPTURE_PRIVATE_FILES
+            return MORE;
+#else
+            return fail(s,COLLISION);
+#endif
+        }
     }
     if(!s->handle)return fail(s,ERROR);
     header(s,0);
@@ -110,6 +134,9 @@ KEEP uint32_t life_step(Life *s,Capture *c) {
         s->phase=FINALIZING;return MORE;
     }
     if(s->phase==FINALIZING) {
+        /* Staging is stopped and fully drained before FINALIZING. The same
+         * serialized worker owns it through readback; retain counters/hash. */
+        uint8_t *buffer=(uint8_t*)c->blocks;
         header(s,c->bytes);
         if(SEEK(s->handle,0,2) || transfer(WRITE,s->handle,s->header,512))return fail(s,ERROR);
         if(close_file(s))return fail(s,ERROR);
@@ -117,14 +144,15 @@ KEEP uint32_t life_step(Life *s,Capture *c) {
         if(OPEN(&s->handle,s->path,0,0x100))return fail(s,ERROR);
         uint32_t info[4]={0};
         if(INFO(s->handle,info) || info[0]!=c->bytes+512)return fail(s,CORRUPT);
-        if(transfer(READ,s->handle,s->buffer,512) || !same(s->buffer,s->header,512))return fail(s,CORRUPT);
+        if(transfer(READ,s->handle,buffer,512) || !same(buffer,s->header,512))return fail(s,CORRUPT);
         s->left=c->bytes;s->hash=2166136261u;s->phase=VERIFYING;return MORE;
     }
     if(s->phase==VERIFYING) {
-        uint32_t n=s->left>4096?4096:s->left;
+        uint8_t *buffer=(uint8_t*)c->blocks;
+        uint32_t n=s->left>sizeof(c->blocks)?sizeof(c->blocks):s->left;
         if(n) {
-            if(transfer(READ,s->handle,s->buffer,n))return fail(s,CORRUPT);
-            s->hash=extra_hash(s->hash,s->buffer,n);s->left-=n;
+            if(transfer(READ,s->handle,buffer,n))return fail(s,CORRUPT);
+            s->hash=extra_hash(s->hash,buffer,n);s->left-=n;
             if(s->left)return MORE;
         }
         if(s->hash!=c->hash)return fail(s,CORRUPT);

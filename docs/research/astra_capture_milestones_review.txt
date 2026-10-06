@@ -1,0 +1,219 @@
+Astra capture milestones correctness and simplicity review
+6 October 2026
+
+Implementation follow-up: the P1 and all three simplicity suggestions below are
+now addressed. The rebuilt full regression passes 575 groups across 53 suites.
+The original review/reproducer describes the pre-fix ELFs; after rebuilding,
+the reproducer preserves [A,B] for both modes and does not reach the assertion.
+See the resolution at the end of this report and capture_hooks_findings.txt.
+
+Scope and verdict
+-----------------
+Review only of the current capture/lifecycle/worker implementation, with emphasis
+on the encoded MAIN/startup/DSP hooks, native outer mount/folder setup, native
+no-overwrite rename, and the separate minimal-link fixture. No applicable
+AGENTS.md was present. This report is the only source/document file edited.
+No firmware image, device/card access, staging, deployment, or implementation
+fix was performed.
+
+One proven P1 correctness defect was found in the encoded common queue-sender
+adapter. It affects both capture-only-hooks.elf and capture-only-minimal.elf,
+including ordinary queue traffic when optional capture is inactive. Fix it
+before relying on the encoded-hook preservation claim or using these patches
+in any future device experiment. The images remain uninstalled offline fixtures.
+
+No additional material implementation defect was found within the documented
+contracts. This does not establish device readiness or exhaustive correctness.
+
+Actionable finding
+------------------
+[P1] Resume the common queue sender before its mandatory FIFO-mode initializer.
+
+Primary location:
+  /Users/thade/src/zoom_l6_fw/src/capture/emulator_hooks.S:69
+
+Related specification and test locations:
+  /Users/thade/src/zoom_l6_fw/tools/firmware/plan_capture_hooks.py:24
+  /Users/thade/src/zoom_l6_fw/tests/emulation/verify_capture_hooks.py:137
+  /Users/thade/src/zoom_l6_fw/tests/emulation/verify_capture_hooks.py:144
+  /Users/thade/src/zoom_l6_fw/tests/emulation/verify_capture_integration.py:129
+
+The encoded ct_stock_send replays PUSH and MOV.W r2,#-1, then jumps to
+0x80048400 (Thumb literal 0x80048401). However, its six-byte replaced span ends
+at 0x800483fe, as the plan correctly records. The next untouched instruction is
+MOVS r3,#0. The adapter skips that instruction:
+
+  800483f8  push {r4,lr}
+  800483fa  mov.w r2,#-1
+  800483fe  movs r3,#0       <-- skipped by encoded adapter
+  80048400  mov.w r4,#-1
+  80048404  bl 800763d8
+
+R3 is a caller-clobbered input to this stock wrapper, not a required zero from
+its callers. The kernel send at 0x800763d8 consumes it as the queue placement
+mode: zero appends normally, nonzero uses the front/overwrite path, and mode 2
+requires queue capacity 1. A stale value can therefore reorder ordinary
+messages, invalidate the control FIFO-prefix fence, or enter a kernel assertion.
+This is not contingent on a future storage authorization or completion provider.
+
+Focused reproductions against the existing compiled ELFs:
+
+  Kernel boundary, incoming R3=2:
+    Stock   (queue, message, timeout, mode) = (..., ..., ffffffff, 0)
+    Patched (queue, message, timeout, mode) = (..., ..., ffffffff, 2)
+
+  Original kernel sender and queue-copy instructions, capacity 4, A queued:
+    Incoming R3=1: stock sends B -> [A,B]; patched sends B -> [B,A].
+    Incoming R3=2: stock sends B -> [A,B]; patched reaches assertion 800764ac
+                   before adding B. The stock assertion body masks interrupts
+                   and loops at 800764bc; the reproduction stops at its entry.
+
+The same incorrect mode=1 was independently observed with MinimalRig. The
+native-queue reproduction supplies initialized queue memory and a successful
+scheduler-state query; the mode selection and queue mutation execute original
+firmware instructions. These are software counterexamples, not physical RTOS
+timing measurements.
+
+The existing six-control-entry test compares return values, preserved registers,
+stack, and message bytes, but intercepts the kernel send. Its kernel_send fixture
+unconditionally appends messages and ignores args[3]. Consequently both tested
+paths appear FIFO and the test passes despite the altered kernel argument.
+The native filesystem/SD compositions inherit this modeled queue behavior too.
+
+Recommended correction, not implemented: resume at 0x800483fe using Thumb literal
+0x800483ff. Add a focused stock-versus-patched kernel-boundary check covering all
+four arguments and varied incoming R3, for both encoded ELFs. Include a native
+queue case with a preexisting message so FIFO equivalence is checked by original
+instructions. The expected result must come from stock behavior, not another
+append-only fixture. Recheck packed sizes after rebuilding. Qualify/update the
+preservation claims at:
+  /Users/thade/src/zoom_l6_fw/docs/research/capture_hooks_findings.txt:49
+  /Users/thade/src/zoom_l6_fw/docs/architecture.md:245
+until the corrected checks pass.
+
+Minimal reproduction of observable native behavior
+-------------------------------------------------
+Run from /Users/thade/src/zoom_l6_fw using /tmp/l6-re-tools/bin/python. Unicorn
+requires execution outside the sandbox on this host. This only changes emulator
+memory; it writes no firmware, source, or verification report.
+
+import sys
+sys.path[:0] = ['tests/emulation', 'tools/firmware']
+from verify_capture_hooks import HooksRig, seed, QHANDLE, INPUT
+from verify_firmware_workflow import put32
+from verify_record_scheduler import word
+from verify_scheduling_boundaries import stop
+from unicorn import arm_const as A, UC_HOOK_CODE
+
+for mode in (1, 2):
+    for patched in (False, True):
+        r = HooksRig(patched=patched, enabled=False)
+        seed(r, 10, 0)
+        m, base = r.m, 0x21036000
+        m.uc.mem_write(QHANDLE, bytes(0x50))
+        m.uc.mem_write(base, b'A'*32 + bytes(96))
+        m.uc.mem_write(INPUT, b'B'*32)
+        fields = ((0,base), (4,base+32), (8,base+128), (12,base+96),
+                  (0x38,1), (0x3c,4), (0x40,32))
+        for off, value in fields:
+            put32(m, QHANDLE+off, value)
+        m.hooks.pop(0x800763d8, None)
+        m.hooks[0x800770f8] = lambda a: 1
+        trapped = []
+        m.uc.hook_add(UC_HOOK_CODE,
+            lambda u,a,n,d: trapped.append(a) or stop(m),
+            begin=0x800764ac, end=0x800764ac)
+        m.uc.reg_write(A.UC_ARM_REG_R3, mode)
+        m.invoke(0x800483f8, [QHANDLE, INPUT])
+        p, order = word(m, QHANDLE+12), []
+        for _ in range(word(m, QHANDLE+0x38)):
+            p += 32
+            if p >= base+128:
+                p = base
+            order.append(bytes(m.uc.mem_read(p,1)).decode())
+        print(mode, patched, order, [hex(a) for a in trapped])
+
+Evidence and limits
+-------------------
+- Read the eight retention-using C modules, hook macros/adapters, startup
+  fixture, linker/build/packing/binding plans, relevant native filesystem audit,
+  latest milestone tests, and current architecture/progress/research notes.
+  No second incorrect selected continuation was found.
+- Reran native_storage_setup (8 groups), native_rename (8), and capture_minimal
+  (6), with report writes suppressed. All 22 groups pass unchanged. The passing
+  queue model does not rebut the defect above. The full 565-group / 53-suite
+  regression was not rerun merely to duplicate its existing passing report.
+- Recomputed current ELF hashes and all PT_LOAD address/size/content fingerprints
+  for capture-only, placement, and startup. They match
+  /Users/thade/src/zoom_l6_fw/analysis/capture_profile_stability.json.
+  The report records the prior comparison; this review did not independently
+  reconstruct that historical build. Normal-profile byte stability does not
+  imply correctness of the new encoded-hook profiles.
+- The retention switch is isolated to the minimal fixture. Explicit patch/API
+  roots and normal compiler references preserve the examined runtime call graph;
+  the profile and symbol checks exercise that distinction. Its 2,924-byte packed
+  margin is a current size result, not reserved capacity for unspecified bindings.
+- Native mount/folder tests distinguish application acceptance from lower FAT32
+  readiness and absent-card zero returns. Deferred reload is observed but not
+  executed. That separation is accurately documented; no release provider is
+  silently inferred from the setup result.
+- The rename barrier-failure counterexample is meaningful: a reported error can
+  follow an already persisted WAV name. Current code does not bind native rename
+  to seal or misclassify that return as a safe unchanged result. Keep the typed
+  uncertain-ownership contract when the port is eventually implemented.
+- Capture cancellation/close uncertainty, worker/frame retention under pending
+  modeled SD completion, fenced result publication, and reset/linker lifetimes
+  appear coherent within their stated ownership contracts. Hardware completion,
+  RAM/cache/IRQ behavior, startup authorization, outer transitions and pad handoff
+  remain explicitly unbound. Those acknowledged gates are not additional bugs.
+- Startup and capture compositions remain separate; deep ordinary admission,
+  selected middle DSP execution, ordinary files, scheduling, card/DMA behavior
+  and completion authorization are modeled. Independent native FAT/sector
+  inspection strengthens the file tests but does not extend them to power loss,
+  arbitrary directory layouts, full native boot or concurrent storage transitions.
+
+Simplicity recommendations, not implemented
+------------------------------------------
+1. Add a small continuation-contract test using each patch plan's resume address
+   and the original next native-call boundary. Do not introduce a new replay
+   generator just to fix this adapter. The existing byte specs already contain
+   the correct queue continuation; comparing compiled behavior to them would
+   catch this drift with little new infrastructure. Account explicitly for BL
+   and callback adapters whose continuation is an invoked callee plus saved LR.
+
+2. Make the queue fixture reject unsupported mode/timeout arguments instead of
+   silently treating every call as append. Keep the original-kernel FIFO check
+   as a small separate regression. This adds a useful boundary assertion without
+   expanding the fixture into another implementation of the RTOS. Some fixtures
+   intentionally exercise other modes, so scope the assertion to the common
+   stock-sender contract rather than applying it globally to kernel semaphore use.
+
+3. In build_extra_capture.py:56, split the explicit minimal roots into patch
+   entry points, external control APIs, and observation-only roots, and validate
+   the patch subset against plan_capture_hooks.SPECS. Keep ordinary C dependencies
+   to linker reachability. This clarifies what the fixture still intentionally
+   retains and prevents drift as new bindings arrive. It is organization only:
+   removing observation roots now would break the harness for little benefit,
+   and automatic root discovery must not retain unrelated research entry points.
+
+Resolution — 6 October 2026
+--------------------------
+ct_stock_send now resumes at Thumb 800483ff, before the original FIFO initializer.
+Before rebuilding, the new continuation, argument and native-FIFO checks each
+failed on both old encoded ELFs. After correction, each passes with incoming R3
+0, 1, 2 and ffffffff. The native ready-queue test executes original placement and
+copy instructions with A already queued, checks [A,B], and traps the assertion.
+
+The exact continuation tests cover all six C control adapters and both DSP
+adapters in both builds. Observer and startup endpoints use their patch specs;
+BL and nonnull callback cases separately check the native callee and saved LR.
+The common-sender fixtures reject unsupported timeout/mode before mutation.
+Minimal roots are grouped by patch entry, external control and observation use;
+the C patch subset is validated against SPECS, and duplicate roots are rejected.
+A missing patch-root negative control was rejected before compiler invocation.
+
+The full regression passes 575 groups across 53 suites, including 22 hook and 11
+minimal groups. Packed margins remain 119 / 2,924 bytes. Runtime segments in the
+ordinary capture, placement and startup profiles match the pre-fix baseline;
+analysis/capture_queue_fix_profile_stability.json records that comparison.
+Hardware gates remain unresolved. No firmware image or device operation was made.

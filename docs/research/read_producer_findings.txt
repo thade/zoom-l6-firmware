@@ -1,0 +1,91 @@
+NATIVE READ PRODUCER BINDING AND EARLY WAKEUPS
+4 October 2026
+
+Result
+read_producer.c binds the assignment task and Main to separate permanent read
+contexts. It captures the active reload envelope, pad, buffer, byte count and
+file handle before publication. A retained phase machine sends one tagged
+request, waits once on the original semaphore, then joins that request's ticket.
+An early or unrelated wakeup cannot itself establish read completion. Later
+join attempts yield without another send or another semaphore wait.
+
+This is compiled emulator code, not an installed firmware hook. The synchronous
+calling glue must drive the phases and prevent stock prefetch from resuming
+until the matching read is joined. Returning BUSY to an unmodified stock caller
+would not provide that guarantee.
+
+Binding and identity
+rp_bind copies the 56-byte configuration once. Each role has a separate 68-byte
+state. The caller supplies permanent coordinator, RtTask and RrRead storage,
+distinct slot indices matching the file-worker table, and send/wait/yield ports.
+Binding checks task handles at 0x80446dc8 (assignment) and 0x80446da4 (Main),
+file queue 0x801f8f30 and read semaphore 0x804467fc.
+
+Each producer entry checks thread context, current native handles and the stock
+current-task getter at 0x800770e8. Its RtTask must be locked and RT_RUNNING with
+the correct role and a valid owner/child envelope. The saved envelope must still
+match on every step. Wrong callers, replaced task handles and changed tags cannot
+replace or advance the retained request. The per-role reentry latch can span
+that task's blocking send/wait; no shared ledger latch spans those calls.
+
+Handle evidence
+rp_begin snapshots the nonzero pad handle at 0x80735b24 + 20*pad. rr_begin_handle
+stores it in the immutable ledger request before reservation/publication.
+rw_read now compares this saved handle as well as the current pad handle, buffer
+and count before public IO. The older rr_begin API leaves the handle unspecified
+for existing fixtures. Native producer requests require the snapshot variant.
+
+The snapshot detects handle substitution but is not full file/card ownership:
+closing a file and reusing the same integer handle still requires a lifetime
+fence. Queue cutover and admission of ordinary traffic also remain unresolved.
+
+Completion and failure
+Send return values alone do not prove delivery or non-delivery. The adapter
+retains the raw value and never resends an uncertain request. Positive matching
+worker completion can resolve an ambiguous send. Without delivery/completion,
+the reservation stays pending; elapsed time does not convert it to success.
+
+A native wait result other than 1 is recorded as reload error 0xffff0005 before
+joining. Read errors and short reads are retained by the existing read tracker.
+rp_step returning OK means the read has safely joined, not that all IO succeeded;
+final reload verification still rejects these recorded errors. rp_result exposes
+the original send/wait results and ticket after joining. This strict byte-count
+policy covers initial prefetch reads; it does not redefine periodic EOF handling.
+
+Verification
+  python tools/firmware/build_overdub_prototype.py
+  python tests/emulation/verify_read_producer.py
+Report: analysis/read_producer_verification.json
+
+Seven groups pass:
+1. Early wakeup retries only the matching join, without repeated send/wait.
+2. Both native producer roles use distinct contexts, including reversed delivery.
+3. Wrong tasks/tags, duplicate begin and rebinding cannot replace live work.
+4. Reservation/join contention preserves the request without duplicate IO.
+5. Read errors, short reads and failed waits retain reload failure after joining.
+6. Ambiguous delivered sends can join; nondelivery never times out to success.
+7. Handle changes between begin and reservation are rejected before public IO.
+
+All 112 preceding groups pass on the rebuilt ELF: file worker 9, read queue 7,
+read evidence 8, reload ownership 19, reload transport 14, compact transport 14,
+reload manager 19, publication workflow 17 and direct prefetch 5. With the new
+seven groups, 119 groups pass across ten suites. This is not a full repo run.
+
+The compiled producer, compiled file-worker adapter and original file-worker
+instructions share one controlled emulator CPU. Enclosing RtTask RUNNING state,
+task switches, kernel queue copying, semaphore results and public file effects
+are fixtures. Tests interleave retained producer steps with worker execution;
+they do not yet execute the original synchronous producer call chain through
+installed wrappers. No real scheduling, interrupts, SD durability or physical
+placement is established, and no device was accessed.
+
+Next integration work
+Implement synchronous native calling glue and test the original callers through
+it, including error exits and ordinary traffic. Bind file/card lifetimes and
+resolve optional-feature fault isolation (the current worker fault policy can
+stall shared file work). Only then connect verified startup completion to worker
+release. Physical code/RAM placement and hardware testing remain separate work.
+
+Follow-up: read_callback_findings.txt records rp_callback driving these phases
+inside original initial-prefetch calls with saved-stack emulator scheduling.
+Scoped routing/installation, storage lifetimes and fault isolation remain open.

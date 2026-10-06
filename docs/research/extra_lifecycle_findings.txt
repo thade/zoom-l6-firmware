@@ -121,3 +121,8 @@ work. Then pass only VERIFIED files into the earlier checked pad assignment path
 with pad reader exclusion, loader readback and settings persistence. Keep previous
 backing selected until that separate operation succeeds. These bindings are not
 satisfied merely by the lifecycle phase reaching VERIFIED.
+
+Follow-up, 5 October 2026: readback now reuses stopped, fully drained 4-KiB
+staging rather than a separate lifecycle buffer. Lifecycle size is 1,072 bytes.
+The current normal profile uses private TMP names. See capture_integration_findings.txt
+for the simplifications, normal-profile composition and current placement plan.

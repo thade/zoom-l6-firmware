@@ -58,7 +58,9 @@ and a session token greater than the last queued/adopted generation.
 It initializes route/context links before release-publishing pending_bridge.
 The pending Transport keeps closing=1 and is not ct_active. A queued generation
 is consumed even if later adoption fails; tokens are never recycled. Slot count
-is limited to 2..32 powers of two for bounded initialization in the audio path.
+was initially limited to 2..32 powers of two for bounded initialization in the
+audio path. The 4 October worker-preparation change supersedes that limit:
+see large_capture_handover_findings.txt for 2..4096-slot support and its tests.
 No heap allocation, file open/write/close or wait occurs in the audio adopter.
 
 A prepared session can be queued while an ordinary callback is already running

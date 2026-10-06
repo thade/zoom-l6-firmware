@@ -1,0 +1,114 @@
+Native filesystem initialization and FAT32 mount
+===============================================
+
+Result
+------
+The capture-only emulator now runs the original filesystem constructor,
+partition discovery, boot-sector mount, allocation-map construction and free
+cluster scan before creating its extra file. Both the modeled sector callback
+and original SD-driver configurations complete an exact 13,312-byte TMP with
+1,600 stereo float32 frames. All seven ordinary outputs remain byte-identical
+to the existing integration baseline; their bytearray backend remains modeled.
+
+Twelve new groups pass. The full regression passes 524 groups across 49 suites.
+No production C code, firmware image, transfer or device state changed.
+
+Native initialization
+---------------------
+Original 0x80026bf0 constructs six filesystem mutexes and four auxiliary kernel
+objects, ten cache nodes at 0x8020dd60 with stride 0x280, and the cleared volume
+record at 0x8020f660. Kernel object creation endpoints are modeled; the native
+wrapper and cache/volume initialization execute. Original 0x80062d68 clears the
+100 native handle slots at 0x801f9270, stride 0x2c4. Filename scratch and exception
+context initialization also execute. A repeated constructor call rejects the
+nonfresh state without changing these initialized structures.
+
+Original 0x8006b328 registers the controlled volume descriptor and stock SD
+callback. Original 0x800614b0 registers the stock bitmap address 0x80579e60 and
+0x80400-byte budget, without making the volume ready. The fixtures do not
+manually publish mounted geometry, cache links, free count or a ready flag.
+
+The card bytes contain a primary FAT32 partition at sector 2048, 512-byte
+sectors, eight sectors per cluster, 32 reserved sectors, two 512-sector FATs
+and 65,526 data clusters. Initial root/SOUND_PAD/PAD1..4 directory bytes are
+controlled inputs, with clusters 2..7 allocated. These folders are not created
+by the outer storage setup in this composition.
+
+Mount and allocator
+-------------------
+Public geometry 0x8005e958 selects table driver 0x8005eb80. Mount 0x80062950
+uses partition scanner 0x8006c6b8 when the descriptor's partition is unknown,
+then parses the actual fixture BPB. Public OPEN performs the same lazy mount
+inside the compiled lifecycle. Partition discovery can call the sector driver
+before the filesystem exception frame is established, while holding file locks;
+its direct callback errors are checked by the scanner.
+
+Original bitmap initialization 0x80067868 and FAT scan 0x80071b48 construct
+the map and free count from FAT entries. The default card has 65,520 free
+clusters. The scan reads the primary FAT in eight-sector chunks. The native
+budget comparison is strict: 8,191 bytes disables the map and uses the FAT-scan
+fallback, while 8,192 enables it. Both paths return the same count and preserve
+buffer canaries. After a complete take, four new clusters are allocated,
+65,516 remain free, and both persisted FAT copies agree.
+
+Changing the FSInfo free-count/hint bytes does not change the result. These
+tested FAT32 mount and capture paths neither read nor write the FSInfo sector;
+they count actual FAT entries. This observation does not cover every filesystem
+mode or firmware caller. Earlier notes listed FSInfo initialization as pending
+before this path was traced.
+
+Readiness and error limits
+--------------------------
+Invalid partition/BPB fields and failed MBR, BPB or FAT reads leave volume-ready
+and free-count-valid flags clear. A failed FAT scan can leave the bitmap-enabled
+flag set with a partially constructed map. That flag alone cannot establish
+readiness. Retrying after a completed logical callback error rebuilds the map;
+this does not establish physical card/controller recovery.
+
+A read-only card mounts successfully but rejects exclusive capture-file
+creation without sector changes. A negative control also shows that the native
+mount ignores failure of its write-protection query and can still report ready.
+Consequently, mount success alone cannot authorize the worker's startup release.
+
+In the original SD-driver composition, a late FAT read error inside lifecycle
+OPEN retains the whole compiled worker/OPEN/exception stack, all five file
+domains and the SD unit token at the existing test-only completion checkpoint.
+Repeated resume attempts issue no new request and retain the same frame. Only
+explicit MODEL join permission permits native error unwind. The volume remains
+unavailable and no extra file appears. Capture mount failures preserve all
+seven modeled ordinary outputs.
+
+Remaining integration
+---------------------
+Full board/card initialization and card identity are not executed. The native
+SD capacity/write-protection routines read controlled initialized-card state.
+Card bytes, kernel object allocation, DMA effects, IRQ timing, source exclusion,
+CPU cache visibility and physical completion are fixtures. Worker release and
+scheduling are explicit test inputs; automatic startup release remains unbound.
+
+The next integration is storage authorization and transition protection together
+with a native physical-completion binding. Device RAM ownership, measured
+scheduling, directory growth and other filesystem modes remain outside this
+proof. Hardware testing is deferred. No installable image was constructed.
+
+Verification
+------------
+python tools/firmware/audit_native_filesystem.py
+python tests/emulation/verify_native_mount.py
+python tools/firmware/verify_redesign.py
+
+Bounded inventory: 43 targets, 218 direct references, four SD callback records.
+Reports: analysis/native_mount_verification.json,
+         analysis/native_filesystem_inventory.json,
+         analysis/redesign_verification.json.
+Normal/startup packed margins remain 302/155 bytes. The normal capture ELF SHA
+remains 54c5ddab9a2e10d890e0a72990a540ab9cae6af81fd14c856233a4a65a13423d.
+
+Follow-up: native_storage_setup_findings.txt now composes original outer mount,
+application geometry policy and creation of all six folders from an empty
+fixture card. capture_hooks_findings.txt replaces selected PC interceptions with
+actual jump bytes. native_rename_findings.txt covers the no-overwrite rename
+and its uncertain error boundary. The current filesystem inventory has 49
+targets and 279 bounded direct references. The counts/hashes above record this
+mount milestone; normal executable segments remain unchanged across subsequent
+source/debug metadata changes.

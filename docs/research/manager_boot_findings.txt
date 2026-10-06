@@ -1,0 +1,97 @@
+COMPILED FIRST-SESSION STARTUP
+4 October 2026
+
+Implemented
+manager_boot now admits a fresh optional-capture runtime without host-side
+bridge_bind, rr_init, ct_init or an already prepared first file. It uses the
+existing reset/preparation/handover state machine to bring the first session up.
+This is startup of the added capture subsystem, not emulation of an entire L6
+boot and not yet a native worker or installed firmware patch.
+
+Contract and sequence
+- One initialization caller before hooks or other callers can enter. The caller
+  supplies a zeroed Manager, valid exclusively owned object/slot spans, an
+  existing control queue, a nonzero first session and nonzero file serial.
+  Descriptor storage must be readable; the API is not a memory-permission probe.
+- Reject invalid/overlapping/wrapping spans, misaligned slots, invalid capacity,
+  a dirty Manager, invalid pad/serial and an already owned manager runtime.
+- ct_boot_close checks virgin transport state; bridge_boot_close checks virgin
+  bridge state. Close both gateways, enable strict audio mode and permit initial
+  staging. No task creation, allocation or file IO occurs in this entry call.
+- Initialize the Manager at RESET just before the requested session/serial.
+  Its normal worker steps advance those values and clear the seven owned arenas
+  in chunks of at most 4096 bytes, then prepare a unique WAV and its slot states.
+- Release-publish the staged bridge only after preparation. Audio adopts at a
+  complete callback boundary. Control activation still requires a successful
+  first block and no outstanding audio invocation or gateway reservations.
+- Consume the cold-start staging permission at first successful control
+  activation. Further takes require the existing retirement/handover protocol.
+
+Cancelling or failing before first activation must retain permission to stage a
+clean retry: there is no previous detached Transport on first boot. The new
+bootstrap_pending state handles this without inventing a detached pointer or
+reopening gateways prematurely. It does not override resource uncertainty.
+
+Failure behavior
+Duplicate boot cannot reset a pending/live manager. Cancellation while clearing
+or while waiting for first audio can retire without another audio callback.
+File-creation failure and failed first audio remain closed until explicit resume.
+An uncertain file close leaves M_BLOCKED; resume cannot reclaim the storage.
+
+Verification
+Build: python tools/firmware/build_extra_capture.py
+Run: python tests/emulation/verify_manager_boot.py
+Report: analysis/manager_boot_verification.json
+
+Seven groups pass, covering first startup with 4096 slots and two exact-payload
+takes, malformed descriptors, duplicate entry, cancellation/resume, file-create
+failure, first-audio failure, and uncertain close. For the closed-start check,
+the optional arenas are made inaccessible: ordinary modeled audio and an
+original STOP request/dispatch execute without accessing them or doing file IO.
+
+The fixture reuses existing modeled hardware/queue/file plumbing, disposes of
+its setup-only session, then restores the optional ELF's writable startup state.
+It poisons the object arenas and leaves the Manager zero. Thereafter the compiled
+boot/reset/handover code performs initialization. No host-side optional session
+binding is used after that reset. Synthetic DSP, owned RAM, synchronous file
+operations, task identities and queue delivery remain fixtures.
+
+During development, a global Unicorn memory-read observer interfered with an
+existing intercepted kernel call (execution continued inside the original body).
+The final test uses inaccessible memory pages instead, as other lifetime suites
+do. This avoids relying on that observer for the no-access assertion.
+
+Native worker boundary: identified, not wired
+Stock main at 0x80067a60 calls the task/queue initializer 0x80048248 from
+0x80067a80, then 0x800745b8 from 0x80067a84. The latter creates an idle task and
+enters 0x80076158. The interval after normal task/queue setup is a candidate
+for adding worker registration and manager_boot. It is NOT yet an approved
+hook: early interrupt/audio activity and initialization ownership must be traced.
+
+Original task creation at 0x80076c60 takes entry/name/stack-word-count/argument
+in r0..r3, with priority and output-handle pointer on the stack. Its observed
+body shifts the stack count by two, allocates that stack plus a separate
+0x94-byte task object through 0x8006de78, initializes both, and rejects priorities
+of 32 or more. If task-object allocation fails it frees the allocated stack.
+Those facts follow from the disassembly, not from a physical task-creation test.
+
+Remaining native work:
+1. Establish a startup point that satisfies exclusive initialization, using the
+   original queue handle only after its successful creation.
+2. Choose and verify worker priority, stack budget, wakeup/blocking policy and
+   allocation-failure fallback. Do not reuse an arbitrary stock task priority.
+3. Keep ordinary recording operational when optional startup fails; install
+   only complete capture/control hook coverage and preserve publication fences.
+4. Bind approved code and RAM placement, then measure hardware timing and IO.
+
+No firmware was generated, transferred or installed for this change. Device
+testing remains deferred. The prepared added-code marker trial is unchanged.
+
+Follow-up: native_worker_findings.txt records the compiled task adapter added
+after this milestone. It covers registration, timed polling and allocation-failure
+handling offline; the startup hook and actual scheduling remain unverified.
+
+Follow-up, 5 October 2026: RESET now clears only six control/staging objects.
+exchange_prepare initializes slot ownership without clearing sample payloads.
+Cold dirty-storage, reuse and cancellation checks still pass. See
+capture_integration_findings.txt for the normal capture-only integration milestone.

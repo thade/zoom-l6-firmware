@@ -1,0 +1,58 @@
+Native outer card mount and folder setup — 6 October 2026
+========================================================
+
+Result
+------
+Eight groups compose original outer card setup 80009a40, mount 8005fc98,
+geometry/application checks, recorder setup 80002d80, pad setup 80048690 and
+actual filesystem find/create/close/change-directory instructions. An empty
+fixture card receives RECORDER, SOUND_PAD and PAD1..4 from the firmware itself.
+Both sector-callback and original SD-driver configurations complete capture in
+these folders through the actual audio/control jumps.
+
+The input is a FAT32-sized volume with 65,526 clusters, 512-byte sectors and
+32 sectors per cluster. Only root cluster 2 is initially allocated. Native
+directory creation allocates clusters 3..8, writes LFN/SFN/dot/parent entries,
+mirrors FAT metadata and leaves 65,519 free clusters. Repeating folder setup
+performs no creation or persisted-sector change. The exact 13,312-byte extra
+take fits one 16-KiB cluster at 9; 65,518 free clusters remain afterward.
+
+Application acceptance is separate from filesystem readiness
+------------------------------------------------------------
+The earlier 65,526-cluster/eight-sector fixture is valid to the native FAT32
+mount, but the application's capacity/cluster policy rejects it with status 10.
+No folder creation or reload submission follows, even though native geometry
+still returns a mounted volume. With 32 sectors per cluster, stock mount returns
+2 and outer setup returns 0. These are tested layouts, not every accepted card
+configuration.
+
+Absent-card setup still returns zero while mount returns 1 and no native file
+work occurs. A read-only folder failure detaches storage and withholds the extra
+take. With the original stock availability getters restored, Record also refuses
+admission and existing modeled file bytes remain unchanged. The normal recording
+helper otherwise supplies availability/status fixtures; it cannot be used to
+claim successful ordinary recording on this unavailable-card branch.
+
+Deferred reload and unresolved authorization
+--------------------------------------------
+Successful setup queues original callback 80049da1 and leaves 807348cc pending.
+That reload is observed, not executed here. It is not needed to create the
+private extra file; automatic pad assignment remains a later protected operation.
+
+GPIO/card presence, driver registration/status callback arrival, outer detach
+notification, other board effects and queue delivery are controlled. Native
+geometry, directory lookup/create/close/chdir and persisted metadata are not
+provided by Python. The original SD driver still reads modeled initialized-card
+state; full board/card initialization and card identity are unproved.
+
+Nothing here excludes concurrent outer detach/USB mutation or establishes
+physical SD/DMA completion/cache visibility. Worker release remains explicit
+test authorization. A production release provider needs accepted application
+mount and usable target-directory evidence within a protected storage generation,
+plus truthful transfer completion and outer transition coverage. No provider,
+firmware image, transfer or device operation was added.
+
+Reproduce
+---------
+python tests/emulation/verify_native_storage_setup.py
+Report: analysis/native_storage_setup_verification.json.

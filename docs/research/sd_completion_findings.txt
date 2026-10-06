@@ -1,0 +1,118 @@
+SD CLOCK / RESET / ERROR OBSERVATION — 5 October 2026
+
+Follow-up: sd_transfer_probe_findings.txt connects a compiled test-only probe to
+this boundary. It preserves native buffer/stack ownership until explicit modeled
+join, while retaining negative controls for stale IRQ attribution and physical
+idle. It does not supply a device cancellation implementation.
+The subsequent sd_controller_setup_findings.txt corrects the MIX_CTRL register
+label and traces native setup/reset, event recreation and transfer programming.
+
+Result
+Neither operation 5 cleanup nor the command engine's reset/error return can
+supply the checked cancellation required by the optional handoff. Nine new
+offline groups execute the original helper, cleanup, command-error/reset and
+IRQ paths. The default capture-only build and unbound handoff ports are unchanged.
+
+Clock stability is not transfer completion
+The actual helper at 0x8006a760 reads only bit 3 of 0x402c0024. The candidate
+NXP headers name this PRES_STATE.SDSTB (SD clock stable). It returns zero as
+soon as that bit is set, even with command/data inhibit, data-line activity,
+read/write transfer activity or reset bits still set in synthetic registers.
+When the clock-stable bit stays clear it returns one after ten modeled delays.
+The former lifetime fixture's generic readiness probe is now named clock_probe;
+the new suite executes the helper instead of stubbing it.
+
+Operation 5 is not a checked reset
+0x8006a280 acknowledges status and disables status/signal interrupts, changes
+bus/clock configuration and calls the clock helper. It does not request a
+controller reset. Its bit-24 write at 0x8006a2b6 targets PROT_CTRL (0x402c0028),
+where that bit is WECINT, card-interrupt wakeup enable. Reset-all uses bit 24 of
+the DIFFERENT register SYS_CTRL (0x402c002c). This address distinction matters.
+The cleanup only rewrites SYS_CTRL clock-divider fields after a successful
+clock probe; it neither requests nor checks a reset there.
+
+Actual cleanup returns zero and releases the unit token with synthetic active
+flags unchanged. It does not touch MIX_CTRL (0x402c0048), leaving a seeded
+DMAEN bit set. Its clear of bit 8 at 0x402c00c0 changes VEND_SPEC.FRC_SDCLK_ON.
+The earlier fixture mislabeled that address as MIX_CTRL; the fixture now seeds
+both registers and verifies their separate effects. This correction preserves
+the no-checked-reset finding and supplies the missing actual-DMA check. Clearing
+interrupts is not proof that bus-master accesses stopped. A failed actual clock
+probe also returns zero. Clock-divider arithmetic and kernel event peek remain
+modeled. These cases establish inspected control flow, not physical activity
+after operation 5, because MMIO side effects are not simulated.
+
+Native command-error reset candidate
+The command engine 0x8006a348 does contain a real reset attempt. After returned
+error events 1, 0x80 or 0x100, it checks PRES_STATE command/data inhibit bits 0/1.
+If either remains set, 0x8006a62e sets SYS_CTRL.RSTA. It polls that reset bit,
+with up to ten delay calls, then returns its ORIGINAL command error (10, 3 or 19).
+Reset self-clear and a reset stuck set therefore have the same returned error.
+It does not subsequently inspect transfer-active or data-line-active fields.
+If only those activity flags are set, it does not attempt reset.
+
+The command event-wait timeout at 0x8006a56e returns code 11 before this branch.
+Pre-command inhibit timeout returns code 12 without reset. Existing data-error
+tests also return success after injected data error events and a good final
+status response; the command-error reset branch does not resolve that case.
+The command reset is a useful implementation lead, not a cancellation API we
+can bind on its existing return value.
+
+Raw IRQ observation candidate
+0x8006eab2 loads INT_STATUS into R1. At 0x8006eab6 the raw value is available
+before the first write-one-to-clear acknowledgement at 0x8006eabc and before
+the signal-enable mask is applied at 0x8006eaca. A test-only observation at that
+point preserves the whole snapshot. No code hook has been installed or linked.
+
+Reproduced mappings include:
+  raw TC + DTOE (0x00100002) -> software data-complete event 4;
+  raw BRR + DCE (0x00200020) -> software buffer-ready event 8;
+  raw CC + TC (0x00000003) -> software command-complete event 2 only.
+With only TC enabled in INT_SIGNAL_EN, the raw DTOE + TC snapshot still contains
+the error, but the mapped event is 4. A mapped success event alone thus loses
+information needed by checked handoff. These synthetic status combinations
+are control-flow counterexamples, not reproduced mixer failures or assertions
+that all combinations occur during normal device use.
+
+Minimal binding requirements / next implementation boundary
+1. Observe the whole raw IRQ status before masking/acknowledgement, and also
+   cover timeout/polling exits that generate no IRQ. Attribute retained errors
+   and completion to the currently owned per-unit command/data operation.
+   Admission must serialize those observations with stale-event clearing and
+   descriptor/buffer ownership; a global unscoped error flag is insufficient.
+2. Join or cancel before the lowest transfer driver unwinds its buffer lifetimes.
+   This must cover direct caller buffers, bounce buffers, descriptors and any
+   command-response storage. Detecting UNCERTAIN only at public filesystem
+   return is too late to protect an unwound caller stack/shared prefetch buffer.
+3. Establish an explicit reset/cancellation outcome. Inspect reset self-clear
+   and the required controller/bus-master state; preserve uncertainty if the
+   timeout expires. Reinitialize affected controller/card/event state before
+   retry or safe rollback. Reset-bit clearing alone is not yet a DMA, cache or
+   card-persistence proof, and card command recovery remains separate.
+4. Integrate this into the existing synchronous path, under the per-unit owner;
+   do not add another asynchronous file queue or treat Main suspension as proof.
+   Between-events wakeup and manager ownership remain separate integration work.
+
+No new general-purpose observer or speculative reset wrapper was added. Until
+the lowest-level join is established, the native gate remains unbound. Physical
+chip identification, applicable reference-manual/errata and device measurements
+remain necessary; shared register layout alone does not establish any of them.
+
+Primary-source cross-checks
+The locally retained MIMXRT1042.h and MIMXRT1062.h headers agree on these register
+offsets and masks. RT1042 build b240326 cites IMXRT1040RM Rev. 1, September 2022.
+NXP's SDK documentation separately names clock-stable and transfer-active flags:
+https://mcuxpresso.nxp.com/api_doc/dev/816/group__usdhc.html
+Its current USDHC_Reset implementation writes SYS_CTRL reset masks and polls
+the requested mask before returning a reset-success/failure result:
+https://raw.githubusercontent.com/nxp-mcuxpresso/mcux-sdk/main/drivers/usdhc/fsl_usdhc.c
+Checked on 5 October 2026. These corroborate register interpretation; they are
+not evidence that Zoom uses this SDK implementation or a particular candidate chip.
+
+Verification
+tests/emulation/verify_sd_completion.py: nine groups.
+analysis/sd_completion_verification.json and sd_completion_disassembly.txt.
+The original SD lifetime suite retains fifteen groups. Both now run in the
+consolidated redesign runner. Firmware v1.10 SHA-256 is pinned by the fixtures.
+All execution uses original instructions with synthetic memory/registers and
+selected kernel responses. No mixer/card access, new deployment image or installation.

@@ -1,0 +1,118 @@
+NATIVE TASK ADAPTER FOR THE CAPTURE MANAGER
+4 October 2026
+
+Implemented
+native_worker.c registers the compiled session manager using the stock v1.10
+task-creation ABI. Its task entry runs a configurable number of manager steps,
+then calls the stock task-delay routine. This is an offline integration adapter,
+not an installed startup hook or a deployable firmware image.
+
+Registration contract
+Registration is a cold, single-caller operation before scheduler start and before
+optional hooks can enter. The stock RecPlayCtl queue must already exist at
+0x801f8f38 and match the manager descriptor. Worker storage must be permanent,
+zeroed, and disjoint from the manager and all seven reset arenas. The supplied
+addresses must already be valid, owned RAM; these checks do not establish that.
+
+The adapter saves the supplied configuration, calls manager_boot to close the
+optional gateways, and creates a task named L6Overdub. Success requires both the
+stock return value 1 and a nonzero output handle. Success now leaves W_WAITING;
+explicit Main-task release is required before manager work. Failure leaves optional capture
+closed, records W_FAILED/status 13, and forbids implicit re-registration. Invalid
+arguments or runtime state return 12 before registration.
+
+Worker behavior
+W_WAITING sleeps at idle_ticks without manager or file work. native_worker_release
+checks Main-task identity and scheduler state before its one-way transition to
+W_READY. Its caller must separately establish initialization/storage readiness;
+no production caller is wired. See startup_order_findings.txt for the startup
+race and the limits of the earlier candidate registration location.
+
+Only the registered task, with the scheduler running and outside an interrupt,
+may poll the manager. A busy latch rejects reentry. Each pass executes at most
+steps_per_pass manager calls, continuing only while the manager returns MORE
+(10). Each call may block on filesystem operations: this bounds the number of
+calls, NOT their wall-clock duration. STOPPED and BLOCKED managers perform no
+further steps and are not automatically resumed.
+
+The task always delays after a pass. Normal work and activation waits use
+poll_ticks; stopped/blocked or failed workers use idle_ticks. No audio-callback
+notification or new ISR operation is introduced. Polling throughput, tick period,
+stack consumption, runtime priority and interference with recording are unmeasured.
+The adapter does not yet schedule manager-to-pad publication.
+
+Configuration validation admits stack counts 1024..65535 words, priorities 0..31,
+1..16 steps per pass, and 1 <= poll_ticks <= idle_ticks <= 1000. These are input
+bounds, not safe device settings. The stack minimum matches the smallest examined
+stock file-worker allocation; it does not prove enough stack for this call chain.
+The test configuration (4096 words, priority 1, four steps, delays 1/25 ticks) is
+only a fixture. No production configuration is selected.
+
+Original firmware evidence
+- Task creator 0x80076c60: r0 entry, r1 name, r2 stack words, r3 argument;
+  caller-stack arguments are priority and output-handle pointer. Stack allocation
+  is words * 4, followed by a separate 0x94-byte task object, both through
+  0x8006de78. Allocation failure returns -1; second-allocation failure frees the
+  stack. Successful creation writes the handle before scheduler registration.
+- Task delay 0x80074158 is also called by stock wrapper 0x80032400. Its body
+  updates scheduler delay lists and requests a context switch where needed.
+- Current-task getter 0x800770e8 reads 0x808e291c.
+- Scheduler startup 0x800745b8 sets the flag at 0x801f9048 before entering the
+  kernel. The adapter checks that flag before registration and polling.
+
+Observed stock task-creation arguments (not necessarily final runtime priorities):
+  name                    entry       stack words  priority  handle slot
+  StreamFileAccess        80037381    1024         0         80446dd4
+  StreamUpdateRecStream   80039341    1024         0         80446de0
+  Main                    8006dd71    8192         13        80446da4
+  RecPlayCtl              80034bc9    4096         0         80446dc0
+  SamplerFileAssign       80036291    4096         0         80446dc8
+
+Stock code at 0x80039358 loads the StreamUpdateRecStream handle, supplies 11,
+and calls 0x80074440 at 0x80039366. The latter validates priority <32, updates
+task priority fields at +0x70/+0x2c and adjusts scheduler lists. Thus copying a
+creation priority alone is not a reliable basis for selecting the new worker's
+priority. When that later adjustment executes still needs integration tracing.
+
+The interval between task/queue initialization (call at 0x80067a80) and scheduler
+startup (call at 0x80067a84) remains a candidate registration location. Early
+interrupt/audio activity and exclusive initialization ownership must be audited
+before approving or patching it.
+
+Verification
+Build: python tools/firmware/build_extra_capture.py
+Run: python tests/emulation/verify_native_worker.py
+Report: analysis/native_worker_verification.json
+
+Seven groups pass:
+1. All six task-creation arguments, bounded passes, 4096-slot cold startup and
+   two exact-payload takes, preserving the earlier WAV.
+2. Wrong task/stopped scheduler rejection; waiting and stopped entry loops
+   request the expected delays, with no stopped-manager work.
+3. Uncertain file close retains BLOCKED storage and does not retry.
+4. Original task-creation allocation-failure branches execute with allocator
+   fixtures, including stack rollback after task-object allocation failure.
+5. A reported success without a task handle does not enable the worker.
+6. Invalid configuration, running scheduler, missing queue, overlapping storage
+   and dirty worker rejection before task creation or file IO.
+7. Registration alone leaves the worker sleeping with no manager/file work;
+   only explicit Main-task release permits startup, and duplicate release fails.
+
+Successful task creation is intercepted. The compiled infinite task entry is
+executed, but delay calls are intercepted and the harness chooses task identity
+and interleavings. This does not simulate scheduling, preemption or elapsed time.
+Synthetic audio, RAM and synchronous files retain the existing fixture limits.
+
+At the preceding worker milestone, affected regressions also passed: manager boot 7 groups, session manager 12,
+large-ring handover 5, transport shutdown 5, publication workflow 17. Together
+with the original six new groups, that run covered 52 groups; it was not a full-suite rerun.
+The subsequent startup-hold change reruns all seven worker groups alongside the
+five new startup-order audit groups. It does not claim a repeated 52-group run.
+
+Remaining integration
+Verify a startup hook and failure fallback, trace runtime priority changes,
+reserve approved code/RAM and account for worker stack/heap use, and connect
+complete capture/control hooks plus guarded pad publication. Measure scheduling,
+throughput and IO on hardware after offline integration is ready.
+
+No firmware was transferred or installed. Hardware testing remains deferred.

@@ -2,6 +2,8 @@
 #define OD_RELOAD_COMPACT_H
 #include "reload_transport.h"
 #include "reload_manager.h"
+#include "read_producer.h"
+#include "read_worker.h"
 /* Permanent single binding. Initialize before hooks/queues become active; no
  * rebinding or task-handle recycling is supported. Device placement unassigned. */
 typedef struct {
@@ -12,6 +14,13 @@ typedef struct {
     uint32_t deferred,unbound;
 } RcBinding;
 int32_t rc_bind(RcBinding *);
+/* Optional cold integration, after rc_bind and before any admission/hooks.
+ * Enforces the SAME coordinator/tasks/identities and producer/reader slot map.
+ * Single caller with quiescent queues: preflight both before either mutation.
+ * No live cutover, rollback or task recreation. All pointed storage is permanent;
+ * RcBinding/runtime configuration stays fixed (diagnostic fields may change).
+ * Only success permits activating the read hooks. */
+int32_t rc_bind_reads(const RpBinding *,const RwBinding *);
 /* Optional permanent completion manager, initialized before receive activation. */
 int32_t rc_bind_manager(RmManager *);
 int32_t rc_send_worker(const RtWorkerPacket *);

@@ -1,0 +1,101 @@
+READ IDENTITY THROUGH THE STOCK-SIZED FILE QUEUE
+4 October 2026
+
+Result
+Compiled encoding and decoding now carry the read reservation through a 16-byte
+message, the size already used by the stock sample file queue. The consumer
+reconstructs the original read request only after checking the slot, unique
+ticket and outstanding state. Result observation uses that claimed task context,
+not a Python list associating messages with separate identity records.
+
+The new path executes with original queue send/receive wrappers, original reload
+and prefetch control flow, and the original sample file-worker body in the offline
+harness. It is not an installed native queue adapter: task identity, interception,
+packet retention and scheduling still require production binding.
+
+Wire format and storage
+  uint32 words[4] = [0x52525131, slot_index, read_ticket, 0]
+No packet carries a raw pointer. A permanent eight-entry table maps indices to
+caller-owned RrRead objects. The table must stay stable, all slots must belong
+to one coordinator/ledger, and the producer must encode the corresponding slot.
+Ticket uniqueness comes from the existing ledger's nonwrapping sequence.
+
+RrRead grows from 64 to 68 bytes with a queue-state word. RrQueueTask is 12 bytes
+for a short metadata lock, claimed read pointer and captured ticket. This is
+separate from physical RAM allocation; no device addresses have been chosen.
+
+State and lifetime
+- rr_queue_packet requires a running read with no prior queue offer, validates
+  slot range/ticket, and marks it offered before publication. Failed or ambiguous
+  publication leaves the reservation outstanding; there is no timeout release.
+- rr_queue_decode checks the complete tag, stable-table entry, ticket, read phase
+  and offered state. It claims the operation once and returns the reconstructed
+  stock [0,pad,buffer,byte_count] request. While a task owns a read, another decode
+  returns BUSY. Stale/duplicate packets cannot attach to a reused slot.
+- Ordinary kind-0 reads and kind-1 seeks return RR_QUEUE_FORWARD with their four
+  original words preserved. They acquire no new reload evidence. This allows a
+  mixed decoder but does not retroactively make untracked requests safe.
+- rr_queue_observe routes public-read status/count to the captured read/ticket.
+  It does not infer success from the producer's semaphore return. BUSY requires
+  retaining the original result/count and retrying before losing that evidence.
+- rr_queue_return follows ALL request-buffer use and the signal call's return.
+  It requires an observation, marks the worker side returned, and clears its
+  context. BUSY retains that context and forbids fetching another message.
+- rr_finish now refuses any queued read until that worker-return acknowledgement.
+  The producer must also have joined its matching wait, as before. Thus a result
+  observation or an early wakeup cannot allow reuse while the original file task
+  still zero-fills, invokes an error callback, or signals for the old request.
+
+Test binding to original instructions
+The producer's original prefetch/read-request chain reaches the harness send
+boundary. Compiled rr_begin/ready/queue_packet construct the tagged message.
+Original wrapper 0x800483f8 calls the kernel-send fixture, which copies exactly
+16 bytes. Original receive wrapper 0x800483a8 obtains those same bytes; compiled
+decode reconstructs the stock request before the original 0x80036118 file task
+processes it. Public-read status/count pass through the compiled task observer.
+
+At the original signal call, the harness proves rr_finish is still BUSY. The
+next receive boundary is reached only after that signal returns and the current
+request has no further buffer access. It runs compiled rr_queue_return before
+allowing another receive. The waiting producer then completes rr_finish.
+
+Kernel copying/waits, current-task binding and cross-CPU memory transfers remain
+fixtures. Original public-read effects, parsing and conversion retain the earlier
+test limits. Logging read_tickets is only an assertion aid; consumer attribution
+comes from the actual packet and compiled decoder. Reversed delivery is tested
+with two independently reserved slots, not a FIFO identity sidecar.
+
+Verification
+  python tools/firmware/build_overdub_prototype.py
+  python tests/emulation/verify_reload_read_queue.py
+Report: analysis/reload_read_queue_verification.json
+
+Seven new groups pass:
+1. Eight tagged initial reads through stock wrappers and file-worker control flow.
+2. Read errors and short reads still block successful reload retirement.
+3. Failed, undelivered requests remain owned without invented completion.
+4. Duplicate packets/results and stale tickets cannot finish a reused slot.
+5. Reversed delivery of two slots matches by slot and ticket.
+6. Malformed packet rejection and retained identity through metadata contention.
+7. Ordinary read/seek forwarding without fabricated reload evidence.
+
+Affected regressions also pass: read evidence 8, reload ownership 19, reload
+transport 14, compact transport 14, reload manager 19, publication workflow 17,
+direct prefetch 5. Including the new seven, 103 groups pass across eight suites.
+This is not a full repository test run. The prototype ELF builds successfully.
+
+Next native integration work
+The receive path must retain a dequeued tagged packet on BUSY, resolve a pending
+observation/return before another receive, and select the permanent context using
+verified file-task identity. Bind the producer envelope before queue publication,
+validate the intended file handle/storage lifetime, and intercept public reads
+including errors before lower-driver entry. Preserve ordinary read/seek behavior
+and account for old queued requests when enabling the changed message meaning.
+
+Only after these endpoints and card/storage admission are bound can the evidence
+authorize native_worker_release. No startup release or firmware patch is installed.
+No mixer or SD-card access occurred; hardware testing remains deferred.
+
+Follow-up: read_worker_findings.txt adds native file-task identity checks and
+compiled receive/result/return retention. Producer-side matching waits, storage
+lifetime and installed hooks remain open.

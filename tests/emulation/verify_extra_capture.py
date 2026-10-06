@@ -17,13 +17,14 @@ STATE=0x22000000
 STREAMS=((0,1),(1,1),(2,2),(4,2),(6,2),(8,2),(10,2))
 
 class ExtraRig(WriterRig):
+    elf_path=None
     def __init__(self):
         super().__init__();m=self.m
         m.uc.mem_map(0x10010000,0x10000);m.uc.mem_map(STATE,0x20000)
-        with ELF.open('rb') as f:
+        self.elf_path=self.elf_path or ELF
+        with self.elf_path.open('rb') as f:
             elf=ELFFile(f)
-            for seg in elf.iter_segments():
-                if seg['p_type']=='PT_LOAD' and seg['p_filesz']:m.uc.mem_write(seg['p_vaddr'],seg.data())
+            self.load_capture_elf(elf)
             self.syms={s.name:s['st_value'] for s in elf.get_section_by_name('.symtab').iter_symbols()}
         self.layout=struct.unpack('<6I',self.raw(self.syms['extra_layout'],24))
         self.call('extra_init',8)
@@ -40,6 +41,10 @@ class ExtraRig(WriterRig):
             for a in (C+0x440+index*4+0xd4,C+index*4+0x4e4,C+index*4+0x4b4):put32(m,a,100000)
             put32(m,C+0x1e4c+index*4,self.handles[index])
         put32(m,C+0x444,mask)
+    def load_capture_elf(self,elf):
+        for seg in elf.iter_segments():
+            if seg['p_type']=='PT_LOAD' and seg['p_filesz']:
+                self.m.uc.mem_write(seg['p_vaddr'],seg.data())
     def call(self,name,*args):return self.m.invoke(self.syms[name],[STATE,*args])
     def write(self,a):
         old=self.fail_write;self.fail_write=self.failure_by_handle.get(a[0])
@@ -150,13 +155,13 @@ def main():
     passed('ordinary_master_writer_still_operates_after_extra_capture_overflow',
            limitation='Harness deliberately keeps calling ordinary path; device hook must do the same')
 
-    # Ring reuse across wraps with bursts that do not divide 128 slots.
+    # Ring reuse across wraps with bursts that do not divide staging capacity.
     r=ExtraRig();r.headers();wanted=[]
     for i in range(300):
         value=(i-150)/256
         assert r.capture([value*2**31]*64,[-value*2**31]*64)==0
         wanted.extend([value,-value]*64)
-        if i%11==10:assert r.pump_extra()==1
+        if i%7==6:assert r.pump_extra()==1
     r.call('extra_stop_quiesced');assert not r.call('extra_ready')
     assert r.pump_extra()==1 and r.call('extra_ready')
     assert r.finish_file(8)==packed(wanted)

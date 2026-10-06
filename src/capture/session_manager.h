@@ -14,6 +14,15 @@ typedef struct {
 /* Synchronous worker callback, under the manager latch, at the completed take
  * boundary before arena reset. Return 11 for busy, 12 for an invalid caller. */
 typedef void (*ManagerVisitor)(const ManagerResult *,uint32_t,uint32_t,void *);
+/* Once per cold runtime, before hooks/callers can enter. Manager must be zeroed;
+ * descriptor names valid, exclusively owned storage (not necessarily zeroed).
+ * Queue must already exist. No allocation, task creation or file IO here.
+ * Subsequent worker steps clear/prepare, then wait for audio-boundary adoption. */
+uint32_t manager_boot(SessionManager *,const uint32_t descriptor[10],uint32_t pad,uint32_t serial);
+uint32_t manager_step(SessionManager *);
+/* Check that permanent worker storage does not overlap the manager or any
+ * descriptor arena that RESET can clear. This does not validate physical RAM. */
+uint32_t manager_storage_disjoint(SessionManager *,const uint32_t *,uint32_t address,uint32_t bytes);
 uint32_t manager_visit_results(SessionManager *,ManagerVisitor,void *);
 /* Optional permanent publication owner. Once bound, the completed-take RESET
  * boundary waits for its release before clearing arenas or arming the next take.
@@ -21,5 +30,8 @@ uint32_t manager_visit_results(SessionManager *,ManagerVisitor,void *);
 uint32_t manager_bind_publication(SessionManager *,uint32_t token);
 uint32_t manager_hold_publication(SessionManager *,uint32_t token);
 uint32_t manager_release_publication(SessionManager *,uint32_t token);
+/* Decline a completed boundary without acquiring a hold (e.g. cancellation).
+ * Only its bound owner may do this; a held transaction must release normally. */
+uint32_t manager_skip_publication(SessionManager *,uint32_t token);
 uint32_t manager_visit_held_results(SessionManager *,uint32_t token,ManagerVisitor,void *);
 #endif

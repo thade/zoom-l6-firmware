@@ -6,7 +6,7 @@
  * Request storage stays alive until rr_released returns true; no object reuse. */
 #include "request_router.h"
 #include <stddef.h>
-#define KEEP __attribute__((used,retain))
+#include "retention.h"
 KEEP const uint32_t rr_layout[]={sizeof(Router),sizeof(Request),offsetof(Request,stamp)};
 extern uint32_t bridge_route_enable(void*,uint32_t),bridge_route_hold(void*,uint32_t);
 extern void bridge_route_release(void*),bridge_route_fault(void*,uint32_t,uint32_t);

@@ -1,0 +1,113 @@
+Capture startup jumps and bounded RAM evidence (2026-10-05)
+
+STATUS: Offline fixture only. No firmware image built, transferred or installed.
+Hardware testing remains deferred. RAM ownership and storage release are open.
+
+What now executes
+-----------------
+The separate capture-only-startup.elf includes two byte-gated four-byte B.W
+jumps in MAIN. Unlike the older startup-site audit, registration executes from
+the inserted assembly on the original boot stack; Python does not suspend the
+CPU and call registration on a separate stack.
+
+0x80067a84: observe the FIRST task/queue initializer result, then replay the
+original BL to the scheduler at 0x800745b8 with LR=0x80067a89. A later initializer
+call returning zero cannot replace the first failure. Zero means success;
+nonzero is a sticky failure for the optional worker.
+
+0x800745e8: only reached after the stock idle task has been created successfully.
+Attempt optional registration once if the saved initialization result succeeded.
+Replay MOV.W r0,#0x20 and resume at 0x800745ec, before the stock BASEPRI write.
+Idle creation failure/non-success retains its original return/spin path.
+
+The shared hook convention preserves all integer registers, APSR, FPSCR and
+S0-S31 and aligns the C call stack dynamically. The initializer hook deliberately
+sets LR to the original BL continuation. No remaining audio/control hooks are
+encoded by this experiment.
+
+Initialization and sleeping worker
+----------------------------------
+Original scatter entry expands the fixture ELF's 22,728 code bytes using the
+stock decoder and zeros its 96 permanent global bytes before Main. The fixture
+packs alongside the two patched DSP sites inside the original MAIN length.
+The packed capture stream is 18,677 bytes and 155 source bytes remain. The
+normal placement ELF remains separate, with its previously tested 302-byte
+margin. Both size checks must be rerun after any build.
+
+The candidate globals occupy 0x80960080..0x809600e0. Registration uses the stock
+zero helper for the 2,208-byte manager at 0x80961d80 and 64-byte worker at
+0x80962620. The descriptor and configuration are local input arrays; compiled
+registration copies both. Separate permanent arrays are unnecessary for these
+inputs. Existing slot addresses are unchanged and no history arena is cleared
+or accessed by the startup hook. Candidate addresses remain unapproved.
+
+The task creator receives stack_words=4096, priority=1 and a permanent worker
+argument, after 35 stock tasks and the idle task. These are experiment settings,
+not measured device budgets. Successful registration leaves W_WAITING and
+closed capture/control gateways. The task sleeps for 25 ticks per iteration.
+No storage release, temporary file creation, audio capture or pad publication
+is authorized by successful task creation.
+
+Optional task-creation failure, non-success or missing output handle leaves
+W_FAILED and continues into the stock scheduler. There is no automatic retry.
+Stock task/mutex/queue initializer failures skip optional registration entirely,
+including failures outside the RecPlayCtl queue, while preserving stock boot.
+
+Eight new verification groups
+-----------------------------
+* Exact complete instructions, changed-byte/invalid-target rejection and size.
+* Complete original scatter entry initializes fixture code/globals; all eight
+  original output regions retain expected bytes, apart from the two DSP jumps.
+* 32 paired comparisons at the initializer site and 32 at the post-idle site:
+  integer/FPU/status/LR/SP state matches stock over every NZCV pattern and both
+  word-aligned stack cases. The initializer comparisons execute observation.
+* Real compiled registration on the boot stack, copied descriptor/configuration
+  checks, guarded RAM writes, and five sleeping worker iterations. Uninitialized
+  manager/capture memory is inaccessible during those iterations; any public
+  file API call fails the test. The unrelated legacy overlay is inaccessible.
+* Sticky first-initializer failures, idle failure/non-success and all three
+  optional-creation failure forms, preserving stock continuations and no retries.
+
+The added-code SP trace reaches 520 bytes below the original boot-stack top.
+Task creation and kernel entry are intercepted: this is not a complete call-
+chain, interrupt or stack-capacity measurement. Early board/cache initialization
+is also intercepted. Physical FPU enabling/lazy state, interrupts, preemption,
+allocator capacity, cache/MPU behavior and actual storage remain unproved.
+
+RAM ownership evidence remains bounded
+--------------------------------------
+audit_capture_ram.py records all eight stock scatter regions and the previously
+tested heap bounds 0x808e2fe0..0x8095ffd8. Neither covers the candidate interval
+0x80960078..0x80bb9400. This excludes those specific mechanisms, not all users.
+
+Scanning loaded MAIN plus all five initialized outputs at every byte offset
+finds 766 raw values within that interval: 698 in MAIN, one in the initialized
+region starting 0x801f5400, and 67 in copied DSP. The other three initialized
+regions have none. No raw value points into the narrow startup globals or
+manager/worker spans. The initialized-region match is an unaligned word at
+0x801f5c8f with value 0x809bcc3d; it remains a candidate, not a proven pointer.
+
+358,907 halfword decodes and a bounded same-register MOVW/MOVT scan with a
+32-byte lookahead find no constructed gap address. This is not pointer-flow
+analysis. Instruction/data ambiguity, calculated pointers, other allocators,
+aliases, bootloader and DMA/interrupt/cache users remain unresolved. All raw
+matches are retained in the report; none is silently accepted or dismissed.
+The RAM report explicitly says physical_ownership_unresolved.
+
+Reproduce
+---------
+python tools/firmware/build_extra_capture.py --layout placement --startup-fixture
+python tools/firmware/plan_capture_startup.py
+python tools/firmware/audit_capture_ram.py
+python tests/emulation/verify_capture_startup.py
+python tools/firmware/verify_redesign.py
+
+Reports: analysis/capture_startup_plan.json, capture_startup_verification.json,
+capture_ram_audit.json and redesign_verification.json. The startup fixture is
+excluded from all normal profiles, and its older unused interception adapters
+are omitted to preserve the small packed-source margin.
+
+Next: establish storage readiness and completion joins for capture-only, finish
+the remaining hook encodings, and obtain physical RAM/heap/stack/cache evidence
+before constructing an installable candidate. Offline startup success does not
+close these device gates.

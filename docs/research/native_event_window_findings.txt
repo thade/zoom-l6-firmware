@@ -1,0 +1,111 @@
+STOCK EVENT QUEUE / BETWEEN-EVENTS HANDOFF EXPERIMENT — 5 October 2026
+
+Result
+A modeled handoff between Main event handlers preserves the tested stock pad
+semantics without a private input queue. Original receive, dispatch, duplicate
+deletion and overload compaction run against the same stock queue. This is a
+simpler scheduling candidate, not an installed gate or a decision to move the
+existing worker-owned manager onto Main. Native ownership transfer is unbound.
+
+The rejected raw-command FIFO is now excluded from the normal handoff ELF. It
+remains in handoff-test.elf for primitive tests and negative-control regression.
+No replacement input queue or duplicate UI dispatcher is added to the candidate.
+
+Candidate sequence exercised in the test fixture
+1. Reach the original receive entry between handlers. If input is queued, leave
+   it alone and continue normal dispatch. Do not extract or classify it.
+2. If an accepted completion is still pending, or a pad is playing, do not
+   attempt handoff. An empty event queue does not override outstanding ownership.
+3. Try the existing all-domain handoff gate. BUSY leaves Main free to continue;
+   never sit on Main waiting for work whose completion needs Main.
+4. Only after gate success, run the checked synchronous handoff. Arriving input
+   stays in the original queue. All required worker/driver execution must remain
+   possible independently of Main; this remains a device integration requirement.
+5. On success or verified safe rollback, release exclusion before normal event
+   processing resumes. On uncertain ownership, do not fabricate a release or
+   replay input. Fault recovery and a usable fault UI remain to be designed.
+
+This is a try-only policy, not a drain loop on Main and not a claim that queue
+emptiness proves quiescence. There is no timeout that releases unresolved I/O.
+Queued input has priority before an attempt; sustained input can postpone the
+optional handoff. During a successful attempt, pad presses refer to the newly
+assigned backing when stock dispatch resumes. No recorded audio files are copied
+by this event experiment.
+
+Positive evidence
+verify_native_event_window.py executes original Main receive/dispatch in one CPU
+fixture and the compiled checked handoff with original lock/read/load code in a
+second. The scheduler transfers control synchronously at the boundary; this does
+not establish real task ownership or simultaneous execution. Arrival is modeled
+as a kernel packet copy into the existing UI FIFO while handoff is running.
+The gate, seal and joined-user evidence are modeled as in earlier handoff tests.
+
+Two queued physical presses still produce one native start; matching category-2
+presses are still removed by original targeted deletion. Already queued reload
+completion dispatches before any handoff attempt. An empty queue with modeled
+outstanding completion cannot begin handoff. A playing pad keeps normal input
+working while handoff waits. Verified save failure rolls back before input runs;
+uncertain seal retains exclusion and does not enter receive.
+
+On these tested handoff paths, synchronous public reads record the modeled task
+identity and the handoff does not call the observed Main event receive/dispatch,
+sender, enqueue or targeted-deletion entries. This is bounded evidence only:
+driver bytes, timer/device effects, conversion and some engine boundaries remain
+fixtures. It does not prove every lower-level dependency is independent of Main.
+
+Stock overflow behavior, not a newly invented capacity
+The native queue is 4096 x 20 bytes. Sender 0x8006e4b8 takes the UI mutex from
+slot 0x80446810 indefinitely, checks count, and at 4096 drains/reduces/requeues.
+Its send through 0x800483f8 passes an infinite timeout to kernel 0x800763d8.
+The sender retains the UI mutex until after the final send returns.
+
+With 4096 repeated physical-style pad presses, original compaction reduces the
+backlog to one press and accepts the new event. No new filtering is implemented.
+With 4096 constructed kind-3 packets carrying distinct payloads, original
+compaction retains every packet. The next send suspends at the full kernel FIFO
+while still holding the UI mutex. The harness stops at that wait rather than
+returning fabricated success/failure. Normal production of this adversarial
+backlog is NOT established; it demonstrates the mechanical capacity boundary.
+
+Implication: preserving the stock queue fixes the private-FIFO semantic bug but
+does not prove a bounded input latency or lossless arbitrary-burst guarantee.
+A blocked producer alone is not proof of deadlock: Main may finish handoff and
+resume consuming. Deadlock would require a dependency from handoff to that sender
+or the retained mutex. That dependency audit, physical I/O duration and actual
+producer rates are still open. A larger queue would not establish them.
+
+Conservative admission/overload policy
+No native window may be enabled until the handoff can complete without Main
+event service or a sender blocked behind Main. If that independence or required
+resource ownership cannot be established, postpone optional publication before
+mutation; retain the completed take and allow normal events to continue. Once
+mutation has begun, only joined success/failure can reopen admission. Queue
+pressure or a deadline is not permission to resume readers during unresolved
+file or pad changes. Do not silently drop events or return a false acceptance.
+
+This policy currently leaves the device binding disabled. It does not claim a
+new overflow fix: stock compaction remains stock behavior, and arbitrary overload
+remains unbounded. The default capture-only profile remains the first milestone.
+
+Next concrete check
+UPDATE: handoff_dependencies_findings.txt executes the examined read/write and
+IRQ/event chains without Main or UI-mutex use. It also reproduces the native
+timeout recovery gap. The remaining binding work now includes error/completion
+observation and checked cancellation, rather than inferring physical idle from
+software-lock release. Complete boundary coverage remains unproved.
+Audit UI-mutex users and lower storage completion paths for a dependency from
+handoff to Main or to blocked event senders. If independence holds, a native
+between-events handshake still needs verified wakeup, one serialized owner of
+the manager, and a fault path; no work may run concurrently on Main and the
+existing capture worker. Reject this candidate if it requires waiting for Main
+completions while Main is unavailable. Do not rebuild a second event dispatcher.
+
+Verification
+Ten groups in tests/emulation/verify_native_event_window.py.
+Report: analysis/native_event_window_verification.json.
+The consolidated redesign runner passes 293 groups across 29 suites; report:
+analysis/redesign_verification.json.
+Build-profile verification separately checks that pc_* symbols occur only in
+the handoff test fixture, not either normal candidate profile.
+No device access, installable firmware image, memory-placement approval or
+hardware latency/safety claim is made by this experiment.

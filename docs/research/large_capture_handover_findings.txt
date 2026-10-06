@@ -1,0 +1,77 @@
+WORKER-PREPARED LARGE CAPTURE RINGS
+4 October 2026
+
+Implemented
+The session handover can now use 2..4096 power-of-two sample slots. Previously
+the session manager, control transport and bridge capped it at 32, because the
+audio-boundary initializer also cleared every slot. Simply raising that limit
+would have moved thousands of additional writes into a time-critical callback.
+
+exchange_prepare now validates the count, slot alignment and address overflow,
+then clears slot states on the worker before pending_bridge is published.
+The worker must own quiescent storage under the existing shutdown contract.
+Preparation leaves capture faulted until activation; it does not publish audio.
+
+exchange_begin consumes the preparation at the audio boundary, validates the
+current stock observation and initializes only fixed-size Exchange state. It
+does not walk or clear the slot array. Invalid observation consumes preparation
+and leaves capture faulted. A second begin without preparation is rejected.
+exchange_init remains an initialization-only wrapper for existing fixtures.
+
+All three handover layers share EXCHANGE_MAX_SLOTS=4096. The manager retains
+its existing bounded RESET clearing: at most 4096 bytes per reset step. Staging
+does a further worker-only pass over slot state words (at most 4096 stores).
+This pass is not in an audio callback; its real worker latency remains unmeasured.
+
+No physical addresses are selected by these APIs. This change does not establish
+the candidate SDRAM gap's ownership, create a native worker or install hooks.
+
+Capacity and budget
+4096 slots * 64 frames = 262144 stereo frames, about 5.46 seconds at 48 kHz.
+Each Slot is 528 bytes including state and timestamp: total 2,162,688 bytes.
+This is the owned sample ring used by the current bridge. It is not an additional
+allocation alongside the earlier separate serialized History prototype.
+
+Current compiled object sizes, bytes:
+  Transport             1712
+  Router                  20
+  Bridge                 248
+  Exchange                64
+  Life                  5164
+  Capture              66080 (includes the separate writer queue)
+  SessionManager        2208
+  Slot array         2162688
+  subtotal           2238184
+
+The 2,462,600-byte candidate interval exceeds that subtotal by 224,416 bytes.
+Code, stacks, alignment, pad-publication objects and other integration state
+are not included. These figures establish an arithmetic fit only; allocator,
+DMA, indirect-pointer, cache and physical-memory questions remain open.
+
+Verification
+Build: python tools/firmware/build_extra_capture.py
+Run: python tests/emulation/verify_large_capture_handover.py
+Report: analysis/large_capture_handover_verification.json
+
+Five passing groups cover:
+- 2, 32 and 4096 slots: begin executes 50 instructions in each case and writes
+  no slot memory. Preparation clears state only; a second begin is rejected.
+- A compiled manager uses the 4096-slot ring across two exact-payload takes,
+  preserves both WAVs and retains the correct result order.
+- The large slot array is reset in 528 steps of 4096 bytes. After worker staging,
+  the first complete audio callback writes only the first slot, not the others.
+- Cancellation during the large reset does not publish partial storage; explicit
+  resume completes preparation and records another take.
+- Invalid counts, misalignment, pointer overflow and unsupported callback mode
+  are rejected without writing out-of-range slot storage.
+
+Affected regression suites also pass: block exchange (8 groups), session
+handover (11), session manager (12), transport shutdown (5), and publication
+workflow (17). These use synthetic RAM, DSP, filesystem and scheduling. Counts
+are executed emulator instructions, not hardware timing. Capacity is not a
+guarantee against SD stalls or a proof of continuous full-song performance.
+
+Hardware work remains deferred at the user's request. Trial 3 is still local,
+not transferred or installed. Next development work can address cold-start
+initialization and binding the manager to a native worker, while physical
+placement remains an explicit unresolved integration requirement.

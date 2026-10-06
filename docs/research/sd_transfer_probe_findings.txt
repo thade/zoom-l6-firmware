@@ -1,0 +1,122 @@
+SCOPED SD TRANSFER / JOIN EXPERIMENT — 5 October 2026
+
+Follow-up: sd_controller_setup_findings.txt traces actual mode/address/reset
+programming and completion-event recreation. It also shows why recovery must
+drain old TC before DS_ADDR programming, rather than relying on the stock
+command engine's later acknowledgement. The model JOINED callback here still
+does not implement that recovery or validate its physical meaning.
+sd_card_recovery_findings.txt adds a compiled, once-per-failed-transfer stop
+attempt while retaining this same stack. Stop success remains separate from
+explicit MODEL JOINED; normal build profiles still exclude the entire probe.
+
+Result
+A thirteen-group offline experiment now connects compiled probe code to the
+original registered SD read/write, command, IRQ and event-predicate paths on
+one CPU. It retains raw errors over the complete read/write operation, including
+final status. On detected error or timeout it holds the native call stack and
+unit lock until an explicit MODEL recovery callback returns JOINED.
+
+Two groups also run this probe inside the existing checked-handoff fixture.
+Pending MODEL join retains the handoff gate, filesystem lock, scratch lock and
+SD unit token. The handoff cannot attempt rollback or release during that hold.
+Resuming the same stack after explicit JOINED performs verified modeled rollback
+and release. The original SD IRQ/event-post path still completes without Main
+service or the UI mutex. The existing synthetic sector router and logical file
+bytes remain models; this is not recovered filesystem-to-card translation.
+
+This identifies an executable integration boundary; it does not implement
+physical cancellation. JOINED, IRQ delivery, prior idle/freshness and memory
+contents remain fixtures. Two negative controls still demonstrate why the
+probe cannot be bound on its own. Normal capture-only and handoff profiles
+exclude every sdp_ symbol. There is no device installer or deployment image.
+
+Concrete buffer ownership
+Original driver writes the transfer address at 0x402c0000 before the command.
+For the examined two-block, aligned caller buffer it names that caller buffer
+directly. One-block and unaligned transfers use a per-unit bounce area:
+  0x2000c4d4 + (unit << 12), in chunks of up to 4 KiB.
+Original read-bounce helper 0x8006a120 copies from that area only after its data
+wait returns success; write-bounce helper 0x8006ad28 fills it before submission.
+The direct-read path also writes 32-byte-stepped addresses to 0xe000ef70 with
+DSB/ISB instructions before transfer. Physical cache behavior is not emulated.
+No ADMA descriptor ownership is inferred from these address observations.
+
+All examined command/data/status waits run under the registered dispatcher's
+per-unit token. Suspending at MODEL join retains that token, the native wait
+and lower transfer frames, and the live caller/bounce buffer. Read copies have
+not begun at this boundary. Resuming the SAME emulated stack after explicit
+JOINED propagates failure, avoids copying failed data, and finally unlocks.
+The experiment never replaces suspension with a fabricated successful return.
+
+Scope and interception points (emulator only)
+  0x80068db0: registered read operation, including final status;
+  0x80068e40: registered write operation, including status/diagnostic branches;
+  0x8006a348: command wrapper, covering failures BEFORE any event wait;
+  0x800328c0: wait wrapper, calling original predicate 0x800326c0;
+  0x8006eab6: raw IRQ snapshot before masking and W1C acknowledgement.
+
+The test probe begins inside the owned registered read/write call. It records
+one active unit, event object, caller buffer/size and sticky raw/error/reason
+fields. It uses no file queue, extra worker, heap allocation or asynchronous
+ticket protocol. These are research diagnostics, not a new production subsystem.
+
+Wait errors, missing expected event bits, raw errors and command-return failures
+all enter the same synchronous MODEL join. Pending, unknown and failed model
+responses retain ownership; only value 1 means JOINED. The model supplies that
+meaning externally, not by checking software tokens, clock stability or stock
+reset return. Subsequent commands are suppressed after joined failure, including
+final-status and auxiliary diagnostic resubmissions. This avoids rearming work
+inside an already-failed scope. A failed final status also causes whole-operation
+failure, even though original read would ignore that result.
+
+The assembly trampolines pin the overwritten vendor bytes. The IRQ hook replays
+all twelve displaced bytes, including acknowledgement and conditional branch;
+the test handles its halfword-aligned literal correctly. A differential check
+against the original IRQ verifies identical registers, flags, floating-point
+state and software-event mapping. The observer only adds retained diagnostics.
+Other-unit/out-of-scope IRQ observations are ignored, and an unscoped wait calls
+the original predicate. This does not validate every interrupt nesting or task
+schedule on real hardware.
+
+Why the scope alone is insufficient
+1. The peripheral status has no request-generation identity. Labeling an injected
+   completion as belonging to a PREVIOUS transfer produces the same observed
+   result as a fresh completion in the new active scope. A per-unit software
+   lock cannot distinguish those histories. Before arming a new scope the actual
+   binding must join prior hardware work, drain stale status/events and serialize
+   IRQ admission with command/DMA submission. Adding an epoch number only to our
+   software record would not give the hardware interrupt that missing identity.
+2. An injected successful completion with data-line/read-transfer activity bits
+   still set (PRES_STATE 0x204) also permits return in this diagnostic probe. The
+   raw snapshot and expected event alone cannot prove physical idle. This is a
+   deliberate negative control, not a reproduced device fault or accepted safety
+   condition. The physical transfer-join contract remains unsatisfied.
+
+The model's join clears synthetic active/reset bits, but performs no hardware
+reset and claims no bus-master/cache/card-persistence guarantee. Retaining the
+stack demonstrates WHERE checked cancellation belongs; it cannot establish
+WHAT physical evidence authorizes that stack to unwind. Permanent unresolved
+recovery also needs a deliberate device/UI recovery policy before binding; the
+fixture's resumable suspension is not a terminal Main wait to install.
+
+Remaining coverage and next concrete step
+The registered paths and command/data/final-status cases are bounded. Alternate
+direct callers, PIO waits, card-ready poll exhaustion, full cache/address-range
+coverage and successful auxiliary diagnostic transfers remain unverified. The
+earlier diagnostic-success packet-size concern is not declared fixed: this
+experiment suppresses the branch only after a detected scoped failure.
+
+Next trace the controller's address/mode programming and init/reset sequence,
+including the affected card/event state. Derive a checked physical join and
+reinitialization contract from the appropriate reference manual/errata; exact
+installed silicon remains unproved. Test arm/IRQ/stale-event ordering and idle
+failure at this now-executable boundary, then verify it on hardware when testing
+resumes. Until those conditions hold, leave the gate and these hooks unbound.
+
+Artifacts
+tests/fixtures/sd_transfer_probe.c and sd_transfer_probe_hooks.S: test profile only.
+tests/emulation/verify_sd_transfer_probe.py: thirteen offline groups.
+analysis/sd_transfer_probe_verification.json: pinned firmware/test ELF hashes,
+buffer-address cases, assertions and limits.
+Prior stage: sd_completion_findings.txt.
+No mixer/card access, physical latency measurement, deployment image or install.

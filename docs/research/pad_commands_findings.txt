@@ -1,0 +1,84 @@
+PAD COMMAND DEFERRAL — OFFLINE COMPONENT (5 October 2026)
+
+Purpose
+Keep complete pad commands pending while an optional backing-file handoff owns
+admission, without suspending Main or losing release/toggle/record branches.
+This component is now compiled only into the handoff TEST fixture; see the later
+native_event_window_findings.txt experiment. No event dispatcher,
+gate, wakeup or device hook is installed. It is not yet a working device fence.
+
+Original caller evidence (v1.10, image pinned by audit_handoff_admission.py)
+0x8003f4d8 takes (pad, argument, event). Event 1 tails to 0x8003efb0; event 0
+can stop a mode-2 pad and update UI. Its bounded direct reference is 0x8002d192.
+0x800408b0 also takes three arguments and reads the current recording target
+through 0x80034da8. Depending on that state and its arguments, event 1 can enter
+record control through 0x80034f40 rather than pad playback. Event 0 can stop a
+mode-2 pad; event 4 tails to 0x8004b7d8. The playback branch calls 0x8004b828 at
+0x80040970, then calls targeted queue deletion twice through 0x80020548.
+(Corrected by the later dispatch audit: these calls delete, not send, events.)
+Deferring only 0x8004b828 would allow those side effects to run prematurely.
+Bounded direct references to 0x800408b0: tail branches 0x8002c730, 0x8002c79a,
+0x8002c7ae and call 0x8002cac6. These references do not prove complete Main-task
+ancestry, hardware/MIDI source identity or coverage of indirect callers.
+The updated inventory contains 35 entries and 86 direct references.
+
+Small component contract
+src/capture/pad_commands.c owns eight by-value scalar commands in FIFO order.
+Main alone submits and polls. A separate, serialized handoff worker holds and
+releases admission. Calls validate task identity and reject interrupt context.
+The short metadata latch never spans original command execution or I/O.
+Hold succeeds only when the queue is empty and no handler is running or awaiting
+completion bookkeeping. Previously accepted stops must therefore run first.
+While held, new pad commands can queue but cannot execute. Release performs no
+I/O and never calls a stock handler on the worker. Main later executes each raw
+three-argument command through its original unpatched handler.
+If completion bookkeeping meets contention, a retained RETURNED state allows
+retry without running the command a second time. A BUSY submit consumes nothing;
+a BUSY poll can occur after execution and must never prompt resubmission.
+The execute callback is synchronous and cannot retain its temporary argument.
+
+Important limits for integration
+The queue retains arguments, not the environment in which a button was pressed.
+Stock code reads mode, assignment and Record state when replayed. A negative
+control shows that a queued mode-2 release stops doing anything if mode changes
+to 0 before replay. The eventual dispatcher must order conflicting controls as
+well, or deliberately define replay-time behavior. Old-to-new pad reassignment
+is itself an intentional state change and needs an explicit user-facing policy.
+Never restore old global state around replay: asynchronous users may observe it.
+
+Eight slots are not an overflow strategy. The upstream dispatcher must retain
+rejected events, preserve order and service completion traffic without blocking
+behind a full pad queue. This has not been implemented or proved possible at the
+identified caller sites. New commands must submit even after release so they
+cannot bypass older queued commands. Main needs an explicit wake/retry path.
+Continuous input can postpone hold; cancellation/fairness remain caller policy.
+
+A returning handler can leave asynchronous work outstanding. This queue joins
+only command execution, not renderer, file, recorder, reload, card or USB users.
+The fixture that runs the original reload UI consumer while pad commands wait
+proves that this component leaves Main runnable. It does NOT authorize reload
+I/O during exclusive file handoff; the full gate must join that work beforehand.
+No stock void-returning call is replaced with a fabricated BUSY return.
+
+Verification
+verify_pad_commands.py executes compiled queue code and the original three-arg
+handlers with modeled task IDs, state getters and audio/UI effects. Twelve groups
+cover owned values, press/release, toggles, backlog ordering, changed-mode negative
+control, Record branch, pre-hold stop, Main reload progress, capacity/retry,
+completion contention, concurrent hold rejection and invalid task/command use.
+The concurrency case transfers state to an independent CPU fixture; this is not
+a real concurrent RTOS simulation. The Cortex-M7 emulator setting does not
+identify the physical chip. Storage, timing and scheduling remain modeled.
+The consolidated verify_redesign.py run passes 271 groups across 27 suites,
+including profile isolation. Report: analysis/redesign_verification.json.
+
+Next step
+UPDATE: pad_dispatch_findings.txt now executes these caller paths and reproduces
+two additional binding failures: diverted commands escape stock duplicate-event
+deletion, and a full FIFO either loses an event or parks needed Main completion.
+The FIFO is a verified primitive, not a semantically correct native integration.
+Do not install its raw-handler hook; proceed at full event ownership instead.
+Trace the caller event ownership and Main dispatch loop: determine how to retain
+an event and retry without acknowledging it, how to keep completion events moving
+when the queue is full, and how to order mode/Record changes. Only then bind this
+component to the dispatcher and include it in the wider handoff admission gate.

@@ -1,0 +1,112 @@
+FILE-TASK BINDING AND RETAINED READ RETRIES
+4 October 2026
+
+Result
+read_worker.c now drives tagged file requests through the original sample
+file-worker receive/read boundaries. It uses the original current-task getter,
+checks the stock task and queue handles, retains dequeued packets during a busy
+decode, and retains read results/completion during later contention. Neither
+file IO nor the original signal is repeated by these metadata retries.
+
+The new adapter and original 0x80036118 file-worker body execute on ONE emulated
+CPU. Entry interception, scheduling and public file effects remain fixtures.
+No branch patches are installed, and startup release remains unwired.
+
+Permanent binding
+rw_bind copies a 56-byte RwBinding into the adapter's permanent state. It requires
+an existing coordinator/ledger, distinct aligned nonnull read-slot pointers
+(unused entries may be null), at least one read slot, nonzero stock handles and
+receive/read/yield ports. The supplied worker must match 0x80446dc4; the queue
+must match 0x801f8f30. Binding cannot be replaced. Pointed-to storage must remain
+valid; physical memory placement and task-handle reuse are not solved here.
+
+Each receive/read entry checks IPSR thread context, the original current-task
+getter 0x800770e8, and the current stock handle slots. Wrong task or changed handle
+does not dequeue or perform IO. This prevents a stale configuration from silently
+operating as a different task; it does not prove ownership of the file's lifetime.
+The private 112-byte state contains copied configuration, packet, task attribution,
+read result and retry phase. Its reentry latch is per-task; it may span that task's
+blocking receive/read, but no shared read/ledger metadata latch spans IO or yield.
+
+Receive and return ordering
+rw_next replaces only the file-worker call at 0x80036152, not every queue receive.
+It first completes any prior owned request's metadata. Then it receives into its
+own persistent 16-byte packet buffer, decodes and copies a valid stock request to
+the original worker's output buffer. A busy decode retains the packet and returns
+-1 after yielding. The original worker loops back; the next call retries that
+packet without fetching another message.
+
+The next receive boundary follows the preceding worker body's signal return.
+At that point the adapter commits any retained public-read observation, then
+acknowledges rr_queue_return before fetching another packet. If observation or
+return is busy, it retains its phase and yields. Once the observation succeeds,
+return retries do not submit that observation again. No stock read, zero fill or
+signal is reexecuted by retrying metadata.
+
+Stale packets are consumed without executing file work and yield before the next
+receive. Ordinary kind-0 reads and kind-1 seeks use the original request body
+without invented reload evidence. Malformed packets or impossible owned state
+latch the ownership fault and stop this adapter from fetching further work.
+That is a conservative prototype fault policy, not a finished device recovery
+policy: it can stall subsequent ordinary work on the shared file task. Recovery
+or optional-feature isolation must be resolved before deploying this behavior.
+
+Public read boundary
+rw_read replaces only the call at 0x80036184. Its port points at original public
+read 0x80060620, so failures before lower-driver entry can be observed when the
+port is wired to that implementation. For tagged reads it validates buffer/count,
+nonzero handle and equality with the current pad handle at
+0x80735180 + 0x9a4 + 20*pad. It clears the output count before calling the port,
+then retains raw status/count before returning them unchanged to the stock body.
+This comparison is not an immutable handle snapshot or card/file lifetime fence;
+producer-side handle/storage ownership still needs binding.
+
+The original worker remains responsible for its normal first-error latch,
+short-read zero filling, callbacks and semaphore signal. The adapter observes
+their underlying result without replacing those behaviors. A stock missing-handle
+path signals without calling public read; the next adapter entry detects the
+absent result, retains the read reservation and faults instead of inventing success.
+
+Verification
+  python tools/firmware/build_overdub_prototype.py
+  python tests/emulation/verify_read_worker.py
+Report: analysis/read_worker_verification.json
+
+Nine groups pass:
+1. Original worker with compiled native receive/read/return tracking on one CPU.
+2. Busy decode retains a dequeued packet with no second receive.
+3. Normal/error/short results survive observation contention, without repeated IO.
+4. Busy return retries only completion after the observation has committed.
+5. Wrong task, changed stock handles and replacement binding are rejected.
+6. A stale packet does not read or claim a later request using the same slot.
+7. Ordinary read and seek retain their original worker behavior.
+8. Missing-handle signaling cannot supply read-success evidence.
+9. Malformed messages fault and prevent further unverified file work.
+
+Affected regressions pass: read queue 7, read evidence 8, reload ownership 19,
+reload transport 14, compact transport 14, reload manager 19, publication workflow
+17 and direct prefetch 5. Including the nine new groups, 112 groups pass across
+nine suites on the rebuilt ELF. This is not a full repository test run.
+
+Test boundaries
+The fixture selects the current task, copies kernel queue bytes, supplies public
+read/seek results, and redirects PC/LR at the two stock call sites. The original
+file task, public-read adapter and metadata retry paths execute together. The
+yield port pauses at a retained boundary; the fixture reenters the worker loop
+for the next scheduled pass. It does not replay a suspended in-progress read.
+The Cortex-M7 configuration provides instruction support and does not identify
+the physical chip. No real interrupts, driver timing, DMA or SD durability are
+tested, and no installed trampoline/cache behavior is claimed.
+
+Remaining work
+Bind producer task/envelope selection and ticket publication before the request
+enters the queue. The producer must retain/retry its join after a wakeup that
+precedes this adapter's return acknowledgement. Establish an immutable handle
+and storage lifetime, deliberate fault isolation, queue cutover and physical
+placement. After card/reload ownership is fully bound, connect verified completion
+to native_worker_release. No mixer/card access occurred; hardware testing is deferred.
+
+Follow-up: read_producer_findings.txt documents native producer binding and
+retained early-wakeup joins. rw_read now also checks the producer's immutable
+handle snapshot when present. File/card lifetime ownership, synchronous caller
+integration and the shared-worker fault policy remain unresolved.

@@ -24,6 +24,7 @@ HOOKS={0x8001078a:'emulator_outer_hook',0x202269f8:'emulator_tap_hook',
        0x80034fc0:'emulator_reject_hook'}
 
 class BridgeRig(ExchangeRig):
+    outer_hook='emulator_outer_hook'
     def __init__(self,count=8):
         super().__init__(count=count);m=self.m
         self.blayout=struct.unpack('<6I',self.raw(self.syms['bridge_layout'],24))
@@ -32,6 +33,9 @@ class BridgeRig(ExchangeRig):
         assert m.invoke(self.syms['bridge_bind'],[BR,P,LIFE,STATE])==0
         self.hooks_enabled=True;self.entries=[]
         for address,name in HOOKS.items():
+            if name=='emulator_outer_hook':
+                name=self.outer_hook
+                if name is None:continue
             def redirect(uc,a,size,user,name=name):
                 if self.hooks_enabled:
                     self.entries.append(name);uc.reg_write(A.UC_ARM_REG_PC,self.syms[name])
@@ -144,7 +148,7 @@ def main():
     passed('unresolved_event_snapshot_is_cancelled_not_reinterpreted_on_a_later_ring_lap')
 
     r=BridgeRig();r.start();r.admit();r.block()
-    r.inject=('audio',1,'short');r.assert_failed()
+    r.inject=('audio',1,'short');r.stop();r.assert_failed()
     passed('worker_short_write_closes_extra_file_and_never_exposes_eligible_path')
 
     r=BridgeRig();r.start();r.admit();r.block()

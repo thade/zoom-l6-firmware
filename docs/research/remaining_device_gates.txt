@@ -1,0 +1,79 @@
+Remaining deployment gates — 6 October 2026
+===========================================
+
+Current boundary
+----------------
+The selected capture logic, native mount/folder/file paths, no-overwrite rename,
+packed loading and proposed instruction patches now have offline evidence.
+The smaller linked variant leaves 2,924 packed bytes spare. This is still an
+experimental build: automatic worker release, storage transition protection,
+physical SD completion and automatic pad handoff are unbound. No capture update
+image exists and nothing was transferred or flashed during this work.
+The consolidated offline regression passes 575 groups across 53 suites.
+
+The next deployment progress requires hands-on device evidence. Enabling an
+assumed completion provider or treating mount flags as authorization would
+contradict reproduced native failure cases. Further software work can continue
+once these provider inputs are established; emulation cannot measure them.
+
+1. Establish a bounded code-loading experiment on hardware
+
+The repository records two successful in-place data/instruction marker trials
+and stock restoration. The separately prepared eight-byte added-code trial in
+experiments/03-added-code/README.md still has no recorded hardware outcome.
+Resume that trial first, or reconcile any hardware result not yet recorded.
+Its ZOOM L6 label matches trial 2, so the image hash must identify the trial.
+A person must perform the power/update sequence and observe the reboot. This
+requires no case opening. It proves only that tiny insertion and return path.
+
+Next, approve and validate a bounded packed-code/loading test. Original startup
+decoder evidence is offline; loader acceptance, physical instruction visibility
+and bootloader recovery remain separate. Do not install the capture ELF or
+infer large-buffer ownership from a tiny marker.
+
+2. Establish candidate memory and scheduling evidence
+
+The large history interval is an arithmetic gap between stock scatter regions.
+One heap ends below it, but full ownership, aliases, physical extent and dynamic
+users remain unresolved. Confirm the candidate span across boot and normal
+recording/playback/card/USB modes before placing live audio history there.
+Measure stack/heap headroom, worker priority, sustained write latency and audio
+overhead. The experimental 16-KiB worker stack and polling settings are inputs,
+not measured budgets. Begin with bounded observation, then a capture-only trial.
+
+3. Establish the native SD completion provider
+
+Measure/identify the actual host/controller and relevant event sources. A native
+return, clock stability, event flags or a released SD mutex can occur without a
+physical join. The retained-frame probes are fixtures, not an implementation.
+Verify normal completion and permitted error recovery before caller/bounce
+buffers unwind, including CPU-cache visibility and exclusion of stale hardware
+and software completion sources. The possible second IRQ descriptor must be
+resolved; masking one assumed IRQ is not an established source fence.
+
+4. Bind storage authorization and transitions
+
+Use accepted application mount and usable target-folder outcomes in one protected
+card generation. Close added admissions before outer mount/detach/USB effects;
+allow ongoing native work and ordinary event service to finish. Bind automatic
+release only after completion/lifetime and transition coverage are established.
+Neither zero outer return nor native FAT32-ready alone is sufficient. Test
+removal, transfer mode and cancellation with exact ordinary and extra recordings.
+
+5. Finish hardware-only pad handoff and song validation
+
+After capture-only passes hardware tests, bind the stopped-pad admission fence
+and checked native rename/readback port. A failed rename barrier can follow an
+already changed name, so uncertain outcomes retain ownership. Preserve prior
+takes and verify exact initial pad reads before assignment/settings save.
+Then validate full-song timing/count-in, repeated layers, clean stems, preserved
+ordinary masters, audio integrity, failures and restoration. Package the finished
+image and user instructions only after these tests pass.
+
+User input needed now
+---------------------
+Resume hands-on hardware testing and state whether the eight-byte added-code
+trial was already performed. Subsequent probe choices depend on the observed
+result and available read-only diagnostics. Opening the device is not assumed
+or required for the first marker trial; firmware alone has not established an
+externally accessible recovery/debug path.

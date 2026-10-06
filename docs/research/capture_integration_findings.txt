@@ -1,0 +1,164 @@
+CAPTURE-ONLY INTEGRATION PLAN AND OFFLINE COMPOSITION
+5 October 2026
+
+Implemented simplifications
+
+1. Lifecycle readback reuses Capture.blocks after stopping and fully draining
+   staging. One serialized worker owns both uses. Capture counters, byte count
+   and write checksum remain intact; the independently owned WAV header remains
+   separate. Lifecycle size falls from 5,168 to 1,072 bytes, saving exactly
+   4,096 bytes without adding another buffer, owner or callback protocol.
+
+2. Manager reset clears the six control/staging objects, not the history slot
+   arena. exchange_prepare initializes every slot's ownership state before
+   publication. exchange_stage overwrites the timestamp and all 64 stereo
+   samples before READY. Dirty old payloads and padding cannot become readable
+   through the initialized ownership/publication state. At maximum capacity,
+   bulk clearing of a 2,162,688-byte arena is removed; the existing 16,384-byte
+   ownership initialization remains on the worker. Preparation still has work
+   proportional to slot count; no device latency claim is made.
+
+The readback regression poisons obsolete staging, then verifies a header, three
+full 4-KiB reads and a partial tail without changing staging metadata. Large-ring
+tests preserve old payloads during reset/preparation, observe ownership-only
+writes before adoption, and verify fresh exact recordings after cancellation
+and reuse. Cold boot also starts with dirty sample storage.
+
+Reproduce
+
+  python tools/firmware/verify_redesign.py
+  python tools/firmware/plan_capture_binding.py
+  python tests/emulation/verify_capture_integration.py
+
+Local reports: analysis/capture_binding_plan.json and
+analysis/capture_integration_verification.json. Reports record the exact current
+capture-only ELF and untouched firmware hashes. The firmware is pinned to:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+
+Offline acceptance
+
+The consolidated runner passes 415 groups across 39 suites. Python syntax and
+repository whitespace checks also pass.
+
+The new five-group composition loads the NORMAL capture-only ELF, without DSP
+fixture/history/handoff/recovery symbols. The shared machine's historical ELF
+mapping is made inaccessible. The harness executes original mixing, gain,
+staging, twelve-channel ring copies, recording readers/producers/queued writers,
+WAV finalizers and control dispatch alongside compiled manager/worker/adapters.
+
+One test records 1,536 frames, including two blocks while the start callback is
+delayed. The extra stereo TMP has every selected pre-gain sample, exact length
+and completed readback. All seven ordinary WAVs are byte-identical to the run
+with capture hooks disabled. Input files contain clean supplied input samples;
+the ordinary master retains its modeled gain and pad contribution. The pad
+catalogue is unchanged. No file is sealed or assigned to a pad.
+
+Other groups cover optional task-creation failure, file-preparation failure,
+short audio write/readback, uncertain close, and lost required history. Ordinary
+recording continues with the same files. Failed extra results are withheld;
+uncertain close forbids reset/resume. A registered but unreleased worker sleeps
+without file work while ordinary audio crosses inaccessible optional arenas.
+
+The common queue sender owns submission and send-result tracking. The new
+composition does not require the four legacy per-producer submission/result
+hooks. Five entry wrappers still attribute calling-task lifetimes; saved cursor
+hooks attribute exact selection and stop to the matching queued callback.
+
+Concrete binding proposal, not device approval (initial baseline)
+
+The generated manifest inventories actual compiled sections, object sizes,
+candidate arena addresses, stack allocation and fifteen selected hook sites.
+The normal ELF remains linked at emulator addresses. The later placement
+experiment below adds a separate relocated ELF; neither tool constructs an
+image or changes the vendor loader length.
+
+Code: the linked initialized sections require 22,676 bytes in the current build.
+A candidate extension is [0x800b6b00,0x800bc3a0), following the original effective
+payload end 0x800b6ae4 and before the next scatter destination 0x801f5400. Its
+current reserved file bytes are all 0xff. That is a container observation, not
+evidence that the loader accepts an increased length or that the runtime span
+is owned. This budget excludes additional device hook veneers/relocation work.
+Copied RAM-code sites near 0x2022xxxx cannot reach this candidate with a four-byte
+Thumb B.W. Their far veneers and displaced instructions require separate audits.
+
+RAM: 32-byte-aligned candidates inside [0x80960078,0x80bb9400):
+  permanent globals  80960080..809600dc       92 bytes
+  transport          809600e0..80960790    1,712
+  router             809607a0..809607b4       20
+  bridge             809607c0..809608b8      248
+  exchange           809608c0..80960900       64
+  lifecycle          80960900..80960d30    1,072
+  staging            80960d40..80961d80    4,160
+  manager            80961d80..80962620    2,208
+  worker             80962620..80962660       64
+  descriptor         80962660..80962688       40
+  worker config      809626a0..809626b4       20
+  4,096 history slots 809626c0..80b726c0 2,162,688
+Including alignment, the proposal occupies 2,172,488 bytes and leaves 290,112
+bytes in the arithmetic gap. History holds 262,144 frames, about 5.46 seconds
+at 48 kHz. Prior allocator/reference audits do not establish physical extent,
+all indirect consumers, aliases or cache/DMA coherence. None of these addresses
+is assigned by the implementation or approved for a device image.
+
+Stack: the fixture uses 4,096 words (16,384 bytes), with a separate 148-byte task
+object through the stock allocator. These are additional heap payloads, not part
+of the gap calculation. Allocator overhead, later stock allocations and actual
+call-chain/interrupt stack headroom must be accounted for. Priority 1, four
+steps per pass and 1/25 tick delays remain test inputs, not measured settings.
+
+Cold startup sequence
+
+- Retain successful original task/queue initialization at 0x80067a84. Successful
+  idle creation reaching 0x800745e8 is a registration candidate, not independent
+  evidence that earlier initialization succeeded.
+- Zero permanent added globals, manager and worker before optional hook entry.
+  Register while the scheduler is stopped; preserve stock continuation if the
+  optional task cannot be created. Core boot closes both optional gateways.
+- Install complete callback entry/return, tap/commit and control coverage. RAM
+  hooks must survive stock scatter copying; hook encoding and publication/cache
+  ordering must be verified. No DSP replacement is proposed.
+- Main may release the worker only after verified storage/card/USB admission and
+  joined startup users. No stock release site or admission provider is bound.
+- The worker prepares the TMP. Strict audio-boundary adoption and a successful
+  first complete block precede live control admission. The normal capture-only
+  composition uses the core's closed-start/adoption protocol; it does not add
+  the historical shared sampler/reload observer.
+
+Failure and physical I/O boundary
+
+An uncertain native transfer must be physically joined before its lowest driver
+stack unwinds. Merely stopping the optional worker after a public error cannot
+repair an already released DMA buffer. Public return, a stopped UI, event flags,
+or a modeled source exclusion are insufficient evidence. The capture-only extra
+write/finalize/readback path needs this binding too; postponing pad handoff does
+not remove it. No automatic physical recovery has been enabled.
+
+What the harness supplies
+
+Input/ADC staging, logical callback scheduling, selected DSP windows, deep
+ordinary file registration/endpoints, synchronous public files, queue delivery,
+successful task creation and explicit Main authorization are fixtures. It does
+not execute full DSP/compression/effects, entire device boot, real task scheduling,
+interrupts, cache enforcement, SD/DMA, durability or elapsed wall-clock time.
+
+Next device-integration work
+
+Prove code loading/veneer placement, whole RAM ownership and startup/storage
+authorization before constructing a capture-only image. Bind native I/O joins
+before permitting error returns and memory reuse. Then measure a capture-only
+trial's timing and audio against ordinary files when hardware testing resumes.
+Automatic sealing and pad assignment remain a later milestone. No firmware was
+prepared, transferred or installed during this change.
+
+Placement follow-up, 5 October 2026
+
+capture_placement_findings.txt records the next slice. A separate placement ELF
+links at 0x800b6b00 with 92 global bytes at 0x80960080. Its 22,820 initialized bytes
+end at 0x800bc424 (rounded plan end 0x800bc440). Two copied RAM hooks now use
+8/10-byte inline absolute jumps with complete displaced-instruction replay,
+avoiding nearby veneers. Actual bytes, original scatter copier and DSP prologue/
+epilogue execute in the emulator; extra and ordinary recordings retain expected
+samples. The generated binding plan now refers to this candidate. Remaining
+hook encodings, extended MAIN loading, global startup, physical RAM/storage
+authorization and native I/O joins remain unbound. Consolidated verification
+passes 423 groups across 40 suites; no installable image is made.

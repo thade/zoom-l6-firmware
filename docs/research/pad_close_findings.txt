@@ -1,0 +1,98 @@
+PUBLIC CLOSE GUARD AND FILESYSTEM LOCK ORDER
+4 October 2026
+
+Result
+pf_close now reserves a handle before entering original PUBLIC close 0x8005c1f8.
+An existing tracked read makes it wait outside the stock filesystem wrapper.
+The close reservation blocks new pins until the complete public call returns,
+then revokes tracked-read admission for associated pads. Only publication by a
+guarded loader with consistent loaded/handle/open-file state restores admission.
+No firmware hook is installed; this remains compiled emulator work.
+
+Lock-order evidence
+Public close calls 0x8001bf88 for filesystem synchronization at 0x8005c21e and
+0x8005c236, then 0x8002b100 at 0x8005c240. Its driver dispatch is much later, at
+0x8005c31a. Existing close instrumentation at lower close 0x8005c388 therefore
+does not provide a pre-lock admission point.
+
+Public read 0x80060620 also calls 0x8001bf88 before driver work, selecting one or
+both filesystem synchronization domains from the handle's volume. The helper
+0x8001bf88 selects synchronization handles from 0x801f8da0; 0x8002b100 similarly
+selects a handle and calls the indefinite-wait wrapper 0x800328f0.
+
+Waiting for a pinned reader inside a lower close can therefore invert the order:
+close holds a filesystem resource and waits for the pin, while the file-worker
+read needs that resource before it can finish and release the pin. The new
+wrapper takes its logical reservation BEFORE executing any public-close code.
+Its forwarder replays PUSH {r4-r10,lr} and resumes at 0x8005c1fc.
+
+This removes that particular late-admission boundary; it does not prove all
+callers arrive without other locks. Initial prefetch still holds the semaphore
+at slot 0x80446868 across its callback/conversion (waits at 0x80036af6/0x80036b44,
+signal at 0x80036b92). The full assignment, audio-stop, Main, filesystem and media
+transition call chains still need a complete lock-order audit.
+
+Close reservation and revocation
+Eight bounded close records share the existing short metadata latch. Each has
+handle, native owner, unique nonwrapping token and associated-pad mask. Private
+pad_files state is now 220 bytes in the compiled ARM ELF. Exhausted slots return
+BUSY; no heap allocation or timeout-based success is added.
+
+Admission checks existing pins and pad mutations. A close invoked from its own
+guarded loader/unloader can nest under that mutation; another owner's mutation
+blocks admission. New pins and conflicting load/unload operations wait while a
+close record is live. A matching close-end token retires only that close record,
+never an outer mutation reservation. Wrong-owner and stale tokens are rejected.
+
+Both successful and failed close attempts revoke associated pads, since a failed
+close may have partially changed the file. Completion combines the admission-time
+pad mask with current pad/active-mutation handle associations before releasing
+the record. Thus an association published while a close is in flight cannot slip
+through the release boundary. The original close result is returned unchanged.
+
+A guarded loader clears only its own pad's revocation after the complete original
+body returns and loaded state, both nonzero handle tables and file type 0x40 agree.
+Unloading, manually ending a mutation, or restoring old handle words does not
+clear revocation. Aliased pads remain revoked until each is explicitly reloaded.
+This is not full open-generation or stale-caller ownership: arbitrary handle
+reuse and lower-level bypasses are still outside the demonstrated protocol.
+
+The wrapper retries admission/completion metadata without repeating an executed
+close. Null handles keep stock behavior without a close reservation. Bound,
+nonzero native task identity and thread context are required; invalid use retains
+the existing fault/parking policy.
+
+Verification
+  python tools/firmware/build_overdub_prototype.py
+  python tests/emulation/verify_pad_close.py
+Report: analysis/pad_close_verification.json
+
+Nine groups pass:
+1. Public close nests within original guarded load/unload while all eight actual
+   ingress reads complete and verified root retirement succeeds.
+2. A pinned close reaches no stock filesystem-lock call; the original public
+   read then runs before pin release, after which close executes exactly once.
+3. A close error is returned unchanged and read admission stays revoked until
+   fresh guarded loading.
+4. Busy close completion retries metadata only, without a second stock close.
+5. Close reservations exclude new pins/mutations and reject wrong/stale endings.
+6. Nested close leaves outer mutation ownership and revocation intact.
+7. Bounded slots and nonreused tokens reject old completion after slot reuse.
+8. Direct close revokes all linked pads; reloading one does not revive its alias.
+9. An association published during close is revoked before its reservation ends.
+
+All 152 preceding groups pass: 161 groups across fifteen suites, not a complete
+repository run. The original public read/close bodies execute in the focused
+order test, but the effects of RTOS lock calls and filesystem drivers remain
+fixtures. The test verifies ordering and continuation, not a real scheduler
+deadlock or hardware timing. Other tests use the existing compiled-ingress rig.
+
+Remaining work
+Ordinary and periodic readers/seeks are not pinned. Public-close protection and
+guarded loader publication must be enabled together, before traffic; lower close
+calls that bypass this entry, raw stores, physical removal and card/USB teardown
+remain uncovered. Public errors before lower-driver attribution also need an
+explicit reload-error integration audit; preserving the return alone does not
+prove every original caller checks it. The caller lock audit, fault isolation,
+cold installation, memory placement and startup release remain incomplete.
+No device/card access or firmware deployment occurred.

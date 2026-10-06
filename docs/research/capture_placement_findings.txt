@@ -1,0 +1,122 @@
+CAPTURE CODE PLACEMENT AND ABSOLUTE AUDIO JUMPS — 5 OCTOBER 2026
+
+An offline capture-only ELF now links at candidate device addresses. Two audio
+sites execute actual jump bytes with complete instruction replay, without PC
+interception there. The original application startup copier carries the bytes
+into RAM. Relocated capture produces an exact pre-gain TMP and seven unchanged
+ordinary recordings. No installable image, device loading proof or device access
+is provided. Hardware testing remains deferred.
+
+Reproduction
+
+  /tmp/l6-re-tools/bin/python tools/firmware/build_extra_capture.py --layout placement
+  /tmp/l6-re-tools/bin/python tools/firmware/capture_jump_patches.py
+  /tmp/l6-re-tools/bin/python tools/firmware/plan_capture_binding.py
+  /tmp/l6-re-tools/bin/python tests/emulation/verify_capture_placement.py
+  /tmp/l6-re-tools/bin/python tools/firmware/verify_redesign.py
+
+Default builds remain at emulator addresses. Placement requires capture-only
+without test fixtures and produces ignored capture-only-placement.elf. The jump
+tool writes analysis/capture_jump_plan.json only. It never creates L6.BIN. Both
+layouts share their register save/restore macro in hook_macros.inc.
+
+Placement and loader boundary
+
+Initialized code: [0x800b6b00,0x800bc424), 22,820 bytes.
+Rounded candidate budget: [0x800b6b00,0x800bc440).
+Permanent globals: [0x80960080,0x809600dc), 92 zero-fill bytes.
+
+Explicit ELF program headers prevent loading the ELF header over earlier stock
+code. Text/constants share an executable segment; globals have a writable one.
+The linker bounds code before 0x801f5400 and globals within the proposed 96-byte
+arena. Data initializers have a separate load address; currently there are none.
+
+Stock MAIN's effective payload ends at 0x800b6ae4. Candidate reserved file bytes
+are all ff, but the vendor bootloader is absent from the update file. Acceptance
+of extended MAIN length is unknown. The emulator loads the ELF directly. Making
+its code inaccessible causes the actual RAM jump to fail on target fetch. RAM
+patch delivery alone cannot prove that the device loads the added code.
+
+Inline jumps avoid nearby veneers
+
+A four-byte Thumb B.W cannot span from 0x2022xxxx to 0x800bxxxx. Both sites have
+complete instruction spans large enough for LDR.W PC and an aligned destination
+literal. The jump itself needs no code cave, scratch register, stack slot or LR
+change. Its adapter saves integer/FPU registers and APSR/FPSCR, aligns the C-call
+stack, calls bridge_hook, restores state and replays the entire original span.
+
+Tap at 0x202269f8, eight bytes:
+  original: 46f22020 2058 0028
+  replay:   movw r0,#6220; ldr r0,[r4,r0]; cmp r0,#0
+  resume:   0x20226a00, the conditional branch after CMP
+  encoding: LDR.W PC,[PC,#0], four-byte Thumb target literal
+
+Commit at 0x2022a776, ten bytes:
+  original: 4bf80100 48b0 bdec108b
+  replay:   str.w r0,[r11,r1]; add sp,#120; vpop {d8-d15}
+  resume:   0x2022a780, remaining stack adjustment and integer POP
+  encoding: LDR.W PC,[PC,#4], two-byte NOP, aligned Thumb target literal
+
+The IT block ends before commit; tests exercise both conditional MOV paths and
+the original DSP prologue at 0x202263e0. Linear disassembly of the copied RAM
+block found no direct branch into either displaced span. It cannot rule out other
+origins, indirect entries, code/data ambiguity or alternate callback coverage.
+The manifest pins the vendor
+hash, scatter row, original bytes, complete decoded instructions, alignment,
+Thumb targets and segment bounds. Changed bytes and invalid targets fail. Only
+two sites have byte-level specifications; other hooks still use PC interception.
+
+Stock scatter row at 0x800a691c: source 0x800a9408; destination 0x20220000;
+length 0xd6dc; copier 0x80079498. Tests edit emulator source bytes, poison the
+destination and execute that copier. All 55,004 destination bytes match expected
+output; every byte outside the two spans matches stock. No vendor file is edited.
+
+Seven test groups
+
+1. Exact spans, aligned literals, relocation bounds and rejected inputs.
+2. Original copier delivers the complete RAM block with only two edits.
+3. Tap matches stock for 16 NZCV combinations, zero/nonzero selectors and both
+   stack alignments: 64 integer/FPU/status/stack/LR comparisons.
+4. Commit matches stock: 32 register/frame comparisons plus four original
+   prologue/IT-path comparisons. Saved frames remain intact.
+5. Actual jumps and relocated worker/manager with selected original DSP/recorder
+   windows produce a 1,536-frame TMP and seven byte-identical ordinary WAVs.
+6. Short extra write withholds its result and preserves ordinary recordings.
+7. Unloaded extension fails on target fetch despite valid RAM patch delivery.
+
+The consolidated runner passes 423 groups across 40 suites. Normal capture-only
+and handoff builds exclude placement adapters. Placement excludes legacy overlay,
+synthetic DSP and recovery components.
+
+RAM and startup requirements
+
+Globals need zeroing before any optional hook entry; here they start zero in
+synthetic memory. No device initializer is installed. Manager/worker must also
+be initialized before registration. Other arenas retain synthetic test addresses;
+their proposed physical ranges remain arithmetic without ownership approval.
+
+The shared save frame costs 192 bytes plus up to four bytes of dynamic alignment
+before the C call. The stock DSP frame is 392 bytes. These are partial stack
+costs, not peak call-chain/interrupt measurements. Proposed worker allocation is
+16 KiB plus a stock 148-byte task object and allocator overhead. Priority/polling
+budgets remain experimental.
+
+Next: establish extended MAIN loading or an approved loaded code location;
+complete RAM/global startup ownership and storage admission; encode remaining
+hooks and bind native I/O joins before any capture-only image is constructed.
+Startup must preserve stock initialization failures, register with scheduler
+stopped, and release after storage/card/USB admission joins startup users. Native
+I/O must join before error-stack unwind and buffer reuse. Physical cache/MPU/DMA,
+timing, sustained SD behavior and audio then need hardware testing. Pad sealing
+and assignment remain later work.
+
+Packed-loading follow-up, same date
+
+capture_packing_findings.txt records an alternative to extending MAIN length.
+DSP and capture sources fit inside the existing loaded span when packed using
+the stock decoder format. Original entry and scatter helpers expand both and
+zero capture globals before Main in the emulator. Eight additional groups pass,
+bringing consolidated verification to 431 groups across 41 suites. This resolves
+the offline loading route for the current code size, with only 302 source bytes
+remaining. Physical ownership, cache/interrupt behavior, manager/worker startup
+and storage/native I/O joins remain open; no device image is constructed.

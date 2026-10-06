@@ -1,0 +1,81 @@
+Astra correctness and simplicity review
+2026-10-05
+
+Reviewer: gpt-6-astra, high reasoning effort, fresh read-only sub-agent.
+Scope: the current capture/history/writer/session-manager design, optional
+single-pad handoff, and the SD completion/recovery experiments. Historical
+overlays excluded from normal build profiles were not treated as active hooks.
+
+Verdict
+
+No new implementation defect was found that violates the candidate's documented
+contracts. The capture pipeline and optional handoff are coherent within those
+contracts. This is not a deployment-readiness finding: device integration and
+several physical I/O assumptions remain unverified.
+
+Evidence
+
+The consolidated offline runner passes 409 groups across 38 suites. The reviewer
+also ran focused read-only checks against the existing compiled test image:
+one completed take sealed and loaded with an exact 5,120-byte initial read;
+completion mixed with software-notification flags retained the failed operation;
+and deliberately false source-exclusion evidence allowed old completion to be
+accepted. These checks did not add groups to the consolidated count.
+
+Remaining integration requirements
+
+1. Native safe-error classification requires a truthful per-operation physical
+   join before the lowest driver unwinds. Joining only users that existed before
+   admission does not satisfy that contract. A false provider could permit buffer
+   reuse or rollback while physical work is still unresolved. Under the documented
+   provider contract, the reviewer found no uncertain read/close promoted to safe,
+   and failed rollback retains ownership.
+
+2. Clearing SD event flags and wakeup tokens does not exclude future old sources.
+   The mixed success/fault guard correction is sound, including the stop path.
+   Source exclusion, reset permission and final physical/cache/card validity are
+   still modeled contracts. The negative controls demonstrate why those contracts
+   are necessary; they do not establish a native recovery implementation.
+
+3. Capture-only still needs a complete storage and scheduling boundary. Extra
+   writes, finalization and readback use native I/O. Placement, startup release,
+   ordinary-recorder coexistence, cache behavior and failure lifetimes remain
+   integration work. The worker has no production release hook.
+
+What appears sound
+
+Partial blocks preserve exact sample counts; history claims protect worker reads;
+filename collisions preserve previous files; uncertain completion prevents
+publication; shutdown precedes manager reclamation; and release contention does
+not repeat file or pad mutations. The single-pad, no-copy design remains the
+simplest supported handoff approach.
+
+Simplifications proposed, not implemented
+
+- Reuse the idle, drained 4-KiB staging buffer for final readback. The existing
+  serialized worker lifetime could remove a separate 4-KiB lifecycle buffer.
+  Layout and lifetime changes still need implementation and verification.
+- Avoid clearing every history sample payload between takes. Retain metadata and
+  ownership initialization; each staged slot already receives a complete sample
+  payload before publication. This could avoid roughly 2 MiB of redundant clearing
+  at maximum history capacity. No reset behavior was changed by this review.
+- Pause expansion of modeled automatic-recovery scaffolding. The existing probes
+  already identify the missing native guarantees; further models will not resolve
+  the silicon and timing questions.
+
+Next milestone
+
+Prepare a concrete capture-only binding plan and offline integration harness:
+code/RAM/stack placement, cold-start authorization, the selected audio tap,
+recording start/stop boundaries, and safe behavior on storage failures. Acceptance
+is one ordinary recording plus one exact extra stereo file, preserving stems and
+the ordinary master. Keep pad handoff disabled for this milestone. Measure actual
+audio and storage overhead when hardware testing resumes; bind sealing, assignment
+and physical recovery afterward.
+
+No source changes were made by the reviewer. No firmware image was prepared,
+transferred or installed during this investigation/review turn.
+
+Follow-up, 5 October 2026: the two buffer simplifications and the capture-only
+binding-plan/harness milestone are implemented. See capture_integration_findings.txt
+for the changes, current verification and remaining physical binding requirements.

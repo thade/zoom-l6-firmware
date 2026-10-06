@@ -1,0 +1,111 @@
+Stock startup sites and missing release conditions — 5 October 2026
+
+Result
+The original scheduler success path at 0x800745e8 is a registration candidate:
+the stock idle task has already been created, but the scheduler-running flag
+has not yet been set. The compiled worker registration and dormant shared-audio
+binding execute there in the emulator, then original scheduler startup resumes.
+This does not establish remaining heap capacity or approve a device patch.
+
+No inspected Main return/loop is sufficient to authorize worker release.
+The audit also reproduces a concrete integration failure: enabling the current
+reload file guards around Main's direct startup load without an owned scope
+causes guarded opens to fail and all four pad paths to become NO ASSIGN.
+Automatic release remains unwired. No firmware source behavior was changed in
+this audit; the new file is tests/emulation/verify_startup_sites.py.
+
+1. Preserve initializer evidence, then register after idle creation
+At 0x80067a84, r0 still holds the first 0x80048248 task/queue initializer result.
+Original boot immediately calls scheduler startup and does not inspect it.
+An eventual observation hook must save that first result without changing stock
+register/control-flow behavior. Recalling the initializer is not equivalent:
+the latched done byte can cause a later successful-looking return after failure.
+
+Scheduler 0x800745b8 creates idle at 0x800745dc. Only creator return 1 reaches
+0x800745e8, immediately before MOV.W r0,#0x20 / MSR BASEPRI. The native idle
+handle is at 0x801f9060. The scheduler-running store is later at 0x80074600,
+followed by kernel entry 0x80076158 at 0x80074606.
+
+The audit pauses the original boot CPU at 0x800745e8, saves its complete context,
+executes native_worker_register and native_worker_bind_audio on a separate
+synthetic stack on that same CPU, restores the original context, and resumes.
+The worker remains W_WAITING, capture is closed, no session is active, and the
+stock kernel-entry path is reached. Optional task-creation failure leaves the
+worker W_FAILED but still allows the original scheduler continuation.
+
+First task/mutex/queue/RecPlayCtl-queue failures can STILL reach this post-idle
+site. The saved initializer result must veto optional registration in those
+cases. Idle creator return -1 follows the original terminal loop, and return 0
+does not take the success path; neither reaches the candidate. These checks use
+modeled native task creation, not real heap exhaustion or preemption.
+
+This candidate avoids allocating the optional stack before idle exists. It does
+not reserve capacity for later stock allocations, resolve permanent code/RAM
+placement, or prove interrupt safety. No branch/trampoline was installed.
+
+2. UI startup includes an additional direct load
+Original Main tail-calls UI startup 0x8002c1e8 after its earlier initialization.
+The prefix runs card setup 0x80009a40(0) at 0x8002c1f0, then calls 0x80034de8,
+0x80009848, and DIRECT load-all 0x80009930 at 0x8002c1fc. It later waits on the
+semaphore whose handle is at 0x80446850, then selects a mode at 0x8002c21a.
+
+The card result observed at 0x8002c1f4 is not tested. Unavailable volume with a
+zero return, status-bit failure with -1, and directory-preparation failure with
+-1 all continue through direct load-all and into the event loop in the tested
+normal-mode branch. The semaphore result is also ignored: injected failure
+still reaches mode selection. These results are negative controls, not readiness.
+
+On the available-volume path, original card setup submits deferred reload
+callback 0x80049da1. Main reaches its normal event wait with pending=1 after both
+send success and injected send failure. The queued worker and later UI reload
+must still be tracked/joined; finishing the direct prefix cannot stand for them.
+
+3. Reproduced missing-scope failure with current adapters
+A separate test starts from four valid loaded fixture files after a verified,
+retired reload, then runs original 0x80009930 as native Main with the current
+compiled guards enabled. The fixture selects Main's driver context but does not
+invent a reload envelope or parent ticket. Each original pad load enters pf_load
+and rt_open. Without a running attributed reload scope, the open observer faults
+the ownership gate. No new sample read or ordinary read packet is produced.
+
+The stock load-all nevertheless returns zero; the four original loaded paths
+have become NO ASSIGN. This is not merely a pending read or parked caller: it is
+an observable failure of using the current reload-only open wrapper on an
+unattributed startup caller. Fix the whole startup ownership scope before
+activating those entry hooks globally. Assigning a fabricated active-session
+parent or accepting the zero load-all return would conceal the problem.
+
+4. Main needs an explicit release-retry mechanism
+The numeric mode tests reach original event-receive call continuations:
+mode 0 and 4: 0x8002c445; mode 1: 0x8002c3d9;
+mode 2 and 3: 0x8002c25d; mode 5: 0x8002c40d.
+These are control-flow observations; no new user-facing meanings are assigned
+to the numeric modes. A hook at one loop is not coverage of all modes.
+
+Executing original event receiver 0x80020690 through its native queue wrapper
+shows an infinite timeout (0xffffffff) passed to 0x80076710. A one-time Main
+release attempt that returns WAIT for the first whole audio callback cannot
+assume that Main will soon retry. An unrelated UI event might not arrive.
+An explicit wakeup or audited timed poll is required, with queue saturation,
+ownership and failure behavior accounted for. This audit adds neither.
+
+Next implementation
+Add a real ownership scope for Main's startup storage work, including direct
+load/prefetch and the queued reload descendants, with preserved failure evidence.
+Then bind an explicit Main retry/wakeup for the audio-ready handshake. Release
+must additionally require verified initialization and storage admission; neither
+task identity, card return, semaphore return, pending bit nor loop arrival proves
+that. Keep the post-idle registration site as a candidate until allocation,
+interrupt, code placement and state-preserving patch work are verified.
+
+Verification and limits
+Nine new groups and all 76 groups across eight targeted suites pass. The earlier
+610-group baseline is unchanged by this audit; it was not rerun in full. Reports:
+analysis/startup_sites_verification.json
+analysis/startup_sites_regression.json
+Original boot/scheduler/UI branches, card status/reload producer and the separate
+load-all failure route execute. UI child drivers/load-all are marked stubs in
+the mode tests; the adapter negative control executes load-all separately.
+No whole-device scheduler, real storage, IRQ/DMA/cache or timing is simulated.
+The registration test uses host-scheduled calls, not an installed wrapper.
+No device/card access, firmware staging, deployment, commit or push occurred.

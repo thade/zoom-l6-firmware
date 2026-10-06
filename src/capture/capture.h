@@ -1,7 +1,9 @@
 #ifndef EXTRA_CAPTURE_H
 #define EXTRA_CAPTURE_H
 #include <stdint.h>
-#define EXTRA_SLOTS 128u
+/* Worker staging; after stop/drain its samples double as lifecycle readback
+ * scratch under the same serialized worker. The exchange owns audio history. */
+#define EXTRA_SLOTS 8u
 #define EXTRA_FRAMES 64u
 typedef struct {
     uint32_t write,read,fault,active,handle,bytes;

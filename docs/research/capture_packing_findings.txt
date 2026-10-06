@@ -1,0 +1,148 @@
+CAPTURE LOADING INSIDE THE ORIGINAL MAIN LENGTH — 5 OCTOBER 2026
+
+Result
+
+The current capture-only code fits inside the existing loaded MAIN payload when
+both the original DSP source and the new code are compressed in the format
+already decoded by stock startup. Original entry/scatter/decompression/zero
+instructions load the candidate code and initialize its globals in the emulator.
+Capture then produces the exact expected extra TMP and seven unchanged ordinary
+files. No larger MAIN length or newly installed decompressor is needed for this
+offline proposal. This is a possible loading route, not a deployed result.
+
+The fit is narrow: 302 source bytes remain. Recompute it after every build. The
+plan refuses a build whose packed streams exceed the original source span.
+Physical placement, cache/interrupt behavior, manager/worker registration,
+storage admission and native I/O joins remain unverified. No container, checksum,
+installable firmware, transfer or device access is produced by these tools.
+
+Reproduction
+
+  /tmp/l6-re-tools/bin/python tools/firmware/build_extra_capture.py --layout placement
+  /tmp/l6-re-tools/bin/python tools/firmware/plan_capture_packing.py
+  /tmp/l6-re-tools/bin/python tools/firmware/audit_capture_packing.py
+  /tmp/l6-re-tools/bin/python tests/emulation/verify_capture_packing.py
+  /tmp/l6-re-tools/bin/python tools/firmware/verify_redesign.py
+
+Reports live under ignored analysis/. Packing/audit tools write JSON only. Test
+edits affect emulator memory, never the vendor file. The plan pins the firmware
+hash and current placement ELF hash. Public sources contain the independently
+written host encoder and tests, not packed vendor DSP bytes.
+
+Source layout and budget
+
+The original DSP source occupies [0x800a9408,0x800b6ae4), 55,004 bytes, ending
+exactly at the stock MAIN effective load end. Its destination remains
+[0x20220000,0x2022d6dc). Only the two prior audio jump spans change its output.
+
+Packed DSP:     36,172 bytes at 0x800a9408.
+Packed capture: 18,530 bytes at 0x800b2154.
+Packed end:     0x800b69b6.
+Spare:            302 bytes before 0x800b6ae4.
+
+Capture expands to [0x800b6b00,0x800bc424), 22,820 bytes. That destination lies
+beyond the original loader length; the application initializer writes it from
+compressed bytes wholly inside the existing loaded source. Its availability
+therefore depends on ordinary RAM writes, not the bootloader copying a longer
+MAIN section. Physical ownership of that destination still needs approval.
+
+The default placement experiment continues to cover direct ELF loading and the
+original copier. This separate packing experiment covers the original decoder
+and a changed application scatter table. Neither is enabled on the mixer.
+
+Startup table and ordering
+
+Original table: [0x800a68dc,0x800a695c), eight 16-byte records.
+Zero padding:  [0x800a695c,0x800a6980), 36 bytes.
+Candidate end: 0x800a697c, ten records, leaving four padding bytes.
+
+The end literal at 0x80001990 changes from 0x800a695c to 0x800a697c. A 96-byte
+table tail beginning at 0x800a691c contains the two added records and the four
+original tail records. All eight original destinations and lengths survive:
+
+  first four original initialized regions, unchanged and in original order;
+  zero [0x80960080,0x809600dc), 92 permanent capture-global bytes;
+  expand capture code through stock 0x80001994;
+  expand patched DSP through stock 0x80001994, replacing its copy helper;
+  last three original zero regions, unchanged and in original order.
+
+Added code and zeroed globals precede publication of patched DSP instructions.
+No bootstrap function or replacement decoder is introduced. Manager/worker
+arenas are not initialized by this table; their startup registration is still
+unbound. This ordering does not prove inherited interrupts are excluded, RAM
+code is coherent with caches, or other startup users cannot access the spans.
+
+Encoder and independent checks
+
+scatter_codec.py models the original decoder at 0x80001994. Each token combines
+up to 254 literals with zeros or a copy from up to 255 bytes behind the output.
+Copies may overlap and produce up to 257 bytes. The host encoder minimizes
+encoded bytes with suffix costs. It is an offline packing utility; the device
+would continue using its original Thumb decoder.
+
+146 small deterministic streams test literal-length transitions, zero-run
+transitions, distance limits, two-byte and overlapping copies, random bytes and
+all binary strings of lengths 1..6. The original Thumb decoder, not just the host
+model, must reproduce each input. Read/write observations check exact consumed
+source length, destination size and untouched guards. The complete real DSP
+and capture blocks receive the same independent native-decoder checks.
+
+The host model rejects malformed/truncated streams, literal-counter underflow,
+tokens without progress, invalid copy distances and destination overruns. The
+original decoder does not acquire these checks; only verified generated streams
+are supplied to it. No malformed stream is proposed for a device trial.
+
+Original entry and complete scatter execution
+
+The boot test starts at 0x80001400 with only stock-length MAIN bytes loaded.
+Destinations and added globals start poisoned. The original entry sets SP,
+original 0x80001964 walks the candidate table, and all original copy/decompress/
+zero loops execute without interception. The test stops at Main 0x80067a60,
+before board/cache/task setup. It checks every original destination byte, the
+complete new code output, exactly zeroed globals and boundary guards.
+
+Seven original outputs match stock byte-for-byte; DSP matches the specified
+two-hook version byte-for-byte. No original zero range is shortened to make
+space. The test executes ten helper calls and reaches Main with the same SP as
+the baseline. It is not a complete boot or a simulation of physical cache, MPU,
+interrupts, RAM aliases, RTOS scheduling or elapsed hardware time.
+
+The recording fixture reads ELF metadata, poisons code/global destinations and
+loads executable bytes solely through the original decoder before the first
+added-code call. Its actual RAM jump bytes execute without PC interception at
+the tap/commit sites. Optional task-creation failure and short extra write leave
+the ordinary files unchanged and withhold the extra result.
+
+Bounded reference audit
+
+The audit attempts 358,907 halfword decodes in the MAIN prefix and original
+copied DSP. It also searches every byte offset for pointer values in loaded MAIN
+and all five copied/decompressed initialized regions. Zero regions add no
+nonzero pointers. It checks direct immediates, PC-relative memory and MOVW/MOVT
+pairs within 32 bytes, retaining pairs even across clobbers.
+
+Sixteen raw candidates are retained: the original table-end literal, two source
+fields (one used by copy, one ignored by the zero helper), and thirteen values
+overlapping inspected instructions. Ten decoded candidates are retained: eight
+begin at the second halfword of inspected instructions, and two decode stored
+data pointer words as branches. No bounded MOVW/MOVT pair resolves into the
+reused intervals, and no candidate remains unexplained in this scan.
+
+This does not prove that instruction bytes cannot be read as data, that a wider
+derived pointer cannot reach the source, or that bootloader/DMA/interrupt paths
+have no consumer. The report preserves the candidates and contexts instead of
+treating a scan's negative result as allocation approval.
+
+Verification and next work
+
+Eight packing groups pass. The consolidated runner passes 431 groups across
+41 suites, including the prior seven direct-placement groups. Default profiles
+and APIs remain unchanged; test ELF loading now has an override for this fixture.
+
+Complete physical code/RAM ownership and initialization of manager/worker state,
+then bind startup registration while preserving stock failure handling. Storage
+authorization and native I/O completion must be established before release and
+before any error path can reuse buffers. Remaining audio/control hook encodings
+and measured stack/timing/SD behavior are still prerequisites to a device image.
+Keep the packed size gate; future growth may require a different code-loading
+budget. Hardware testing remains deferred.

@@ -1,0 +1,98 @@
+Encoded capture-only audio/control hooks — 6 October 2026
+=========================================================
+
+Result
+------
+A separate capture-only-hooks.elf now has actual jump bytes for every selected
+MAIN audio/control entry plus the two startup jumps and two DSP jumps. The
+plan checks exact stock bytes, complete displaced instructions, nonoverlap,
+target bounds and packed size. It writes JSON only. Twenty-two groups execute
+the jumps and native files; there is no firmware container or device operation.
+
+The build uses --layout placement --hooks-fixture. It has 22,748 initialized
+code bytes, 18,713 packed code bytes, 96 global bytes and 119 packed bytes spare.
+The later minimal-link variant provides more room; see capture_minimal_findings.txt.
+
+Complete replay
+---------------
+MAIN patches use four-byte B.W plus a two-byte NOP for six-byte spans:
+
+  8001078a  callback entry: original CBZ and BLX
+  8001078e  callback return: original BL to 80010150
+  80006908  start cursor setter: MOVW
+  80006918  stop cursor setter: MOVW
+  8000b158  recording admission observation: MOVW
+  80034fc0  rejection: MOVS plus complete four-byte POP
+  8000b78c  recorder-drained observation: MOVS plus complete BL
+  800483f8  common queue sender: PUSH plus complete MOV.W
+  80034f40  Record request: PUSH plus MOV
+  80034d18  Stop request: PUSH plus SUB SP
+  80034e58  Play request: PUSH plus SUB SP
+  80035038  Stop-with-argument: PUSH plus SUB SP
+  800350d8  other Stop: PUSH plus SUB SP
+  80067a84  startup initializer result / scheduler BL
+  800745e8  post-idle registration / MOV.W
+
+The far DSP jumps retain their tested eight/ten-byte spans. The callback-entry
+adapter preserves the null branch and supplies original LR=8001078f before
+BX to a nonnull callback. The callback-return and drain adapters supply the
+original BL return addresses. Stock-send/request adapters replay the entire
+overwritten prologue before continuing, so the wrapper cannot branch back into
+its own patch. All mid-function observers use the existing full register/FPU
+save/restore convention. Physical FPU enablement and interrupt behavior remain
+unverified.
+
+Verification
+------------
+Six observer sites match stock integer/FPU/status/SP/LR state over all sixteen
+NZCV patterns and both word-aligned stack cases. Callback null/non-null paths
+add 64 comparisons. Six control entry jumps preserve stock returns, saved
+registers, stack and meaningful queue fields. Stock producers initialize only
+callback/argument words; unused queue padding varies with the wrapper's stack.
+The queue-sender test supplies all eight words and compares every byte.
+
+The Astra follow-up corrected ct_stock_send's encoded continuation to 800483ff,
+so the original MOVS r3,#0 at 800483fe selects FIFO mode. Its previous target
+skipped that initializer. New checks reproduced the old wrong continuation,
+kernel mode and reordered messages in both encoded builds before correction.
+They now check the first stock instruction against each control patch's resume,
+both DSP resume states, and all four kernel arguments with incoming R3 values
+0, 1, 2 and ffffffff. Original kernel queue/copy instructions append B after an
+existing A without reaching the mode-2 assertion. Only the scheduler-state query
+is supplied for that initialized, nonfull queue; this is not a blocking/scheduling
+test. The common-sender fixtures reject unsupported timeout/mode before appending.
+Observer/startup endpoints derive from the patch specs, with explicit native-call
+boundaries and saved-LR checks for BL and nonnull callback paths.
+
+Original scatter startup loads the build and zeros its globals. Original boot
+with all MAIN patches present registers one sleeping worker after 36 stock
+tasks/idle, with no file operation. The bounded added-path stack trace remains
+520 bytes; it is not a physical stack-budget measurement.
+
+Complete takes use real MAIN/DSP jump bytes, stock mount/bitmap/files and either
+the sector callback or original SD instructions. Both produce the same exact
+13,312-byte/1,600-frame extra take and seven unchanged ordinary outputs. All
+active Stop entry paths and two original aliases finish exact takes. Pending
+nominal/failed SD work retains its capture stack and file token while ordinary
+audio/Stop runs on a separate fixture stack, until explicit MODEL permission.
+
+Limits
+------
+Deep ordinary file registration still uses ct_emulator_admit; the original
+8000b158 jump is verified separately. Selected DSP windows, scheduling, ordinary
+file backend, card bytes/state, DMA effects and physical joins remain models.
+Startup and recording compositions are separate, with explicit worker release.
+The linear branch scan cannot exclude all indirect interior entries.
+
+Automatic storage release, outer transition protection, physical I/O completion,
+RAM ownership and cache/IRQ/timing evidence remain prerequisites. Normal profiles
+keep their previous executable bytes; ELF debug metadata can change after source
+line changes. No image was constructed, staged or installed.
+
+Reproduce
+---------
+python tools/firmware/build_extra_capture.py --layout placement --hooks-fixture
+python tools/firmware/plan_capture_hooks.py
+python tests/emulation/verify_capture_hooks.py
+
+Reports: analysis/capture_hooks_plan.json and capture_hooks_verification.json.

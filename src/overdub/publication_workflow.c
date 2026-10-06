@@ -45,7 +45,9 @@ static int baseline(PwWorkflow *w) {
     return 1;
 }
 static int plan(PwWorkflow *w) {
-    if(w->publish_result==OD_SKIPPED)return 1;
+    /* A safely failed publisher has already verified rollback. Reload and
+     * verify the ORIGINAL plan before releasing any shared ownership. */
+    if(w->publish_result!=OD_OK)return 1;
     State *s=w->config.publication;
     if(!s->count || s->count>4)return 0;
     for(uint32_t p=0;p<s->count;p++) {
@@ -91,7 +93,9 @@ KEEP int32_t pw_step(PwWorkflow *w) {
         w->publish_result=c->port->publish(c->capture,c->publication,c->files,(uint32_t)w);
         if(w->publish_result==OD_BUSY){r=OWN_BUSY;goto failure;}
         if(w->publish_result!=OD_OK && w->publish_result!=OD_SKIPPED) {
-            w->error=0xffff2000+w->publish_result;r=OWN_FAULT;goto failure;
+            w->error=0xffff2000+w->publish_result;
+            if(w->publish_result==OD_FAULT || c->publication->fault ||
+               w->publish_result>OD_FAULT){r=OWN_FAULT;goto failure;}
         }
         w->phase=PW_PLAN;
     }

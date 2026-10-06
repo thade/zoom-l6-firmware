@@ -1,0 +1,95 @@
+COMPILED INITIAL-READ EVIDENCE AND RELOAD OWNERSHIP
+4 October 2026
+
+Result
+reload_read.c now retains the public-read status and transferred count under
+the reload branch that requested the read. An exact successful read can finish
+its reservation after the producer's matching completion wait. A failed/short
+read records a persistent reload error before releasing that reservation. The
+normal loading indicator or correct-looking pad paths cannot override it.
+
+The connection is exercised with original reload, prefetch and file-worker
+instructions in the emulator harness. Native task attribution, ticket transport
+and public-read interception are NOT installed. native_worker_release is still
+unwired: these tests do not authorize startup on the physical mixer.
+
+Implementation
+- RrRead was 64 bytes at this milestone (68 with the subsequent queue-state word)
+  of permanent zero-once storage per outstanding read. Reuse
+  requires DONE. It owns a copy of the reload envelope, request, unique ticket,
+  coordinator identity, raw result, actual count and interpreted error.
+- rr_begin validates pad, nonzero buffer/count and nonwrapping buffer range.
+  rl_read_reserve verifies the exact currently claimed, not-returned reload
+  branch before reserving a child in the existing ledger. Wrong/stale tags do
+  not admit a read. This is an internal lifetime scope, not a new queue format.
+- rr_ready advances that scope through offer/accept/claim. These transitions
+  establish the internal synchronous-read scope; ACCEPTED is NOT a claim that
+  the stock queue has delivered a message. The caller must reach OK before send.
+  BUSY retains the phase for retry; no lock spans filesystem work or waiting.
+- rr_observe accepts exactly one status/count result for the matching running
+  ticket. It keeps any raw nonzero status; status zero with a mismatched count
+  becomes error 0xffff0003. A duplicate or late result cannot affect a later read.
+- rr_finish is called only after the corresponding file-worker/wait completion
+  has joined. It first commits the interpreted error through rl_io_error, then
+  closes the read scope. Missing observation returns BUSY. Metadata contention
+  retains state; retries never repeat the read. The caller supplies trustworthy
+  join evidence: this API is not itself a semaphore or hardware completion probe.
+- The existing parent/child ledger keeps even a returned reload branch alive
+  while any read reservation remains. Final verification cannot pass that join.
+  An error copied into the reload job prevents successful retirement even if
+  final paths and loading indicators appear normal.
+
+Length and EOF policy
+This first adapter covers exact initial sample reads only. Expected length is
+the requested byte count supplied before send. Raw EOF, zero count, short count
+and an impossible excess count all fail. It does not make exceptions based on
+the fact that stock code pads a short read with zeros. Periodic refills and reads
+intentionally spanning EOF need a separately justified policy and must not use
+this adapter blindly. No requirement to load all four pads is imposed by the
+API: it tracks the reads actually admitted for the selected startup contents.
+
+Offline integration
+verify_reload_read.py extends the preceding direct-prefetch fixture. A separate
+CPU executes the compiled ownership/read module; the reload and file-worker CPUs
+execute the original bodies. The harness binds each current WORKER/UI envelope
+before read submission, reserves a read ticket, captures public-read status/count
+before the stock worker can mask them, and finishes the scope after its matching
+signal/wait. Eight successful reads (four assignment plus four Main reload reads)
+receive distinct monotonically increasing tickets under the correct branches.
+
+This is explicit cross-emulator coupling, not device queue transport. Public
+file reads, parsing, conversion and scheduling retain the preceding fixture
+boundaries. The native queue has not been enlarged or reinterpreted, and no
+global mutable current-owner variable is proposed for production use.
+
+Verification
+  python tools/firmware/build_overdub_prototype.py
+  python tests/emulation/verify_reload_read.py
+
+Eight groups pass: correct branch attribution for eight reads; raw and short
+read failure in either reload stage; missing observation/delivery; returned-body
+join protection; metadata contention; stale/duplicate/early/wrong-coordinator
+handling; strict EOF/overcount/zero-count policy; and invalid ranges/tags.
+The original failed/short-read cases still reach normal-looking pad paths, but
+the compiled reload retirement now rejects them. Missing work stays pending.
+
+Affected regressions pass on the rebuilt ELF:
+  read evidence 8; reload ownership 19; transport 14; compact transport 14;
+  reload manager 19; publication workflow 17; direct prefetch 5.
+Total: 96 groups across seven suites. Build uses warnings as errors.
+Report: analysis/reload_read_verification.json, plus each named suite's report.
+
+Remaining integration
+Bind the immutable read ticket to native file requests and receive context,
+capture full PUBLIC-read results including failures before lower-driver entry,
+and bind verified producer joins. Both request endpoints must change together;
+ordinary untracked reads cannot be retroactively attributed. Missing/uncertain
+delivery must retain ownership. Resolve card/USB admission and initial content
+selection before using completed reload evidence to call native_worker_release.
+Registration placement, stock allocation headroom and physical code/RAM placement
+remain open. No firmware image was generated or installed; device testing remains
+deferred.
+
+Follow-up: reload_read_queue_findings.txt adds compiled 16-byte ticket messages,
+consumer matching and a worker-return acknowledgement. Native task binding and
+receive-loop retention remain integration work.

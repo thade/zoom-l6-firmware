@@ -1,0 +1,158 @@
+CHECKED SD ABORT / DATA RESET / SIGNAL DRAIN — 5 October 2026
+
+Follow-up: sd_native_event_findings.txt now traces the original constructor and
+selects native flag/token/IRQ primitives in a separate twenty-group suite.
+The sixteen groups below retain their MODEL kernel provider. Source/post
+exclusion, reset permission and physical/cache/card validity remain modeled.
+
+Result
+Sixteen new offline groups execute a compiled candidate recovery sequence with
+the stock transfer, CMD12, IRQ, event-post, wait and event-peek instructions.
+Reset completion, idle/busy state, configuration, event identity and status
+readback are checked by compiled code. IRQ serialization, kernel signal clearing,
+permission to reset and final physical/cache/card/filesystem validity remain
+explicit MODEL providers. This is an executable experiment, not device recovery.
+
+The whole-handoff case retains its gate, filesystem/scratch locks, SD unit token
+and failing read stack after the modeled reset completes. Only final MODEL
+permission plus the compiled readback checks allow unwind and safe modeled
+rollback. Main/UI service is not needed on the exercised paths. Normal capture-
+only and handoff profiles still exclude every sdp_ symbol.
+
+Admission boundary
+New emulator-only hooks at the lower public data wrappers 0x8006b1e0 and
+0x8006b248 run AFTER the registered read/write parent acquires the SD token,
+before any new DMA address is programmed. The eight original entry bytes are
+pinned and replayed by trampolines. Pending admission retains that parent's
+stack and unit token, with no command or DMA-address submission.
+
+Each new registered transfer resets the fixture's scope, diagnostics and stop
+state. Its admission requires a MODEL prior-user/IRQ/post exclusion contract,
+acknowledges recognized hardware flags, obtains MODEL kernel token/flag drain,
+and checks the preserved event, cleared status, no reset/activity, DAT0 high and
+clock stability. Only the examined unit 0, simple-DMA, little-endian, one/four-bit
+SD bus modes are supported. ADMA, incompatible endian/width or shared auto-CMD23
+argument mode is rejected before a transfer begins. These are experiment bounds,
+not chipset identification or restoration of arbitrary controller modes.
+
+Draining before a DMA address is important: the original command engine clears
+status AFTER the lower path programs DS_ADDR. The candidate manual requires TC
+to be cleared first. The new model records every original DMA-address write
+with TC/status and event flags already clear. Completed recovery does not skip
+admission: a subsequent registered transfer must perform its own serialized
+drain before programming an address.
+
+Failed-transfer sequence
+1. Keep the existing registered scope active/failed and the original stack,
+   buffer and unit token owned. Require matching unit/buffer/length/event.
+2. Disable controller signal delivery, then obtain MODEL serialization of
+   in-progress IRQ handlers/posts and exclusion of old completions. Masking
+   signals by itself is deliberately not considered serialization.
+3. Acknowledge recognized status with W1C mask 0x157f003f and check readback.
+   Unknown or reasserted status remains a fault. Read the old software flags
+   through the original event-peek function, request MODEL kernel token/flag
+   drain, and check flags/status again without recreating the event.
+4. Require the counterfactual CMD12 table row with explicit Abort type. The
+   experiment changes that row ONLY in emulator memory. It neither patches nor
+   accepts the unmodified stock Normal-type row as checked abort. Run the
+   existing once-per-failed-transfer stock stop attempt. Require zero status,
+   no stop error, and raw command-complete observation 1 under the exclusion
+   contract. An old software completion with no new raw observation fails.
+5. Obtain separate MODEL permission that the card accepted abort and reset is
+   safe under the candidate manual's incomplete-transfer constraint. Successful
+   CMD12 or expiry of its busy poll is not that permission. Missing, negative or
+   unknown permission retains ownership and issues no reset.
+6. Request SYS_CTRL.RSTD only, preserving other controller fields. Check ALL
+   reset bits for self-clear for up to ten modeled one-unit delays. Self-clear
+   on the final delay passes. A stuck RSTD or another remaining reset bit latches
+   unresolved recovery; subsequent join calls do not repeat CMD12 or the reset.
+7. Obtain post-reset MODEL IRQ/post serialization and perform another checked
+   hardware/software drain. Require no CIHB/CDIHB/DLA/WTA/RTA activity, DAT0 high,
+   clock stable, unchanged event identity and preserved configuration. Compare
+   PROT_CTRL excluding CREQ bit 17 (0x20000), VEND_SPEC2 and the low 24 SYS_CTRL
+   bits. Data reset may clear CREQ; that expected change is accepted. Unexpected
+   bus/mode/clock changes are retained faults, without automatic repair.
+8. Obtain MODEL physical/cache/card/filesystem validity for unwind. Then repeat
+   the compiled readiness checks so even a successful MODEL return cannot
+   override newly visible dirty status, software flags or busy activity. Pending
+   final permission keeps the same stack after reset, without repeating it.
+
+The sdp_recovery_join return value 1 is the old guard's JOINED input ONLY after
+this complete modeled contract. It is no longer supplied by a callback that
+merely clears busy bits. MODELED reset effects happen separately from the CPU's
+reset write; physical permission and validity are still indispensable inputs.
+A repeated call after completed recovery revalidates rather than reusing cached
+success. Read data from the failed transfer is not copied out as successful.
+Data/diagnostic resubmission inside a failed scope remains suppressed.
+
+Why MODEL providers remain necessary
+Before admission, exclusion must cover prior hardware work and validity of its
+buffers/cache/card mapping, not merely software mutex ownership. Before abort,
+it must prevent an old command completion being attributed to the new command.
+After reset it must join ISR/event-post work while keeping the existing event
+and its users valid. Controller signal masking does not stop a running ISR,
+drain NVIC pending state or stop a late completion at its hardware source.
+Those operations and their lock dependencies have not been recovered as a
+checked native binding. Providers must not wait for locks held by the caller.
+
+The MODEL kernel drain clears both flags and semaphore counts. Compiled code
+verifies flags through 0x80032878 -> 0x80032530; it does not inspect private kernel
+semaphore counts itself. The original wait initially consumes a semaphore token
+and can clear flags according to the event's mode at +4. Tests explicitly seed
+auto-clear mode 1. The actual stock event constructor/mode and a checked native
+nonblocking drain still need tracing. No live event is deleted or recreated.
+
+Neither a stopped host memory transaction nor DAT0 high establishes file
+durability or that existing handles still belong to the same card/filesystem.
+The final MODEL validity provider retains that obligation. There is no RSTA,
+card reset/reinitialization or implicit reuse of changed card metadata. The
+previous card-init audit showed why successful negotiation alone is insufficient.
+
+This experiment checks failed recovery and admission for scoped registered
+transfers. Normal successful data waits still inherit the existing original/
+probe completion contract; this is not a new all-path physical completion proof,
+full gate implementation or general storage/card teardown policy.
+
+Fixture behavior and negative cases
+The new fixture supplies W1C effects on the instruction AFTER a CPU status write,
+before compiled readback. It simulates selected data-reset effects only after an
+explicit modeled delay. Reset-generated leftover hardware errors/TC, software
+flags and kernel tokens are seeded so post-reset draining must actually run.
+This models ordering/checks, not timing or register side effects of real silicon.
+
+Cases cover direct/bounce reads and writes, reset completion on delays 1/10,
+stalled reset, retained other reset bits, every activity bit, DAT0 low, clock
+instability, mode/clock/event changes, unknown/reasserted hardware status, late
+software posts, stop errors/timeouts and old software command completions.
+Pending pre-abort/post-reset IRQ or kernel-drain permission resumes the same
+stack without repeated stop/reset. Card or cache permission may remain pending
+after reset, and dirty state injected by a final successful MODEL callback is
+still rejected. A new transfer with old TC/events/tokens cannot program another
+DMA address until its new admission completes.
+
+Next concrete slice
+Trace the actual stock event constructor, flag mode and kernel token operations;
+replace the software-drain MODEL dependency with checked native primitives in
+the emulator. Determine the relevant IRQ priority/masking/post ownership and
+test their serialized clearing/rearming order, including late delivery. Keep
+reset permission, silicon behavior and cache/card/filesystem validity explicit
+until hardware evidence is available. The normal device gate remains unbound.
+
+Sources and verification
+Original v1.10 firmware hash pinned in the report below; additional trampoline
+heads are 70b588b044f2b426 at both examined data wrappers.
+Candidate NXP MIMXRT1042.h / MIMXRT1062.h register definitions in Reference/.
+NXP IMXRT1060RM Rev.3 (07/2021), sections 26.5.3.5.2, 26.6.5, 26.7.1.5 and
+26.7.1.13, read from the original NXP manual's public mirror:
+https://www.pjrc.com/teensy/IMXRT1060RM_rev3.pdf
+  SHA-256 a2e342e492eded2a1d626cf955de953ca28d8db8675b10937a5176fd6f2c9200.
+The manual supports candidate abort/data-reset, reset self-clear and pre-address
+TC constraints. It does not identify installed silicon or validate MODEL inputs.
+
+tests/fixtures/sd_recovery_probe.c/.h, sd_stop_probe.c and sd_transfer_probe.c/.S.
+tests/emulation/verify_sd_checked_recovery.py: sixteen groups.
+analysis/sd_checked_recovery_verification.json pins firmware/test-ELF hashes.
+The consolidated redesign runner passes 378 groups across 36 suites.
+No physical abort/reset/DMA/cache/bus/NVIC/card timing or persistence proof,
+native recovery/gate binding, device/card access, deployment image or installation.
+Hardware testing remains deferred. All model addresses are emulator ports only.

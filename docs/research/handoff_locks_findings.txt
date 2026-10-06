@@ -1,0 +1,109 @@
+STOPPED HANDOFF: SYNCHRONOUS PREFETCH LOCK AND TASK-CONTEXT AUDIT
+5 October 2026
+
+Result
+The tested original prefetch and public-read path permits our serialized worker
+to perform a synchronous initial read while logical admissions are closed. It
+does not require the sample file task or its read-completion semaphore on this
+path. This supports the simpler adapter; it is not a device-ready fence or a
+proof about SD/DMA completion, scheduling or every possible caller.
+
+Six new emulator groups execute original lock selectors and task-context setup,
+in addition to the loader/prefetch/public-read bodies used by the handoff tests.
+The old handoff fixture replaced the filesystem lock helpers and task getter;
+this audit removes those replacements and models only the actual RTOS token
+take/give endpoints, driver data, conversion, gate and sealing.
+
+Observed ordering
+1. Prefetch 0x800369a8 waits indefinitely on the token stored at 0x80446868.
+   The two call sites are 0x80036af6 (carry) and 0x80036b44 (plain).
+2. With that scratch token held, it calls the configured pad read callback.
+   Our synchronous callback directly enters public read 0x80060620.
+3. For the tested volume's domain 1, public read calls 0x8001bf88, which selects
+   the filesystem token at 0x801f8da4. It reaches 0x800328f0 -> 0x800327c8 ->
+   0x80076950. Other handle/volume branches may select a different domain or both.
+4. Public read calls task getter 0x80032810 -> 0x80032448. That original getter
+   reads IPSR and, in task context, obtains the caller through 0x800770e8.
+   The wrapper records that task in its filesystem call context at 0x801f8df0
+   and executes the original error-frame setup at 0x80001848 before driver entry.
+   Two distinct modeled worker identities both succeed; no equality with the
+   sample file-task identity is required by the examined wrapper path.
+5. At the modeled lower read driver boundary, both scratch and filesystem tokens
+   are held. Public return clears its call context and releases the filesystem
+   token through 0x80035168 -> 0x80032890 -> 0x80032588 -> 0x800763d8.
+6. Original prefetch converts with scratch still held, then gives the scratch
+   token at 0x80036b92. Larger initial data repeats this order across chunks.
+   Error/short reads also unwind those locks before the checked adapter restores
+   the old backing. The fixture sees no sample-read queue submissions.
+
+Token addresses above identify slots, not immutable runtime handle values. The
+test supplies distinct synthetic handles. M-profile emulation is used to execute
+the original MRS IPSR instruction; this does not identify the physical chipset.
+
+Negative controls and their implications
+- If a modeled gate retains either the scratch token or the filesystem domain
+  token, its own handoff stops at the corresponding contended indefinite wait.
+  No sample data is read and the gate is not released. The harness suspends at
+  that wait instead of fabricating timeout/success. This demonstrates the call
+  dependency, not physical deadlock timing.
+- If the same task is already recorded as the filesystem domain's current
+  context (slot 0x801f8dc4 for domain 1), 0x8001bf88 rejects reentry. Public read
+  returns 0xffffd825 before driver execution and its error exit gives the domain
+  token. Nesting handoff inside an existing filesystem operation is therefore
+  not a valid admission mechanism either.
+- The examined prefetch and filesystem helpers rely on valid initialized RTOS
+  objects and successful indefinite takes. They do not supply a checked gate
+  contract. This audit does not equate a failed wait or a stopped UI flag with
+  ownership, and does not change the stock wait code.
+
+Required gate semantics
+The gate is a logical admission boundary. It must exclude new playback/refill,
+recording, catalogue and card/USB changes, then join already admitted work and
+its queued descendants. It must allow those users and driver completions to
+progress while draining. It may briefly use internal synchronization to change
+admission metadata, but it must release scratch/filesystem/SD resources before
+returning success to the handoff. Interrupts and the scheduler remain enabled;
+the handoff must not execute in an ISR or within another filesystem operation.
+
+enter OK means closed admissions plus joined users. enter BUSY/SAFE must leave
+no reservations or admission changes behind. Uncertain acquisition retains its
+diagnostic ownership; the controller must not infer that a release is safe.
+
+leave is an I/O-free admission commit: perform all fallible checks while still
+closed. Any non-OK outcome must preserve the closed/joined state and ownership.
+Once another task can be admitted, leave must return OK. The native adapter
+clears close-interception ownership before calling leave, so ordinary closes can
+proceed immediately after a successful commit. Restoring that pointer on failure
+does NOT itself restore the gate. A prospective binding unable to guarantee the
+commit contract is invalid and must not be enabled.
+
+seal must join/check its own I/O and return SAFE only when definitely unchanged;
+its unresolved operation identities belong to its persistent gate context.
+
+These requirements are now explicit in backing_native.h and backing_handoff.h.
+No gate implementation or device hook was added in this audit.
+
+What this does not prove
+The lower filesystem read driver remains a data fixture in the new test. Earlier
+sd_transfer_lifetime_findings.txt separately executes registered SD callbacks and
+finds synchronous command/data waits under a per-unit lock on tested paths, but
+also documents timeouts and lost status evidence. The two audits are not a single
+end-to-end execution or proof that physical DMA is idle on public-read return.
+
+All scratch users, lock-order paths, card generations, mounted-volume lifetime,
+real worker stack requirements and scheduling must still be established. No
+hardware operations, deployment artifact, automatic recovery, or power-loss
+atomicity is claimed. The capture-only milestone remains first.
+
+Reproduce (offline)
+  /tmp/l6-re-tools/bin/python tests/emulation/verify_handoff_locks.py
+Report: analysis/handoff_locks_verification.json
+The suite is included in tools/firmware/verify_redesign.py.
+
+Next bounded integration task
+Inventory the actual admission entry points and completion acknowledgements for
+playback/refill and recorder/card activity. Select a gate only if those paths can
+be closed and drained while the locks and completion contexts above remain free.
+Do not replace this with a scratch lock, filesystem lock, disabled scheduler, or
+an idle-flag check. Lower SD completion/error ownership remains a separate
+prerequisite for treating an I/O failure as safely joined on the physical device.

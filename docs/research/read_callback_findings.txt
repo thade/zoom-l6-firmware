@@ -1,0 +1,91 @@
+SYNCHRONOUS INITIAL-READ CALLBACK
+4 October 2026
+
+Result
+rp_callback in read_producer.c now drives the retained producer phases from one
+synchronous call. In the emulator, original assignment and Main reload bodies
+call through the original prefetch loop into this compiled wrapper. The wrapper
+does not return until its matching read ticket has joined. All eight initial
+reads complete with the expected sample bytes before stock conversion continues.
+
+Why a synchronous wrapper is necessary
+Stock callback 0x80036208 has arguments (pad, buffer, byte_count). It sends once
+and returns the native semaphore-wait result. Prefetch calls it at 0x80036b56 or
+0x80036b0c; neither continuation checks that result before conversion. Therefore
+returning an ownership BUSY/error code would allow the original code to proceed
+without the required evidence. The new wrapper keeps retrying internally.
+
+Wrapper behavior
+- Begin once; an invalid/duplicate entry does not replace the retained request.
+- Drive rp_step until the matching read joins. Each pending phase yields through
+  the bound port. The send and native semaphore wait still happen only once.
+- Retrieve and return the saved native wait result after joining.
+- Preserve IO/short-read/wait errors for final reload verification. As in stock
+  code, conversion can follow a joined failed read; successful reload approval
+  remains forbidden. This wrapper does not claim failed audio is usable.
+- On a tracking invariant failure, latch the gate fault and park in a yielding
+  loop instead of returning to the caller. An unbound misuse parks with WFE;
+  installation must always follow binding. No timeout establishes completion.
+
+The failure policy is deliberately unfinished. A parked caller can retain the
+stock prefetch synchronization acquired before the callback, and parking Main
+can stall user-interface work. Production fault isolation and safe unwinding are
+required before deployment; a gate fault alone does not fix stock resource use.
+
+Scope and routing
+rp_callback is for explicitly attributed initial reload reads only. It is not a
+global replacement for 0x80036208 or every configured sample-read callback.
+Ordinary/periodic reads require their stock path and may have different EOF and
+lifetime rules. Tests explicitly select attributed interception or the ordinary
+route; a compiled dispatcher and installation/cutover policy remain unimplemented.
+Both tracked roles still require their bound native task and live RtTask envelope.
+
+Verification
+  python tools/firmware/build_overdub_prototype.py
+  python tests/emulation/verify_read_callback.py
+Report: analysis/read_callback_verification.json
+
+Seven groups pass:
+1. Four assignment plus four Main prefetches complete before exact conversion,
+   with delayed worker scheduling after an early semaphore wakeup.
+2. Short reads, raw IO errors and failed waits retain reload failure after join.
+3. Four measured completion-lock retries preserve the suspended caller stack
+   without repeated sends or semaphore waits.
+4. Undelivered requests do not reach conversion or a reload-completion event.
+5. A changed parent identity parks the callback and latches a fault.
+6. Explicit ordinary routing runs the original callback with no read-ticket
+   evidence, preserving all eight fixture sample buffers.
+7. Invalid attributed arguments park without sending or returning to the caller.
+
+All 119 preceding groups pass on the rebuilt ELF. Including these seven, 126
+groups pass across eleven suites: callback 7, producer 7, worker 9, read queue 7,
+read evidence 8, reload ownership 19, reload transport 14, compact transport 14,
+reload manager 19, publication workflow 17 and prefetch 5. Not a full repo run.
+
+Test boundaries
+One Unicorn CPU executes the original assignment/UI/prefetch and file-worker
+instructions with the compiled callback and read adapters. At explicit yield
+boundaries, the fixture saves registers, runs the file worker on a separate
+stack, restores the caller registers and resumes that exact continuation.
+Shared memory is not copied between CPUs. This tests continuation across yields;
+it does not emulate RTOS context-switch code or arbitrary interrupt preemption.
+
+The fixture supplies enclosing RUNNING reload scopes, callback-entry redirection,
+kernel queue copying, semaphore outcomes, file effects, WAV parsing and sample
+conversion. The file worker is entered at its retained receive-loop boundary on
+each scheduled pass. Ordinary semaphore waits are explicitly scheduled as blocked
+until their worker runs. The negative tests observe 150 retained scheduling
+boundaries, without treating that fixture bound as a production timeout.
+
+No installed dispatcher, branch patch, physical placement, SD durability, real
+audio output or startup release is demonstrated. No device/card access occurred.
+
+Next
+Bind scoped callback routing without enrolling ordinary traffic accidentally.
+Establish file/card lifetime ownership and safe failure handling for both the
+file worker and its synchronous callers. These remain prerequisites for wiring
+startup-worker release; memory placement and hardware trials are still separate.
+
+Follow-up: read_routing_findings.txt records compiled task/state/call-site routing
+and a stock callback forwarder. Test-time route selection is no longer needed
+in that suite. Shared ingress binding, installation and ownership remain open.

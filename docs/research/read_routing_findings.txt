@@ -1,0 +1,99 @@
+SCOPED INITIAL-READ ROUTING
+4 October 2026
+
+Result
+The compiled rp_read_entry/rp_dispatch pair now chooses tracked versus stock
+reads using native task identity, reload-task state and the original callback
+return address. The emulator redirects every stock read-callback entry through
+this same dispatcher; its fixture no longer chooses the target implementation.
+Nine new groups and all 126 preceding groups pass (135 across twelve suites).
+No firmware patch has been written or installed.
+
+Entry and stock forwarding
+read_producer_hooks.S captures LR into the fourth argument before branching to
+C. The first three arguments remain pad, buffer and byte count. This preserves
+the original caller identity across the dispatcher's own function calls.
+
+The ordinary path uses rp_stock_read, which replays the four original bytes at
+0x80036208 (CMP r0,#3; BHI invalid-pad-return) and continues at 0x8003620c. It does
+not reenter the intercepted callback entry. The original null-buffer and invalid
+pad behavior is retained, as are the stock send and indefinite semaphore wait.
+This is an emulator forwarder for v1.10, not evidence of branch reach, physical
+placement, instruction-cache handling or an installed entry patch.
+
+Route rules
+Binding must already exist. Thread context, a nonzero current-task identity,
+both native role handles, the file queue and the read semaphore must still
+match the permanent binding. Invalid binding/context parks instead of forwarding.
+
+For either bound reload task:
+- A locked RT_RUNNING context with a valid matching-role envelope is tracked
+  only at the two examined initial-prefetch returns: 0x80036b59 (BLX at
+  0x80036b56) and 0x80036b0f (BLX at 0x80036b0c). These addresses include the
+  Thumb bit. Other call origins within a live reload fault rather than silently
+  creating untracked descendants.
+- An unlocked RT_IDLE or RT_DONE context uses stock reads only if its producer
+  has no locked or unfinished operation. Retained tags in a completed context
+  do not accidentally enroll ordinary reads.
+- Transitional phases, damaged live tags and retained reads cannot be treated
+  as ordinary work merely because an active-context check fails.
+
+Other native tasks keep the stock path, even while a reload is live elsewhere.
+This preserves their behavior; it does not prove storage exclusion or track their
+lifetime. Task-handle recycling is unsupported. The same permanent RtTask and
+coordinator storage must ultimately be shared with the actual reload ingress.
+That shared initialization/installation has not yet been wired.
+
+Failure and admission limits
+The existing fail-stop policy remains: latch the ownership fault and park the
+caller. Thread callers yield; invalid interrupt-context entry uses WFE rather
+than an RTOS yield in an interrupt. Neither case is production fault recovery.
+Native binding changes can park ordinary callers too, and stock resources may
+remain held. Fault isolation and safe unwinding remain deployment prerequisites.
+
+This router assumes cold installation before traffic, permanent bindings and
+the matching file-worker endpoint. It provides no live cutover handshake, queue
+drain or task-recreation policy. Nor does ordinary forwarding reserve file/card
+ownership, prevent close/reopen or establish startup readiness by itself.
+
+Verification
+  python tools/firmware/build_overdub_prototype.py
+  python tests/emulation/verify_read_routing.py
+Report: analysis/read_routing_verification.json
+
+Nine groups pass:
+1. Eight original initial-prefetch reads route by captured LR and native identity
+   to tracked requests, with exact bytes reaching conversion.
+2. The original carry-path BLX supplies its second accepted return address.
+3. Both IDLE and DONE reload contexts use ordinary stock reads without tickets.
+4. Another native task retains stock reads while reload scopes exist elsewhere.
+5. Invalid lock/phase/tag combinations fault before sending or converting.
+6. Changed task handles, file queue or semaphore fault before submission.
+7. Unsupported origins inside a live reload cannot fall back to stock reads.
+8. An outstanding producer operation prevents fallback after its parent is
+   incorrectly marked idle.
+9. The stock forwarder preserves invalid-pad/null-buffer early returns without
+   sending, waiting or recursively entering the dispatcher.
+
+Regression suites: callback 7, producer 7, worker 9, read queue 7, read evidence 8,
+reload ownership 19, reload transport 14, compact transport 14, reload manager 19,
+publication workflow 17 and prefetch 5. These total 126; with routing 9 the total
+is 135. This is not a full repository test run.
+
+The original normal prefetch, assignment and Main callers run through the
+compiled dispatcher on one emulated CPU. The carry test executes its actual BLX
+with fixture arguments and stops at the immediate continuation; it is not a
+complete carry-buffer/DSP test. Enclosing reload scopes, task scheduling, queue
+copying, semaphore outcomes, files and conversion remain fixtures. No real IRQ
+schedule or invalid-interrupt parking behavior is tested. No device/card access,
+physical installation, startup release or audio-output claim is made.
+
+Next
+Connect shared bindings to the actual reload ingress and establish file/card
+ownership, including ordinary traffic and close/reopen boundaries. Resolve caller
+and file-worker fault isolation before enabling startup release or deployment.
+
+Follow-up: read_ingress_findings.txt records shared cold binding and combined
+execution through compact ingress. Enclosing task phases/envelopes now come from
+compiled rt_receive/rt_run in that suite. Installation and storage lifetime remain
+unresolved.

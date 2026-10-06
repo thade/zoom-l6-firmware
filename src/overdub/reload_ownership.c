@@ -143,6 +143,14 @@ static int returned(const RlJob *j) {
     return j->producer_done && j->worker_done && j->worker_sent &&
         (j->worker_sent==OWN_NOT_SENT || (j->ui && j->ui_done && j->ui_sent));
 }
+KEEP int32_t rl_read_reserve(RlCoordinator *c,const RlEnvelope *e,const OwnRequest *request,uint32_t *ticket) {
+    if(!enter(c))return OWN_BUSY;
+    RlJob *j=0;uint32_t *claimed=0,*done=0;
+    int32_t r=decode(c,e,&j,&claimed,&done);
+    if(r)return leave(c,r);
+    if(!*claimed || *done || request->kind!=OWN_SESSION)return leave(c,OWN_CONFLICT);
+    return leave(c,od_own_child(c->ledger,e->child,request,ticket));
+}
 KEEP int32_t rl_seal(RlCoordinator *c,uint32_t token,uint32_t id) {
     if(!enter(c))return OWN_BUSY;
     if(!token || c->manager!=token)return leave(c,OWN_CONFLICT);

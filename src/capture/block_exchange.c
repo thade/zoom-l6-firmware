@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "exchange.h"
-#define KEEP __attribute__((used,retain))
+#include "retention.h"
 #define LD(p) __atomic_load_n((p),__ATOMIC_ACQUIRE)
 #define ST(p,v) __atomic_store_n((p),(v),__ATOMIC_RELEASE)
 enum { FREE,WRITING,READY,READING };
@@ -23,13 +23,29 @@ static uint32_t fault(Exchange *p) {
     if(p->pending && p->owns)ST(&p->slots[(uint32_t)(p->next>>6)&p->mask].state,FREE);
     p->pending=p->owns=0;return TIMELINE;
 }
-KEEP uint32_t exchange_init(Exchange *p,Slot *slots,uint32_t count,const Observation *o) {
-    p->slots=slots;p->mask=count-1;p->capacity=o->capacity;p->expected=o->cursor;
+KEEP uint32_t exchange_prepare(Exchange *p,Slot *slots,uint32_t count) {
+    if(!p)return INVALID;
+    p->prepared=0;p->pending=p->owns=0;
+    p->fault=p->pub_fault=TIMELINE;
+    if(!slots || ((uintptr_t)slots&7u) || count<2 || count>EXCHANGE_MAX_SLOTS ||
+       (count&(count-1)) || (uintptr_t)slots>UINT32_MAX-count*sizeof(Slot))return INVALID;
+    p->slots=slots;p->mask=count-1;
+    for(uint32_t i=0;i<count;i++)slots[i].state=FREE;
+    p->prepared=1;return OK;
+}
+KEEP uint32_t exchange_begin(Exchange *p,const Observation *o) {
+    if(!p || !o || p->prepared!=1)return INVALID;
+    p->prepared=0;
+    if(!mode(o))return fault(p);
+    p->capacity=o->capacity;p->expected=o->cursor;
     p->pending=p->owns=p->dropped=p->fault=0;p->next=0;
     p->version=p->pub_lo=p->pub_hi=p->pub_fault=0;p->pub_cursor=o->cursor;
-    if(!slots || count<2 || count>4096 || (count&(count-1)) || !mode(o))return fault(p);
-    for(uint32_t i=0;i<count;i++)slots[i].state=FREE;
     return OK;
+}
+/* Legacy initialization-only API. Never call this from the live audio path. */
+KEEP uint32_t exchange_init(Exchange *p,Slot *slots,uint32_t count,const Observation *o) {
+    uint32_t s=exchange_prepare(p,slots,count);
+    return s?s:exchange_begin(p,o);
 }
 /* Pre-master boundary: stage a private block; never spin or wait for a reader.
  * WAIT means this optional block is dropped, but commit must still be called

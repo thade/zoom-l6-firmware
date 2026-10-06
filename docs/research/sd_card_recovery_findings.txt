@@ -1,0 +1,159 @@
+SD STOP COMMAND / CARD RESELECTION — 5 October 2026
+
+Follow-up: sd_checked_recovery_findings.txt executes compiled abort/data-reset/
+idle/drain checks inside this retained-stack boundary. Physical permissions,
+IRQ serialization and kernel clearing are still explicit MODEL dependencies.
+
+Result
+Thirteen new offline groups trace stock CMD12, the upper card initialization
+state machine and a compiled stop attempt inside the existing retained-stack
+probe. The stop attempt preserves the failing read/write call, its direct or
+bounce buffer and its SD unit token. A whole-handoff case also preserves the
+filesystem/scratch locks and gate. Only the existing explicit MODEL JOINED
+callback permits unwind and rollback. No physical recovery is implemented.
+
+Stock CMD12 representation and outcomes
+The 43-entry command table at 0x800a07ec has 12-byte rows. Software command 14
+maps to wire CMD12, flags 0x001b0000 and mix flags 0x10: a checked R1b response
+with busy handling. None of these 43 rows selects CMDTYP Abort (bits 23:22=11).
+This bounded observation does not exclude other directly programmed paths.
+
+The original public command wrapper 0x8006b0b8 and engine 0x8006a348 execute
+with the SD unit already owned by the parent. CMD12 has no data-present flag,
+so it bypasses the engine's pre-command data-inhibit wait. It still requires
+the command line to be free. With CIHB set, it delays 100 times and returns
+status 12 without submitting. With CIHB clear but CDIHB/DLA/RTA set, it writes
+CMD_XFR_TYP=0x0c1b0000 and waits for command completion.
+
+After a modeled successful event, the original busy loop at 0x8006a6e4 polls
+DAT0 bit 24 for at most 100 delays. With DAT0 held low it still returns zero.
+It does not check activity or request a reset on this successful-command path.
+Changing ONLY the emulator's table row to 0x00db0000 issues 0x0cdb0000 (explicit
+abort type) but leaves that same software success/busy-timeout behavior intact.
+No image or deployment patch containing this table change has been generated.
+MMIO writes have no physical abort/reset effects in these fixtures.
+
+Command-error flags 1/0x80/0x100 produce statuses 10/3/19. When data inhibit
+remains set, their native branch requests RSTA and polls it up to ten delays;
+its result is not a checked join. Event-wait failure returns 11 without that
+reset branch. These are unmodified stock paths; the guarded stop wait described
+below intentionally translates observed stop errors into wait failure instead.
+
+Stock lower read/write wrappers 0x8006b1e0/0x8006b248 send software command 14
+after a data callback fails, except status 19. They discard the stop result and
+return the original error. Their stop occurs AFTER the lower transfer frame has
+returned. Its unchecked result does not prevent the registered parent from
+releasing its token/buffers while activity remains unresolved. Status 19 disables
+the unit's driver byte and skips this stop. Our earlier retained-stack boundary
+remains necessary; a stock stop return cannot replace it.
+
+Upper card initialization / reselection
+Registered operation 4 calls the original upper initializer 0x800688d0 under
+the unit token. These tests execute that initializer and its metadata parsing,
+bus-width helper and clock wrapper. Public lower commands and metadata reads,
+clock-divider arithmetic and time endpoints supply synthetic responses.
+They do not execute a protocol-complete controller/card initialization.
+
+The successful synthetic SDHC case uses these software command codes:
+  0   CMD0, argument 0
+  10  CMD8, argument 0x1aa
+  38  ACMD41, argument 0x40ff8000
+  2   CMD2, read CID
+  3   CMD3, read assigned RCA
+  12  CMD9, read CSD
+  9   CMD7, select the assigned RCA
+  8   ACMD6, argument 2, for the four-bit fixture only
+  21  CMD16, argument 512
+Metadata reads use software 17 (ACMD13, 64-byte SD status) and 41 (ACMD51,
+8-byte SCR). Native lower application commands normally include CMD55; that
+lower protocol sequence is bypassed by this upper-state-machine fixture.
+
+Card state at 0x801f8e44 stores family at +4, readiness/flags at +5, speed at
++6/+7, bus capability at +8, RCA at +0xa, command classes at +0xc and sector
+capacity at +0x10. A modeled RCA 0x1234 and CSD capacity field 0xfff become
+RCA 0x1234, capacity 0x400000 sectors and readiness byte 2. The original width
+helper 0x8006b2b0 -> 0x8006a718 sets PROT_CTRL width bits to one/four bit;
+the fixtures exercise both outcomes. The existing HOST+4 event handle survives.
+This upper path does not call the boot reset callback or recreate kernel objects.
+
+Initialization while already ready returns code 2 without sending commands.
+The explicit deinitializer 0x80069488 disables the driver, clears card fields
+and sets readiness byte 8. Its board power callback is a no-op in the recovered
+default table; neither this nor the modeled call proves physical power cycling.
+The cleanup path preserves the event handle. Initialization can then accept
+changed responses, including RCA 0x5678 and capacity 0x200000 sectors.
+
+The examined initialization path does not compare the previous CID/card identity
+or validate the existing filesystem/mount/handle mapping. Reusing its successful
+return with open recording files would need a separate identity and filesystem
+validity contract. Do not automatically deinit/reinit the card inside the live
+handoff merely because its software state can be reset.
+
+Injected command failures at CMD0/CMD9/CMD7/ACMD6/CMD16, or clock failure, clear
+the card-ready state/fields, run cleanup and release the unit token. HOST+4 is
+preserved. For modeled command status 11, the driver-enable byte remains 1;
+this failure path is not equivalent to explicit deinitialization. It does not
+establish controller/card idle. Other card families and high-speed negotiation
+are outside these success fixtures.
+
+Compiled retained-stack stop experiment
+tests/fixtures/sd_stop_probe.c is linked ONLY into handoff-test.elf. The existing
+probe's default join port remains its original MODEL callback. Selecting the
+compiled sdp_stop_join in this experiment adds one stock CMD12 attempt per
+failed transfer, before consulting a separate explicit MODEL JOINED callback.
+
+The transfer scope must be active and failed, with matching unit/buffer/length.
+Inactive or mismatched requests issue no stop or join. The stop's own request
+pointer and command code authorize this single exception to the failed scope's
+normal command suppression. It uses separate raw error observations while
+keeping the original data fault sticky. Its wait executes the original IRQ and
+event predicate, but returns wait failure for a stop error, timeout or missing
+expected completion; it cannot recursively enter the outer fault join.
+
+Read/write cases include aligned two-block direct transfers, one-block bounce
+transfers and unaligned nine-block transfers. Pending MODEL join keeps the
+native stack/unit token and programmed buffer alive after a stop success,
+stop error, stop timeout, or unavailable command line. It does not copy failed
+read data out or submit another data/diagnostic command. Repeated pending join
+calls do not repeat CMD12. A new transfer explicitly clears stop state.
+
+A negative fixture lets an old software command-complete event satisfy the
+stop wait with no new IRQ. Stock command status is still zero, but the outer
+join cannot release. This does not validate freshness: admission still needs
+serialized hardware/software event draining and IRQ handling. The separate
+stop observer alone cannot distinguish every late same-unit event.
+
+The whole checked-handoff case holds its gate, filesystem lock, scratch lock
+and SD unit token while the stop reports success with activity still asserted.
+Main/UI service is not required on the exercised path. It resumes the SAME
+stack only when the model explicitly clears synthetic activity and returns
+JOINED; the handoff then performs safe modeled rollback and release. Filesystem
+sector routing and logical file data remain synthetic dependencies.
+
+Next concrete slice
+Specify and exercise a checked abort/data-reset/idle sequence at this boundary,
+including failure/timeout retention and stale hardware/software completion
+draining before a new DMA address is armed. Preserve existing completion objects
+where possible. Model physical completion as an explicit input until applicable
+silicon behavior, cache/DMA effects and card persistence can be measured. Keep
+card/filesystem validity separate from host memory-access cessation. The normal
+handoff gate remains unbound and hardware testing remains deferred.
+
+Sources and verification
+Original v1.10 instructions and pinned firmware hash in the report below.
+NXP IMXRT1060RM Rev.3 (07/2021), sections 26.5.3.5.1-.2, 26.6.5, 26.7.1.5 and
+26.7.1.13, read from the original NXP manual's public mirror:
+https://www.pjrc.com/teensy/IMXRT1060RM_rev3.pdf
+  SHA-256 a2e342e492eded2a1d626cf955de953ca28d8db8675b10937a5176fd6f2c9200.
+These are candidate-family constraints. Register correspondence does not identify
+the installed silicon or revision; see sd_controller_setup_findings.txt.
+
+tests/emulation/verify_sd_card_recovery.py: thirteen groups.
+analysis/sd_card_recovery_verification.json and sd_card_recovery_disassembly.txt.
+This slice passed at 362 groups across 35 suites; current totals are recorded in
+docs/progress.md and analysis/redesign_verification.json. Generic
+ARM/VFP executes upper initialization; the M7 fixture executes compiled probe
+plus original transfer/command/IRQ/event code. These remain emulator assumptions.
+No physical abort/reset/cache/DMA/NVIC/card guarantee, recovery binding, card or
+mixer access, deployment image or installation. Normal profiles exclude all
+sdp_ symbols, including this stop experiment.

@@ -38,6 +38,34 @@ KEEP int32_t rc_bind(RcBinding *b) {
        !b->worker_queue || !b->ui_queue || b->worker_queue==b->ui_queue || !b->receive || !b->yield)return OWN_CONFLICT;
     binding=b;return OWN_OK;
 }
+KEEP int32_t rc_bind_reads(const RpBinding *p,const RwBinding *w) {
+    if(!binding || !p || !w || !binding->runtime->coordinator ||
+       p->coordinator!=binding->runtime->coordinator || w->coordinator!=p->coordinator ||
+       p->tasks[0]!=binding->worker || p->tasks[1]!=binding->ui ||
+       p->ids[0]!=binding->worker_id || p->ids[1]!=binding->ui_id || p->queue!=w->queue ||
+       w->worker==p->ids[0] || w->worker==p->ids[1] ||
+       p->queue==binding->worker_queue || p->queue==binding->ui_queue ||
+       binding->worker_queue!=*(volatile uint32_t *)0x801f8f3cu ||
+       binding->ui_queue!=*(volatile uint32_t *)0x801f8f28u)return OWN_CONFLICT;
+    int32_t result=rp_can_bind(p);if(result)return result;
+    result=rw_can_bind(w);if(result)return result;
+    if(w->slots[p->slots[0]]!=p->reads[0] || w->slots[p->slots[1]]!=p->reads[1])return OWN_CONFLICT;
+    RlCoordinator *c=p->coordinator;
+    if(c->lock || c->ledger->lock || c->ledger->gate.word || c->cleanup || c->draining || c->manager ||
+       binding->worker->lock || binding->worker->phase!=RT_IDLE ||
+       binding->ui->lock || binding->ui->phase!=RT_IDLE)return OWN_BUSY;
+    for(uint32_t i=0;i<RL_SLOTS;i++)if(c->jobs[i].owner)return OWN_BUSY;
+    for(uint32_t i=0;i<RR_QUEUE_SLOTS;i++)if(w->slots[i]) {
+        const RrRead *r=w->slots[i];
+        if(r->lock || r->phase!=RR_EMPTY || r->ticket || r->queue_state || r->coordinator)return OWN_BUSY;
+    }
+    /* Preflight cannot race: this API's contract is one cold initialization
+     * caller before hooks or participants run. Unexpected partial failure is
+     * terminal; never activate hooks or attempt to reset permanent state. */
+    result=rw_bind(w);if(result)return bad();
+    result=rp_bind(p);if(result)return bad();
+    return OWN_OK;
+}
 KEEP int32_t rc_send_worker(const RtWorkerPacket *p) {
     if(!binding || p->tag.magic!=RL_MAGIC || p->tag.role!=RL_WORKER || p->body[0]!=UINT32_C(0x80049da1))return bad();
     uint32_t words[8]={(uint32_t)rc_worker,RL_MAGIC,p->tag.owner,p->tag.child,RL_WORKER,0,0,0};

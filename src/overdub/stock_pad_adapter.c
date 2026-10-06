@@ -1,4 +1,12 @@
 #include "overdub.h"
+#ifdef L6_BACKING_NATIVE
+/* The stopped handoff wraps these private helpers with checked synchronous
+ * prefetch and close ownership. Never export them as BackingPort callbacks. */
+#define od_stock_snapshot bn_raw_snapshot
+#define od_stock_assign bn_raw_assign
+#define od_stock_restore bn_raw_restore
+#define od_stock_save bn_raw_save
+#endif
 
 /* Version-specific, offline-tested bindings. Caller must supply exclusion.
  * Sample loading still depends on the device's audio/SD subsystems. */

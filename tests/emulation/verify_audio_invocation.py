@@ -20,10 +20,11 @@ class AudioRig(QueueRig):
     def install(self):
         self.adapter=True
         assert self.m.invoke(self.syms['bridge_audio_enable'],[])==0
-        for address,name in ((0x8001078a,'emulator_audio_outer_hook'),(0x8001078e,'emulator_audio_return_hook'),
+        outer,returned=getattr(self,'audio_boundary_hooks',('emulator_audio_outer_hook','emulator_audio_return_hook'))
+        for address,name in ((0x8001078a,outer),(0x8001078e,returned),
                              (0x2022a790,'audio_fixture_callback')):
             def redirect(uc,a,size,u,name=name):
-                if self.adapter:uc.reg_write(A.UC_ARM_REG_PC,self.syms[name])
+                if self.adapter:uc.reg_write(A.UC_ARM_REG_PC,(self.syms if name in self.syms else self.m.symbols)[name])
             self.m.uc.hook_add(UC_HOOK_CODE,redirect,begin=address,end=address)
         self.m.hooks[0x80010150]=lambda a:None
         self.m.hooks[0x80010960]=lambda a:None

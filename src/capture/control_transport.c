@@ -2,8 +2,9 @@
  * dynamic allocation or automatic rearm. Storage must survive every possible
  * queued reference. Initialization/teardown require external quiescence. */
 #include "request_router.h"
+#include "exchange.h"
 #include <stddef.h>
-#define KEEP __attribute__((used,retain))
+#include "retention.h"
 #define ENTER() ((void(*)(void))0x80073ec9u)()
 #define EXIT() ((void(*)(void))0x80073f19u)()
 typedef struct {uint32_t task;Request *request,*callback;} Task;
@@ -347,11 +348,22 @@ extern uint32_t bridge_prepare_next(void*,void*,void*,void*,uint32_t);
 extern uint32_t bridge_queue_next(void*,void*,uint32_t),bridge_handover_ready(void*,uint32_t);
 extern uint32_t rr_init(Router*,void*,uint32_t);
 static Transport *staged_transport;
+static uint32_t bootstrap_pending;
+extern uint32_t bridge_boot_close(void);
+/* Single initialization caller before hooks are installed. The bridge checks
+ * virgin runtime state before changing anything. No ordinary queue is touched. */
+KEEP uint32_t ct_boot_close(void) {
+    if(active || detached_transport || staged_transport || bootstrap_pending ||
+       __atomic_load_n(&ct_gateway_readers,__ATOMIC_ACQUIRE))return 12;
+    uint32_t s=bridge_boot_close();if(s)return s;
+    __atomic_store_n(&ct_gateway_readers,0x80000000u,__ATOMIC_RELEASE);
+    bootstrap_pending=1;return 0;
+}
 KEEP uint32_t ct_stage_next(const uint32_t *d) {
-    if(active || !detached_transport || staged_transport ||
+    if(active || (!detached_transport && !bootstrap_pending) || staged_transport ||
        __atomic_load_n(&ct_gateway_readers,__ATOMIC_ACQUIRE)!=0x80000000u ||
        !d[0] || !d[1] || !d[2] || !d[3] || !d[4] || !d[5] || !d[6] || !d[9] ||
-       d[7]<2 || d[7]>32 || (d[7]&(d[7]-1)))return 12;
+       d[7]<2 || d[7]>EXCHANGE_MAX_SLOTS || (d[7]&(d[7]-1)))return 12;
     Transport *t=(Transport*)d[0];Router *r=(Router*)d[1];
     if(t->router || r->bridge)return 12;
     uint32_t s=bridge_prepare_next((void*)d[2],(void*)d[3],(void*)d[4],(void*)d[5],d[8]);if(s)return s;
@@ -368,7 +380,7 @@ KEEP uint32_t ct_activate_next(Transport *t,uint32_t session) {
     if(!__atomic_compare_exchange_n(&ct_gateway_readers,&expected,0x80000001u,
                                    0,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))return 11;
     /* All state initialized before publication. Never reset a live count. */
-    active=t;t->closing=0;staged_transport=0;
+    active=t;t->closing=0;staged_transport=0;bootstrap_pending=0;
     __atomic_fetch_and(&ct_gateway_readers,0x7fffffffu,__ATOMIC_RELEASE);
     gateway_leave();return 0;
 }

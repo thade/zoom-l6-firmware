@@ -5,8 +5,8 @@
  */
 #include "capture.h"
 #include <stddef.h>
-#define KEEP __attribute__((used,retain))
-#define SLOTS 128u
+#include "retention.h"
+#define SLOTS EXTRA_SLOTS
 #define FRAMES 64u
 #define BLOCK_BYTES 512u
 #define BATCH 8u

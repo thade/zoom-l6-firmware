@@ -1,0 +1,117 @@
+Capture-only storage admission: native mount, directories and teardown
+5 October 2026
+
+Follow-up: capture_transitions_findings.txt traces native extra-file open/close,
+compiled cancellation and outer card/USB ordering. The inventory now includes
+19 entries and 261 bounded direct references. The 15-entry/160-reference result
+below records this audit's original boundary. Automatic release remains unbound.
+
+Result
+------
+Eleven new offline groups execute the underlying mount and directory setup,
+rather than assume their results. A supported fixture mount returns 2, publishes
+geometry and leaves status 2; outer card setup reduces this to 0 and submits a
+deferred reload. Zero-initialized status also passes the stock availability
+getters before any mount. Neither that getter nor outer return authorizes release.
+
+The examined file-domain lock does NOT serialize card teardown. While an added
+file write's original public frame retains its lock, another modeled task can
+execute original detach and clear geometry/label metadata. Its availability
+bits still look healthy until the asynchronous status callback completes.
+The worker remains unreleased in the startup fixture. No readiness provider,
+transition gate, firmware image or device deployment has been added.
+
+Mount evidence
+--------------
+Actual 0x8005fc98 calls the original GPIO predicate, not a modeled mount-success
+stub. GPIO input and asynchronous callback arrival are fixtures. At the stock
+delay, the harness supplies callback arguments and executes original status
+setter 0x8004bd98 on the current stack. Geometry and directory-enumeration driver
+responses are modeled; these are not card measurements.
+
+For input words [4096,3000,512,32], the original calculations publish five words
+[16384,67108864,0,49152000,0] at 0x801f8f5c and return status byte 2 at 0x801f8f5a.
+The tests also execute absent-media return 1, callback status-zero failure,
+unfinished callback wait, unsupported geometry status 10, failed geometry query
+and the error-reconfiguration branch. Only the examined supported path is a
+positive software mount example; status 2 alone is not a physical readiness proof.
+
+The status getter 0x8005ec00 reads the signed byte. 0x8000ac80 tests inverted bit
+0; 0x8000ac70 tests bit 3. Before mount, all-zero state therefore appears available
+with no error. An absent card's native mount returns 1, but outer 0x80009a40(2)
+still returns zero and submits no reload. There is no safe release based on these
+return values alone.
+
+Directory evidence
+------------------
+The composed normal path executes original recorder-directory setup 0x80002d80,
+pad-directory setup 0x80048690, root helper 0x80048500, UTF-16 path construction
+and original deferred reload producer. With modeled missing directories, it
+creates RECORDER, SOUND_PAD and PAD1..PAD4, then sends callback 0x80049da1.
+Setup returns while pending word 0x807348cc is still 1. The queued callback is
+not executed in this mount fixture; its separately tested descendants remain
+part of the startup trace, not implied completed work.
+
+Injected RECORDER or each PAD create failure aborts setup before reload and
+executes actual detach. Two additional negative controls preserve errors which
+the outer return loses:
+* 0x800486d0 calls the SOUND_PAD root helper and ignores its result. A failed root
+  create followed by successful modeled PAD operations still returns zero.
+* Directory lookup errors other than the exact not-found code 0xffffd75a are
+  treated as an existing directory. Six injected lookup errors still permit
+  setup/reload without any creation attempt.
+These are controlled callee responses, not reproduced physical filesystem faults.
+Capture's eventual file open must still handle failure. Successful pad assignment
+is not a prerequisite for creating the private extra recording.
+
+Teardown and completion boundary
+--------------------------------
+Original public write 0x800622b0 takes file-domain 1 and records the task context.
+The test suspends its modeled driver at 0x800624a8 with the native frame and token
+retained. Another task uses a separate stack to execute original 0x80062230(0x41).
+It clears 0x801f8f5c..0x801f8f8c BEFORE notifying/waiting, without taking the file
+token. With callback progress withheld, status bytes remain [2,0,2]. Both stock
+availability getters still pass. The original write frame remains intact.
+
+Separate success/error continuations show that public write releases the domain
+and retires its task context after either supplied driver result. Those software
+returns do not prove SD/DMA completion or cancellation. The existing SD tests
+already expose timeout unlock and stale/mixed completion signals; this audit
+does not replace their unresolved physical joins with a file-lock assumption.
+
+One negative control also calls the compiled worker release API with modeled
+unavailable media and active USB. It accepts a valid Main caller as documented:
+release is an authorization endpoint, not a storage detector. The test does not
+poll or issue files afterward. No production caller is wired to this endpoint.
+
+Keep the eventual binding small
+------------------------------
+Capture-only adds a distinct private file. Ordinary pad playback and recorder
+files can coexist on their existing file locks; it does not need the broader
+pad-publication ownership overlay. The required additional protection is against
+storage transitions: mount/detach/USB must not invalidate an accepted added I/O
+operation, and uncertain transfer work must retain its buffers and native frame
+until physically joined or safely cancelled. A one-time mount check leaves a
+race after release. Do not block Main waiting for a descendant that needs Main.
+
+The bounded inventory has 160 direct references across 15 selected entries,
+including four mount sites, six detach sites, six card-setup sites and seven
+card-release sites. The status setter is an indirect callback constructed at
+0x8005fd9a..0x8005fda2 and passed to 0x80052ce0. No direct caller is expected for
+that registration route. These are leads, not exhaustive transition coverage.
+
+Next: trace the outer transition serialization and native open/close dependencies
+before implementing the smallest capture-only admission binding. A deferred
+transition must preserve stock behavior, and a failed I/O needs a physical join
+inside its still-live native frame. Hardware and RAM validation remain deferred.
+
+Reproduce
+---------
+python tools/firmware/audit_capture_storage.py
+python tests/emulation/verify_capture_storage.py
+python tools/firmware/verify_redesign.py
+
+Reports: analysis/capture_storage_inventory.json, capture_storage_disassembly.txt
+and capture_storage_verification.json. Production capture code is unchanged;
+the startup packing margin remains 155 bytes. All tests are offline with marked
+GPIO/geometry/filesystem/RTOS/scheduling effects. No device/card access occurred.

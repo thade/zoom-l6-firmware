@@ -33,9 +33,11 @@ def stop(m):
     m.uc.emu_stop()
 
 
-def run(image, profile, power):
+def run(image, profile, power, observe=None):
     m = Machine()
     m.uc.mem_write(0x80001000, image[0x200:0xb5ce4])
+    if observe is not None:
+        observe(m)
     m.invoke(0x80001994, [0x800a6980, 0x801f5400, 0x3780])
     assert string(m, word(m, profile+12)) == 'L6'
     assert string(m, word(m, profile+28)) == 'ZOOM L6'

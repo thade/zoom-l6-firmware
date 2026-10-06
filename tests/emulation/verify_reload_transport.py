@@ -65,7 +65,7 @@ class Transport(ReloadRig):
         uc.reg_write(UC_ARM_REG_PC,self.m.symbols['rt_'+fn]|1)
     def driver(self,op,a):
         assert self.active in (WORK,UITASK)
-        assert self.word(LEDGER)&0x3fffffff
+        assert self.word(self.word(CTX))&0x3fffffff # Coordinator may use a relocated ledger.
         assert self.word(self.active+4)==2 # RT_RUNNING
         result=getattr(super(),op)(a)
         self.observed.append((op,self.active,result))

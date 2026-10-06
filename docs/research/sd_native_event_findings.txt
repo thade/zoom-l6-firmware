@@ -1,0 +1,136 @@
+NATIVE SD EVENT / BINARY TOKEN DRAIN — 5 October 2026
+
+Follow-up: sd_event_sources_findings.txt traces the known controller/software
+posters, records remaining source-exclusion counterexamples and corrects the
+test guard's mixed success/fault handling. The twenty groups below remain the
+native drain suite; source exclusion and physical reset validity stay modeled.
+
+Result
+Twenty new offline groups execute the original SD event constructor, flag
+clear/peek, ISR post, binary nonblocking take, count getter, critical helpers
+and interrupt disable/enable routines. The recovery experiment can now select
+these native operations instead of its MODEL kernel-clearing callback. Native
+read/write and whole-handoff tests retain the failed stack and locks until final
+MODEL validity allows unwind. Nothing has been installed or bound on the device.
+
+The native helper is test-only. Default sdp_kernel_port is zero, preserving the
+earlier MODEL experiment. Both normal profiles still exclude every sdp_ symbol.
+IRQ/NVIC register effects, hardware reset and source exclusion remain fixtures.
+This is a reduction in modeled software operations, not physical cancellation.
+
+Original firmware evidence
+All addresses refer to the pinned L6 v1.10 image, SHA-256:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+
+0x800321b8 -> 0x80032270 constructs a twelve-byte event. The SD descriptor at
+0x800a07b0 contains words (4,0,0). Descriptor bit 2 becomes mode bit 0 at event+4;
+the initial flags at event+8 are zero. The constructor calls original 0x80076348
+with (1,0,3), allocating a 0x50-byte binary semaphore. Capacity at +0x3c is one,
+item size at +0x40 and initial count at +0x38 are zero. Original list initialization
+runs for the two waiter lists at +0x10/+0x24. Allocation itself is a fixture.
+
+The original wait at 0x800326c0 first takes a token with timeout zero, ignoring
+that result. When flags match, mode bit 0 clears all flags. The real descriptor
+therefore corroborates the earlier experiment's auto-clear mode assumption.
+
+0x80032208 -> 0x80032368 ANDs event flags with the supplied mask under the stock
+critical helpers. Passing zero clears every flag. It does NOT consume the token.
+0x80032878 -> 0x80032530 reads the flags under those same critical helpers.
+0x80032828 -> 0x800324b0 ORs flags and calls ISR token give at 0x80076628. Repeated
+posts retain accumulated flags but coalesce to one binary token. The tested ISR
+path also runs original context validation at 0x80074058 with IPSR 126 (IRQ110).
+It restores the previously saved BASEPRI. IRQ entry/arbitration is not simulated.
+
+0x80076950 with timeout zero performs an immediate binary-token take: return
+one and decrement if available, otherwise return zero without blocking. The
+examined empty-waiter branches avoid scheduler wakeup paths. 0x80073dd0 obtains
+the count under the stock critical helpers. Compiled code never edits the count
+directly. Only reset/fault test injections seed the synthetic object's memory.
+The old MODEL suite's arbitrary token counts are abstract stress fixtures; the
+new native suite uses zero/one and rejects larger counts as an invalid schema.
+
+Critical and IRQ ordering
+0x80073ec8 sets BASEPRI 0x20 and increments nesting at 0x801f6090. 0x80073f18
+decrements it and sets BASEPRI zero at the outer exit. These helpers do not save
+an arbitrary preexisting mask. The native drain therefore refuses Handler mode,
+unprivileged Thread mode, nonzero BASEPRI/PRIMASK or existing critical nesting
+before calling them. It also refuses initially disabled/active IRQ110 or an
+unsupported priority byte. This narrow experiment deliberately requires an
+initially enabled IRQ rather than silently enabling an unrelated disabled one.
+
+0x80032248 -> 0x80033e08 disables an IRQ with ICER followed by DSB/ISB.
+0x80032258 -> 0x80033e38 enables it with ISER. The test helper supplies barriers
+after enable. IRQ110 is bank 3, bit 14; its priority byte is 0xe000e46e. The fixture
+uses raw priority 0x50, consistent with the examined SD setup writers. This is
+not an exhaustive runtime priority-writer inventory or chipset identification.
+
+Relevant bank-3 registers are ISER 0xe000e10c, ICER 0xe000e18c, ISPR 0xe000e20c,
+ICPR 0xe000e28c and IABR 0xe000e30c. ARM's CMSIS source corroborates the selected
+NVIC register operations and disable barriers:
+https://raw.githubusercontent.com/ARM-software/CMSIS_5/develop/CMSIS/Core/Include/core_cm7.h
+The test explicitly simulates enable/pending write-one effects, preserves other
+bits and checks readback before continuing. Plain RAM stores are not substituted
+for those effects. Actual arbitration, priority grouping and bus timing remain
+unverified. The callback-registration helper at 0x80033d88 also clears pending
+state but changes the callback table; it is deliberately not used as a drain.
+
+Native drain sequence
+After the surrounding recovery code obtains MODEL QUIET and acknowledges the
+controller status, the helper verifies context and the preserved event handle.
+It enters the original critical section, disables IRQ110, checks disable/active
+readback and validates the traced binary-object schema and empty waiter lists.
+Both controller signal and status registers must already be zero.
+
+It clears the old NVIC pending bit, verifies that it stayed clear, saves the old
+flags for diagnostics, clears flags through the original function and performs
+two original nonblocking takes. At most the first may succeed. A second success
+means the exclusion contract was violated. It checks the same object/schema,
+zero flags/count, zero controller status/signals and no new pending IRQ before
+re-enabling. Readback after enable must still show clean state. A rearm fault
+disables IRQ110 again; earlier faults do not reach enable. Failed disable
+acknowledgement cannot establish masking. All faults retain transfer ownership.
+Every path that entered the outer critical section leaves it exactly once.
+
+The native recovery branch no longer calls stock peek before checking context:
+that peek would have overwritten a preexisting BASEPRI. Its old-flags diagnostic
+comes from inside the native drain. Final readiness also rechecks context before
+stock peek, including after the MODEL validity provider returns. The earlier
+MODEL branch is unchanged.
+
+Coverage and remaining contracts
+Tests cover native construction/coalescing; flags-only clearing; zero/one tokens;
+unsupported context, priority, identity and schema; waiters/corrupt counts;
+disable/active readback; live hardware flags; reasserted pending state; late
+flags/tokens/status/handle changes; a post between takes; rearm failures; direct
+and bounce read/write admission; retained abort/reset recovery; and whole handoff
+with filesystem/scratch/SD locks held until final MODEL validity. Normal-profile
+isolation remains verified. The consolidated runner passes 398 groups/37 suites.
+
+KernelHooks bypasses the preexisting emulator stub only for this real object's
+zero-timeout take. The original entry and body execute, including 0x80076958.
+Other RTOS objects, deadlines, allocator, file bytes/sector mapping, controller
+W1C/reset and NVIC side effects remain explicit fixtures. Nonblocking tests do
+not prove the scheduler's blocking or waiter-wakeup paths.
+
+MODEL QUIET still pins all users and excludes old hardware/ISR/task posts through
+subsequent admission. Private schema checks do not prove allocation lifetime.
+Masking the NVIC and clearing flags cannot stop unfinished hardware work, prevent
+later status at its source, or exclude task-context posts. No object is deleted,
+recreated or repaired, and no arbitrary private token count is forced to zero.
+Abort acceptance/reset safety and physical/cache/card/filesystem validity remain
+MODEL obligations. Normal successful waits still inherit the existing completion
+contract; this is not an all-path physical join or complete device gate.
+
+Next concrete slice
+Trace the remaining SD event post sites and their task/IRQ ownership. Determine
+what must prevent source reassertion across drain-to-submission and stop/reset,
+and test the exclusion boundary without treating NVIC masking as a hardware join.
+Keep abort/reset permission and physical/card/cache validity explicit until device
+evidence can support them. Hardware testing remains deferred.
+
+Artifacts
+tests/fixtures/sd_event_probe.c/.h; selected port in sd_recovery_probe.c.
+tests/emulation/verify_sd_native_event.py: twenty groups.
+analysis/sd_native_event_verification.json pins image/test-ELF hashes.
+analysis/sd_native_event_disassembly.txt preserves bounded original instructions.
+No device/card access, deployment image, commit, push or installation this slice.

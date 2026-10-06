@@ -1,0 +1,48 @@
+Native no-overwrite rename and seal boundary — 6 October 2026
+===========================================================
+
+Result
+------
+Eight groups establish the examined stock same-folder TMP-to-WAV rename path:
+public 80060a18 calls table slot +38 / driver 80060c48. Sector-callback and
+original SD-driver tests preserve payload, cluster, length, attributes and free
+count. One directory-sector write and the final barrier change the name; no
+audio is copied and no cluster is allocated.
+
+An existing destination returns ffffd75b without sector writes or changes to
+either file. Missing source returns ffffd75a; a missing target folder also leaves
+the source intact. A verified capture from natively created folders can be
+renamed and reopened through stock I/O with every byte unchanged. This narrows
+the future seal port to a native metadata operation plus checked verification.
+It does not bind that port or establish power-loss atomicity.
+
+Error classification
+--------------------
+A metadata write error propagates ffffd827 and releases native software locks,
+while the modeled persisted directory remains unchanged. Cache bookkeeping has
+already changed; unchanged persisted bytes alone do not authorize retry.
+
+A final barrier error also returns ffffd827, but the directory already contains
+the WAV name and the TMP name is gone. This is a concrete counterexample to
+classifying every nonzero public rename result as unchanged SAFE. The future
+BackingGate.seal implementation must retain uncertain mutation/handle ownership,
+join its physical work and inspect the resulting state before release. Existing
+typed handoff contracts already require that behavior; no new automatic retry
+or rollback has been enabled.
+
+An injected native SD metadata error retains the original rename/exception
+stack, SD unit token and examined volume-mode-1 file domains 1/5/6 until MODEL
+join permission. Repeated resume does not resubmit the metadata operation.
+Public return still cannot supply physical completion evidence.
+
+Limits and reproduction
+-----------------------
+Only these same-volume/same-folder names and collision/error paths are covered.
+Card sectors/state, DMA effects, scheduling, IRQ/source exclusion, CPU cache
+visibility and physical join permission remain modeled. No BackingGate.seal or
+storage fence is installed, and no image/device operation occurred.
+
+python tests/emulation/verify_native_rename.py
+Report: analysis/native_rename_verification.json.
+Updated filesystem inventory: 49 targets, 279 bounded direct references and
+four SD callback records. The inventory remains a bounded lead list.

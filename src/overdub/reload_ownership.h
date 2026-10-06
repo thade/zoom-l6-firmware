@@ -45,6 +45,9 @@ int32_t rl_complete(RlCoordinator *,const RlEnvelope *);
  * them. This function takes the current task's attributed envelope, never a
  * global mutable current owner shared by unrelated worker/UI tasks. */
 int32_t rl_io_error(RlCoordinator *,const RlEnvelope *,uint32_t error);
+/* Reserve a synchronous read scope beneath a currently executing branch.
+ * The caller must keep it until the attributed read and its wait have returned. */
+int32_t rl_read_reserve(RlCoordinator *,const RlEnvelope *,const OwnRequest *,uint32_t *ticket);
 /* External postcondition policy remains unbound by default. VERIFIED requires
  * both stock bodies and all descendants returned, plus caller-owned final
  * path/options/I/O evidence collected after those joins (not an older snapshot).
