@@ -7,10 +7,11 @@ Goal: Allow for an overdubbing workflow using just the L6 hardware.
 3. **Simplified offline design implemented.** One history ring, 4-KiB staging, one file worker and an optional single-pad handoff. Completed takes are reused without copying audio. Temporary-file naming, safe publication failure recovery and coalesced read notifications have regression coverage. Handoff fence/seal ports remain modeled.
 4. **Modified data deployed and restored.** The USB name changed from L6 to T6, then returned to L6 after reinstalling stock firmware.
 5. **Modified instruction deployed and restored.** The USB name changed to ZOOM L6 through a one-instruction patch, then returned to L6 after reinstalling stock firmware. Both marker trials now have verified restoration.
-6. **In progress: capture-first integration.** Capture, native card/folder/file operations, packed loading and all selected instruction patches are tested offline. A smaller linked build leaves room for the remaining bindings. Device memory/cache/SD completion, storage-transition protection and automatic startup release still need evidence. The optional pad handoff also needs its native fence and checked seal binding. Further deployment progress awaits hands-on hardware validation.
-7. **Test progressively on hardware.** Additional stereo capture, automatic pad assignment, then repeated overdubs.
-8. **Validate the complete workflow.** Timing, audio integrity, clean stems, preserved masters and failure handling.
-9. **Package the finished firmware.** A tested image and installation/restoration instructions, once the preceding steps pass.
+6. **Added code ran on hardware.** The eight-byte detour trial produced ZOOM L6 after reboot. USB identifiers, MIDI ports and editor connection were checked. Stock restoration is staged and verified; the physical update and reboot are pending.
+7. **In progress: capture-first integration.** Capture, native card/folder/file operations, packed loading and all selected instruction patches are tested offline. A smaller linked build leaves room for the remaining bindings. Device memory/cache/SD completion, storage-transition protection and automatic startup release still need evidence. The optional pad handoff also needs its native fence and checked seal binding. Further deployment progress awaits hands-on hardware validation.
+8. **Test progressively on hardware.** Additional stereo capture, automatic pad assignment, then repeated overdubs.
+9. **Validate the complete workflow.** Timing, audio integrity, clean stems, preserved masters and failure handling.
+10. **Package the finished firmware.** A tested image and installation/restoration instructions, once the preceding steps pass.
 
 The current [architecture](architecture.md) supersedes the broader integration
 plan below. `python tools/firmware/verify_redesign.py` builds the isolated profiles
@@ -240,9 +241,10 @@ FIFO checks reproduce the old error and cover both encoded builds; shared queue
 fixtures reject unsupported arguments. Minimal linker roots are grouped by
 purpose and validated against the patch plan. These are offline changes.
 The [remaining device gates](research/remaining_device_gates.txt) identify the
-hands-on evidence needed next, beginning with the prepared tiny added-code trial
-or reconciliation of any unrecorded result. No capture firmware image was
-prepared, staged or flashed during this work.
+hands-on evidence needed next. The [tiny added-code trial](../experiments/03-added-code/README.md)
+ran successfully on 6 October 2026; its stock restoration is pending the physical
+update and reboot. Packed loading, memory ownership and physical I/O completion
+remain unverified. No capture firmware image was prepared, staged or flashed.
 The current writer state is 4,160 bytes; the handoff controller is 1,684 bytes.
 These are compiled structure sizes, not measured total RAM/stack requirements.
 

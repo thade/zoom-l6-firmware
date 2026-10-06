@@ -1,6 +1,6 @@
 # USB name: added-code detour
 
-**Status, 4 October 2026:** prepared and verified offline. Not transferred to the card or installed. No hardware result yet.
+**Result, 6 October 2026:** the exact trial image was staged and read-back verified. After the user-reported update and normal reboot, USB reported **ZOOM L6**, with VID/PID still `1686:089e`. The editor reconnected after relaunch, displayed firmware 1.10 and the existing pad assignments, and successfully entered and exited file-transfer mode. Stock restoration is staged and verified; its physical update and reboot are pending.
 
 This trial tests whether the mixer can branch to newly inserted instructions and return to the original code. The expected visible result is **L6 → ZOOM L6**. It uses the same existing string as trial 2, but a different execution path.
 
@@ -28,8 +28,10 @@ Offline checks passed:
 - A reference audit decodes at every halfword in the main payload and copied RAM code. It also searches expanded initialized data for pointers. No direct branch/immediate, PC-relative access, bounded MOVW/MOVT construction or literal pointer into the selected interval was found.
 - The audit correctly rejects a different zero interval at `0x800530c0`: the preceding function reads it as a floating-point constant. Empty-looking bytes alone are not sufficient evidence.
 
-Static scans cannot exclude every computed pointer, indirect path or bootloader use. These tests do not simulate full boot, the updater, cache behavior or real scheduling. The routine is a candidate for a controlled hardware experiment, not an established general-purpose code area.
+Static scans cannot exclude every computed pointer, indirect path or bootloader use. These tests do not simulate full boot, the updater, cache behavior or real scheduling. The hardware marker confirms this specific detour; it does not establish a general-purpose code area.
 
-The next hardware procedure is to stage and read-back-verify this trial, safely leave transfer mode, then use the [previous physical update sequence](../01-usb-name/README.md). After reboot, check for ZOOM L6 and editor connectivity, then restore untouched stock and verify L6 again. The trial must be distinguished by its hash from trial 2, which produces the same label.
+Before installation, USB reported L6. The card-root trial matched the SHA256 above before the physical update and again when preparing restoration. This distinguishes it from trial 2, which produces the same label. All three normal MIDI ports remained available after reboot. These observations are recorded locally under ignored `deployment/03_added_code/`; device files and firmware binaries are not published.
 
-A successful trial would prove this specific code insertion and detour on hardware. It would not prove appended-payload loading, large-buffer ownership, the overdub prototype or recovery from broken firmware.
+Untouched stock firmware has now replaced the trial at card-root `L6.BIN`, with an exact readback match to SHA256 `64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb`. The card was safely unmounted and transfer mode exited. The remaining step is the [physical update sequence](../01-usb-name/README.md), followed by checking that USB returns to L6 and the editor connects. Staging alone does not establish restoration.
+
+This trial proves the specific eight-byte code insertion and detour on hardware. It does not prove appended-payload loading, large-buffer ownership, the overdub prototype or recovery from broken firmware.

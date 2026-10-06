@@ -8,8 +8,8 @@ So far:
 
 - Traced recording and sound-pad functions.
 - Built an overdub prototype and tested it in an emulator.
-- Installed small firmware changes on a real L6, including a code change.
-- Demonstrated restoring stock firmware after both tests.
+- Installed small firmware changes on a real L6, including an added routine.
+- Restored stock after the first two tests; restoration after the added-code test is pending.
 
 The overdub prototype has not yet run on the mixer.
 

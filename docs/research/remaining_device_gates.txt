@@ -8,7 +8,7 @@ packed loading and proposed instruction patches now have offline evidence.
 The smaller linked variant leaves 2,924 packed bytes spare. This is still an
 experimental build: automatic worker release, storage transition protection,
 physical SD completion and automatic pad handoff are unbound. No capture update
-image exists and nothing was transferred or flashed during this work.
+image exists. Separate USB marker trials have been deployed on hardware.
 The consolidated offline regression passes 575 groups across 53 suites.
 
 The next deployment progress requires hands-on device evidence. Enabling an
@@ -19,12 +19,14 @@ once these provider inputs are established; emulation cannot measure them.
 1. Establish a bounded code-loading experiment on hardware
 
 The repository records two successful in-place data/instruction marker trials
-and stock restoration. The separately prepared eight-byte added-code trial in
-experiments/03-added-code/README.md still has no recorded hardware outcome.
-Resume that trial first, or reconcile any hardware result not yet recorded.
-Its ZOOM L6 label matches trial 2, so the image hash must identify the trial.
-A person must perform the power/update sequence and observe the reboot. This
-requires no case opening. It proves only that tiny insertion and return path.
+and stock restoration. The eight-byte added-code trial in
+experiments/03-added-code/README.md ran on 6 October 2026: USB reported ZOOM L6,
+the original VID/PID and MIDI ports remained available, and the editor connected
+after relaunch. The exact staged/read-back image hash distinguishes it from
+trial 2, which produces the same label. This proves that tiny insertion and
+return path. Stock restoration is staged and read-back verified; a person must
+perform the physical update/reboot before USB L6 and editor checks can complete
+restoration. No case opening is needed for this step.
 
 Next, approve and validate a bounded packed-code/loading test. Original startup
 decoder evidence is offline; loader acceptance, physical instruction visibility
@@ -72,8 +74,8 @@ image and user instructions only after these tests pass.
 
 User input needed now
 ---------------------
-Resume hands-on hardware testing and state whether the eight-byte added-code
-trial was already performed. Subsequent probe choices depend on the observed
-result and available read-only diagnostics. Opening the device is not assumed
-or required for the first marker trial; firmware alone has not established an
-externally accessible recovery/debug path.
+Perform the staged stock-restoration update and normal reboot, then report the
+LED sequence or completion so the host can verify USB L6 and editor connection.
+Subsequent probe choices depend on available read-only diagnostics. Opening the
+device is not assumed; firmware alone has not established an externally
+accessible recovery/debug path.
