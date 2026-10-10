@@ -1,0 +1,165 @@
+EXPERIMENT 05 DEVICE OBSERVATIONS
+7 October 2026
+
+Status and evidence
+The user reported completing the physical update and normal reboot: "done - it
+worked". The exact staged image was 5a70ab7cbe20b0b2525b89c2c2267d38b908696ecd600d8461dc4eda25f11fb9.
+All seven fixed 7B/7A diagnostic queries answered with the expected schemas.
+This confirms execution of the diagnostic addition. It is not installed-flash
+readback or broken-image recovery evidence. Capture remains disabled.
+
+L6 Editor connected normally with version 1.10. Before preparing the workload,
+all four file counts and assignments matched the pre-update read-only controls.
+All three original L6 input/output MIDI endpoint names remained available.
+Private local staging and post_update_verification.json retain exact evidence.
+
+Initial idle observations
+Free and minimum heap: 163,104 bytes; allocations 203, frees 1.
+SD packet unit 1: 579 reads, no writes, errors or busy/claim skips. Read peak
+57 ticks for 563 sectors starting at sector 612354. Unit 2 had no observed calls.
+Public file calls: 266 reads, no writes, errors or busy/claim skips. Read peak
+59 ticks for 288,768 requested bytes. Every operation snapshot had equal even
+epochs; its histogram total matched the completed call count.
+
+Clock calibration
+Two fixed heap/clock queries were taken 30 seconds apart. Device ticks advanced
+by 30,012. Host call brackets bound elapsed time at 30.00636–30.03057 seconds,
+giving 999.38156–1,000.18795 ticks per second. One tick is approximately one
+millisecond. This is a measured clock interval, not a latency guarantee.
+
+Prepared recording workload
+The original GLORY_BOX.WAV already exists in SOUND_PAD/PAD1. Its local source is
+48-kHz stereo 32-bit float, 71.404979 seconds and 27,419,570 bytes, matching the
+card inventory size. The official editor selected it on pad 1 and changed only
+that pad's play mode from One-shot to Loop; level remains 0 dB. Other pad
+assignments were confirmed unchanged. No backing audio file was copied or edited.
+The plan is a three-minute multitrack recording with sustained backing playback
+and live input 3, followed by saved audio inspection. Loop joins are expected
+from the source/playback setting and must be distinguished from unexpected gaps.
+Restore pad 1 to OD_261002_181142.WAV, One-shot, after the test.
+
+The post-preparation baseline still has 163,104 bytes free/minimum heap and no
+errors or busy/claim skips. Unit 1 has 587 reads and 8 writes with peaks 58/7
+ticks. Public calls have 305 reads and 4 writes with peaks 60/7 ticks. Those
+writes occurred while preparing settings, not during a recording workload.
+
+Short recording observations
+The user reported "done - didn't hear any issues". The only new take is
+261007_143341, containing seven 48-kHz float32 WAVs. Every file has 961,984 frames
+(20.041333 seconds), consistent RIFF/data sizes and finite samples. This is a
+short recording, not the requested three-minute test. The user subsequently
+confirmed deliberately stopping early; this is not an unexpected-stop report.
+
+Before card transfer or pad restoration, the retained counters reported:
+                                Calls       Read/write peak ticks
+SD packet unit 1 read/write     882 / 320           81 / 53
+Public file read/write        1338 / 174           82 / 112
+Unit 2 remained unused. Relative to the preparation baseline, observed counts
+increased by 295/312 SD calls and 1,033/170 public calls. There were no observed
+errors or sticky first errors. SD had no busy/claim skips. Public file scope
+had 8 busy skips and 1 missed weak claim, shared by both read/write queries;
+these are nine unmeasured calls, not eighteen. All post-recording snapshots had
+matching even epochs and histogram totals equal to their completed call counts.
+The public write peak requested 524,288 bytes; SD write peak requested 1,024
+sectors. These are observations since reboot, not isolated extra-file latency.
+Free/minimum heap stayed at 163,104 bytes; allocations/frees were 204/2.
+
+The bounded computer collector saved 40 sets over ten minutes, but their call
+counts all remained at the idle baseline. No host sample captured live recording.
+The subsequent mixer query retained the above counters after the user's test.
+This preserves peaks/errors but supplies no time series of recording heap,
+worker occupancy, skipped-operation timing or progress. These limitations must
+remain visible when comparing a future capture build.
+
+All seven new files and the unchanged original backing were copied locally and
+verified against fresh card hashes. Fifteen prior recording evidence files still
+matched their saved hashes. No prior audio file metadata changed; only the
+expected SOUND_PAD/L6PADSETTING.ZST settings entry changed. No card audio file was
+edited by the inspection. The local converted Glory Box source also matches the
+card backing byte for byte. The root firmware still matches the staged trial.
+
+Waveform alignment puts backing onset 76,976 frames (1.603667 seconds) after the
+recording starts. Three separated one-second windows preserve that offset.
+Backing plus all stems explain 99.9813% of master energy in the overlapping
+region; stems alone explain 3.1693%. Input 3's maximum absolute correlation with
+either backing channel is 0.00804. This supports the expected master/stem
+separation in this short take, not absolute absence of leakage or every dropout.
+The analysis uses every fourth frame for regression and every sample for finite
+and amplitude checks. Digital silence in unused input 5 is expected.
+
+Pad 1's earlier file, One-shot mode and 0 dB level were restored and ordinary
+MIDI queries confirmed all original assignments. The inspected card was safely
+unmounted; no stock restoration image was staged at that point. After the user
+clarified the deliberate stop, the three-minute repeat was
+prepared with Glory Box looping on pad 1. A new fixed-query baseline is retained
+separately from the earlier evidence.
+
+Longer recording observations
+The subsequent take 261007_145130 contains seven valid 48-kHz float32 WAVs,
+each with 8,988,608 frames (187.262667 seconds). All samples are finite, RIFF/data
+lengths agree and the channel files align. The seven copied files total
+431,459,554 bytes and match fresh card reads/hashes. All 23 prior evidence files
+still match their saved hashes; earlier audio metadata is unchanged.
+The user reported "No audible problems" for this longer recording.
+
+Backing onsets are frames 61,104, 3,488,543 and 6,915,982 (1.273, 72.677979 and
+144.082958 seconds). Both measured repeat periods are exactly 3,427,439 frames,
+the source length, with zero-frame period error. Eight separated one-second
+waveform windows retain those offsets. Input 3's maximum absolute correlation
+with either backing channel is 0.00091943, supporting the expected separation
+without proving absolute absence of leakage.
+
+A whole-take constant-gain backing/stem model explains 91.5789% of master energy.
+The backing gain changes in the 4-to-6-second window from about 0.226 to 0.049456,
+so that model is not appropriate for judging continuity over the whole take.
+Two-second backing/input-3 models explain at least 99.99999967% in the stable
+windows outside that transition and the final partial window. Both 0.2-second
+loop-join windows independently explain over 99.99999990%. The final 1.263-second
+window explains 99.8496%; the analysis does not establish the cause of its larger
+residual or of the earlier gain change. Level investigation remains deferred as
+requested. These sample matches and the listening report do not prove absence of
+every audio defect. Regression uses every sixteenth frame; finite checks cover
+every sample. Private audio analysis and gain-window JSON retain these results.
+
+Before pad restoration or card transfer, all seven fixed queries answered with
+matching even operation epochs and histogram totals matching completed calls.
+Relative to the separate longer-test baseline:
+                                Added calls       Cumulative peak ticks
+SD packet unit 1 read/write     1,146 / 1,580             81 / 53
+Public file read/write          1,313 / 988               82 / 112
+There were no observed errors or sticky first errors and no new SD busy/claim
+skips. Public scope added 96 busy skips and 9 missed weak claims: 105 unmeasured
+calls shared across read/write, not 210. Cumulative public skips are 104/10;
+unit 1 retains one earlier missed claim. Maxima did not increase from the
+pre-long-test baseline and may include earlier activity. The write peak remains
+524,288 requested bytes for public files and 1,024 sectors for SD.
+
+Free heap is 163,104 bytes, cumulative minimum 160,664, allocations/frees 268/66.
+The minimum was already 160,664 in the pre-long-test baseline, so its reduction
+cannot be attributed to the longer recording. Device clock advanced without an
+apparent reset. No recording-start message was received and no live host samples
+were collected; retained counters preserve peaks/errors, not a recording time
+series or heap/worker high-water observations.
+
+Pad 1 was restored to OD_261002_181142.WAV, One-shot, 0 dB through the official
+editor. Read-only MIDI queries confirmed all four original assignments/counts.
+Untouched stock 64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+was then staged/read-back verified on the same identified card. Current root
+timing firmware and settings were backed up before replacement. All 86
+recording/pad file entries and the device settings stayed unchanged; all 30
+saved audio evidence files passed fresh hash verification before and after
+staging. The card was safely unmounted, transfer mode exited, and normal editor
+connection plus all original pad/MIDI replies were confirmed. The user chose to
+retain the running timing firmware and defer stock installation. Routine stock
+restoration is not a gate for subsequent development. File staging does not
+establish installation or installed-flash readback.
+
+Remaining limits
+The sustained stock recording/pad workload and both loop joins now have saved
+audio evidence. Diagnostic queries measure native return times,
+not physical card completion. Public read/write hooks include lock/scheduling
+waits but do not cover every open, seek, close or finalizer operation. Skipped
+calls must remain visible; an observed maximum cannot establish a guaranteed
+worker blackout bound. Extra capture throughput, starting history age, catch-up,
+largest contiguous allocation, later stock reserve and task/IRQ stack headroom
+remain unmeasured. Keep 128 history slots only as a conditional candidate.

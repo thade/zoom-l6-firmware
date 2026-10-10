@@ -1,0 +1,94 @@
+Retained startup card reads — 10 October 2026
+=============================================
+
+Result
+------
+The combined offline capture/Main/SD artifact now covers the original card
+enumeration scope as well as ordinary block transfers. It closes the reproduced
+startup ANY-event failure: an error/software-abort notification cannot make a
+small PIO read return success and mark the card ready. This is not the initial
+physical source lease, and it does not bind any source/admission/completion port.
+No BIN is generated and installed source-reuse diagnostic16 remains unchanged.
+
+Two additional byte-checked patches wrap original enumeration800688d0 and the
+read callback80069c58. Complete displaced prologues are replayed. The original
+dispatcher still owns its unit token across enumeration, including held faults.
+The wrappers reuse existing operation/chunk/admission state, adding no globals.
+
+Enumeration uses a distinct active value in the existing retained guard. Its
+original command and event-wait paths now reject timeout, missing success,
+mixed error/software notification, and recorded raw errors before returning to
+their callers. Event/task identity and absence of enabled/pending/activeIRQ111
+are rechecked. Each traced one-block status/SCR/CMD6 PIO read gets a separate
+raw completion latch and exact8/64-byte span; the final native wait must see TC,
+the expected PIO read mode and size, no block-gap/stop/continue state, and clear
+host read/write activity/reset before its frame may unwind. No extra command,
+cache operation, allocation, reset, retry or event replacement is introduced.
+
+Startup request ABI details matter: the high half of the count word carries
+RCA for application commands. The unused caller word at+20 can contain stack
+data; the original PIO branch independently supplies DMA=0. Tests execute the
+real requests, including those uninitialized bytes. The guard checks the actual
+low-half count, known opcode and nonwrapping destination rather than inventing
+an initialization requirement for that unused word.
+
+Only the first unit-zero enumeration and traced PIO formats are supported. A
+second enumeration or unsupported request retains the caller. Ordinary block
+reads continue through the same lower read callback without a PIO scope and
+remain protected by their separate admission/chunk guards. Their source ports
+still default to zero, so installing the full combined plan would hold ordinary
+file IO. This is still not a bootable capture candidate.
+
+Retained failure simplification
+-------------------------------
+The retained build no longer returns from fail_join when a failure was already
+recorded. It has no recovery owner which could authorize that return. This
+prevents an unexpected second enumeration entry from clearing earlier state,
+and lets the compiler remove unreachable continuation code. The older recovery
+research profile retains its separate behavior. A fault can stall ordinary
+storage until reboot; independence of normal recording is not claimed here.
+
+Verification
+------------
+tests/emulation/verify_sd_enumeration_guard.py: ten groups.
+Default and high-speed synthetic cards execute the original cold setup,
+enumeration, command/FIFO/IRQ/event-wait code. Their command sequences, FIFO
+payload and every controller write agree with the unguarded fixture. Capture
+permissions remain zero. The test covers:
+- Pure/mixed error notifications at the first PIO completion, in both cards.
+- Missing fresh raw TC at reads1,2,6, so an earlier software latch cannot help.
+- Hidden raw error, BGE, stop/continue, DMA mode, wrong size, changed task/event
+  and unsupportedIRQ111. Clearing registers later cannot undo a held fault.
+- Mixed notification at command and FIFO-ready waits.
+- Unsupported opcode/count or wrapping destination before data command/access.
+- Live host activity/reset retained in the existing frame until modeled clear.
+- A second enumeration, and an already-failed scope which must never restart.
+- A negative control in which a late prior-origin TC still passes. This remains
+  an explicit counterexample to claiming physical provenance from a new latch.
+
+Fault checks give the retained caller three further scheduling opportunities
+and require no subsequent command, FIFO access, DMA address or controller write,
+no card-ready result, and no unit unlock. Busy-condition cases instead resume
+the same original frames after the modeled condition clears.
+
+Report: analysis/sd_enumeration_guard_verification.json. Card responses, IRQ
+timing, W1C/reset effects, scheduler and event-post endpoints remain fixtures.
+Raw IRQ decoding and native ANY/auto-clear wait instructions execute. Neither
+alternate card families nor physical source/cache/DMA behavior are proved.
+
+Current linked footprint:27248 code bytes,272 global bytes,2168 LZ4 source
+bytes spare with its512-byte helper included. Stock compression overflows by
+3524 bytes. Arena9887, stack16384 and history540672 remain unchanged. The combined
+native-block/capture and continuous-startup suites also exercise this artifact;
+see their reports and progress.md for the final consolidated regression status.
+
+Next boundary
+-------------
+Qualification must start before the first command, from an observed original
+cold reset with stable completion-object identity and excluded competing posts.
+The hardware startup trace places reset completion before the first command,
+but the original cold return alone is not a reset witness. Native notifier68508,
+USB storage-mode entry/teardown and detach62230 still need enforced exclusion
+across that lifetime. The mounted-folder witness must not grant permission by
+itself. Do not substitute another READY callback or repeat an unchanged passive
+recording to answer this source-ownership question.

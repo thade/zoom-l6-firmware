@@ -1,0 +1,385 @@
+Astra correctness, simplicity, performance and capture-buffer review
+7 October 2026 — review only
+=================================================================
+
+Follow-up: the two P2 corrections are implemented in the offline builds. See
+capture_performance_findings.txt for exact-sample, native-alignment, compiler,
+context and packing evidence. The original review and baseline measurements
+below are preserved; the final buffer and physical deployment gates remain open.
+
+Verdict
+-------
+Keep the selected architecture: one history ring, one serialized worker and a
+4-KiB staging/readback area. I found two reproducible performance defects worth
+fixing before choosing a buffer: the actual staging data is misaligned for the
+native SD fast path, and the compiler emits software floating-point multiply
+despite the apparent FPU flags. I found no new sample-integrity or ownership
+correctness defect inside the explicitly modeled contracts. Those contracts
+still do not provide a deployable storage/completion/startup binding.
+
+No final hardware buffer budget is justified. The 128-slot option is a useful
+measurement candidate, not a demonstrated reliable recorder. With the current
+16-KiB experimental worker stack, 256 slots leave only 1,672 bytes of the observed
+free heap before later stock allocations or any new integration storage. This
+is considerably tighter than quoting the arena-only remainder of about 18 KiB.
+
+Scope and evidence
+------------------
+Reviewed HEAD c6c0a3d1fa10a4e2e78b2145c9bcc3389d610c55 plus all current tracked
+and untracked work, including native_arena, diagnostics, experiment 04 and its
+local JSON/JSONL evidence. No applicable AGENTS.md was found. No source/test
+changes, deployment image, device/card action or commit was made. Only this
+report was added; isolated object/disassembly experiments used /private/tmp.
+
+build_extra_capture.py selects capture-only by default. history.c is an older
+externally serialized research implementation, not the active exchange.
+backing_handoff/backing_native are optional; raw pad-command/SD-recovery models
+are test-only. The heap adapter is a separate emulator ELF, not the existing
+packed/startup binding. A large research source inventory is therefore not the
+runtime cost of the selected design.
+
+The parent independently reran all 612 groups in 55 capture suites and the 13
+health-probe groups successfully. The diagnostic image hash stayed
+383ce93268c0a2f865d68667ecbb49261bedac07f66e64e172652dd063ca23cd.
+The initial missing temporary Python-environment configuration was an environment
+failure; it was resolved before that fresh run. See analysis/redesign_verification.json,
+analysis/astra_review_baseline_verification.json and the source snapshot at
+analysis/astra_review_source_snapshot.json. Passing functional tests do not
+measure hardware performance; both findings below coexist with those passes.
+
+Prioritized findings
+--------------------
+[P2] Align the payload member, not only the Capture object.
+
+src/capture/capture.h:9-10 places blocks at byte 24; native_arena.c:37-41 aligns
+its enclosing object to 32 bytes. Thus full staging batches begin at address
+24 modulo 32. extra_drain at capture.c:64 sends that address, and lifecycle.c:133
+and :146 reuse the same address for readback. Heap ELF extra_layout confirms
+sizeof(Capture)=4160 and offsetof(blocks)=24.
+
+The original driver branches on low five address bits at 0x8006ab08. For an
+8-sector write with this offset it emits one sector through the bounce area,
+six directly, then one through bounce. Read behaves the same. A 32-byte-aligned
+address emits one direct 8-sector data submission. This is a concrete avoidable
+cost: three data commands instead of one and 1,024 bytes of bounce copying per
+sector-aligned 4-KiB batch. It does not triple transferred audio bytes, and it
+is not a measurement of physical command time. Fragmented files and partial
+first blocks can introduce additional/different splits; the exact full-file
+request trace should be checked after any correction.
+
+Reproduce without changing source (with the research environment and tests/emulation
+on Python's import path): call verify_sd_controller_setup.transfer_trace(op,8,offset)
+for op=2,3 and offset=0,24; select submissions with command & 0x200000 and report
+dma plus blocks>>16. Results for both operations:
+  offset 0:  [(0x21010000,8)]
+  offset24:  [(0x2000c4d4,1),(0x21010218,6),(0x2000c4d4,1)].
+The parent repeated this independently: analysis/astra_alignment_reproduction.json.
+All four modeled native calls returned zero. Proposed correction: align blocks
+itself, or move it to a suitably aligned offset; verify every supplied arena,
+compiled layout, exact first/last payload and actual native request sequence.
+Merely aligning malloc's result more strongly does not fix this member offset.
+
+[P2] Make the target's FPU features explicit before treating scaling as cheap.
+
+tools/firmware/build_extra_capture.py:75-76 combines Zig 0.13.0's cortex_m7 CPU
+model with -mfpu=fpv5-d16 and hard-float ABI. Its actual final target-feature list
+turns off fpregs and the VFP feature families. The linked capture-only, heap,
+minimal and handoff profiles all contain a 296-byte integer __aeabi_fmul helper;
+capture.c:39 calls it twice per stereo frame. Hard-float e_flags=0x05000400 in
+heap and minimal ELFs do not imply hardware arithmetic instructions are emitted.
+
+In both current heap and minimal ELFs, one 64-frame block filled with float bits
+0x4e800000 executes 6,565 emulator instructions and 128 helper calls. At 750
+blocks/s that is 96,000 helper calls and about 4.92 million emulated instructions/s
+for this function alone. Zero and subnormal inputs produce different counts
+(3,877 and 7,973 in the common implementation). These are instruction counts,
+NOT processor cycles, utilization or wall-clock execution time.
+
+Reproduction: disassemble extra_capture_frames and __aeabi_fmul in the named
+ELFs; count UC_HOOK_CODE callbacks over a direct extra_capture_frames call with
+64 identical left/right frames. Run the build's C compile flags with -### to
+see final feature overrides. Zig's local 0.13.0 lib/std/Target/arm.zig:2293 defines
+cortex_m7 without FPU features. A temporary capture.o compiled with the additional
+CPU feature +fp_armv8d16sp emits VMUL.F32 instructions at the two scale sites.
+This experiment did not replace any project ELF or establish a safe fix.
+
+Next verify the real worker's FP enable/save/restore contract and floating-point
+mode, including FPSCR controls and exception flags, then compare a separate
+explicitly targeted build for exact samples,
+subnormals, signed zero and supported exceptional inputs. Existing native DSP
+uses floating-point instructions, but that alone does not establish the added
+worker's context behavior. Audit the assembly hook ABI and preservation of FP
+registers/FPSCR across added C calls (including callback helpers, since target
+features affect all compiled code), plus RTOS FP context switches. The shared
+HOOK macro already saves s0-s31 and FPSCR, which is useful existing coverage;
+verify every actual entry and continuation, and rerun the
+existing hook-preservation tests with the genuinely FP-enabled build. Do not
+introduce fast-math or silently change sample
+semantics. The published Zig issue [S3] explains the optional-feature policy.
+
+Budget derived from the actual ABI
+---------------------------------
+At 48 kHz, stereo float32 is 8 bytes/frame, 384,000 bytes/s. One callback is 64
+frames = 512 sample bytes = 1.333333 ms; there are 750 callbacks/s. Each Slot
+has state/padding/64-bit first position (16 bytes) plus 512 sample bytes, totaling
+528 bytes. Its overhead is 3.125% of the sample payload.
+
+ELF layout constants independently extracted from capture-only-heap.elf:
+  component                    ABI bytes   arena-rounded bytes
+  arena header/descriptor          56               64
+  control transport              1712             1728
+  router                           20               32
+  bridge                          248              256
+  exchange                         64               64
+  lifecycle/path/header          1072             1088
+  Capture staging + counters     4160             4160
+  manager incl. four results     2208             2208
+  worker                           64               64
+  history                         528*N            528*N
+  raw-pointer alignment allowance                    31
+
+For valid power-of-two N>=2, requested payload = 528*N + 9,695 bytes. This includes
+4,096 staging sample bytes; do not add those again. The non-history rounded sum
+is 9,664, followed by the 31-byte worst-case pointer-alignment allowance.
+
+The original allocator at 0x8006df00 rounds a request x to floor(x/8)*8+16 charged
+bytes when it can split the free block. A remainder below 17 bytes is consumed
+instead, so these are favorable split-case charges, not fragmentation guarantees.
+The native task creator separately requests stack_words*4 and a 148-byte task
+object. A 4,096-word stack therefore costs 16,400 + 160 = 16,560 heap bytes.
+The existing stock queue is referenced by the descriptor; this adapter does not
+create a new queue. Any later integration requiring one must budget it separately.
+
+ N     history ms  sample bytes   arena request   heap charge   left after worker*
+ 32       42.67       16,384          26,591         26,600          119,944
+ 64       85.33       32,768          43,487         43,496          103,048
+128      170.67       65,536          77,279         77,288           69,256
+256      341.33      131,072         144,863        144,872            1,672
+512      682.67      262,144         280,031        280,040         -133,496
+4096   5,461.33    2,097,152       2,172,383      2,172,392       -2,025,848
+
+* Arithmetic against the measured 163,104 free bytes and the experimental
+16-KiB stack/task. It assumes successful suitable free blocks and excludes later
+stock allocations, new code/permanent globals, provider state and optional pad
+handoff state. Negative entries cannot fit this observed heap. Existing stock
+code/globals already occupied at measurement time must not be double-charged.
+
+A hypothetical 8-KiB worker stack leaves 9,864 bytes with 256 slots; a 4-KiB
+stack leaves 13,960. Neither smaller stack has been justified. Free/minimum equal
+163,104 across the short stock trials is useful evidence but not a largest-block
+measurement, reserve policy or full-workflow minimum. Counts 203/1 -> 206/4 show
+later allocation activity even though the observed aggregate minimum did not fall.
+
+Stack evidence is a lower bound
+------------------------------
+The parent traced the original exFAT/SD successful heap-backed 13,312-byte take:
+worker preparation reached 1,304 bytes below entry SP, recording/STOP 1,280 and
+finalize/close/readback 1,336. Registration reached 192. Mount/folder setup reached
+6,152 on its separate caller BEFORE worker boot; do not charge that value to the
+current worker route. Report: analysis/astra_native_stack_observation.json.
+
+The deepest PC is inside the test completion probe. Calls start from fixture
+invoke, with no real task-entry/context frames or nested IRQ behavior. Failures,
+other directory/allocation paths and optional handoff/settings are not bounded.
+Isolated -fstack-usage output for added C code reports individual frames no larger
+than 80 bytes, but this omits native callees, assembly and nesting. Neither result
+supports reducing the live stack to its observed maximum. Trace remaining paths
+and actual stack high-water before selecting 4/8/16 KiB; [S4] documents the compiler
+report, not an automatic whole-program stack proof.
+
+Usable ring capacity and chronology
+----------------------------------
+Nominal duration is not the maximum tolerable write-call duration. Capture opens
+and writes its initial header before publishing the history, which usefully
+keeps initial file-open delay out of live retention. After publication, history
+runs continuously. The selected start can already be behind the current producer
+position. Worker release, start/admission delivery and polling add age before
+its first copy. The worker then claims one block, scales/interleaves it into
+staging and releases that history claim BEFORE issuing file I/O (emulator_bridge.c:285-300).
+This is a good lifetime boundary and should be preserved.
+
+Define A as producer-next minus floor(worker-cursor/64)*64, in frames, at the
+start of a service blackout. For an active selected range a conservative
+condition is:
+  A + 64*ceil(48,000*T/64) + 64 <= 64*N
+where T includes scheduling, lock waits, complete public file work and resumed
+copy time; the last block is a producer-phase guard. Measure the actual oldest
+uncopied selected block age, not merely queued disk bytes. This condition is an
+engineering guard, not a recovered timing contract. At a producer stage boundary
+an old slot may be overwritten before the next committed snapshot advances.
+
+The 4-KiB staging area holds 10.667 ms, but when the worker blocks in a full-batch
+WRITE it is already occupied and unavailable to accept further history copies.
+Adding 10.667 ms to N's ring duration as free stall margin double-counts capacity
+for this situation. A 142-ms blackout consumes about 107 blocks; 128 slots leave
+only 21 nominal blocks before existing age, phase, polling and catch-up.
+
+STOP does not immediately eliminate the requirement: audio continues while the
+worker must still reach the exact stop endpoint. A slow last live write can lose
+the selected tail. Once that range is copied/drained, readback has no live sample
+retention deadline, although it still shares storage bandwidth and delays rearm.
+A late stop behind already consumed audio cancels eligibility rather than
+silently accepting excess samples; this conservative behavior is appropriate.
+
+Throughput, CPU and shared storage
+---------------------------------
+Steady full batches are 4,096 bytes at 93.75 public writes/s. With S manager steps
+per pass and P seconds actually spent in its unconditional delay, an optimistic
+per-batch accounting is:
+  average(public WRITE + scaling/copy/hash + other service) + 8*P/S < 10.667 ms.
+For the fixture S=4 and a true 1-ms delay, polling alone costs 2 ms per batch,
+leaving less than 8.667 ms for the rest. Delay-to-next-tick semantics, contention
+and preemption need measurement; calibrated system ticks do not establish wakeup
+latency. Validated input ranges in native_worker.c:35-37 are not viable throughput
+configurations. Increasing S can improve catch-up but also lengthen time before
+voluntary yielding; choose it from service/backlog measurements, not just CPU use.
+
+There must be positive catch-up headroom. If the available effective capture
+service rate is W bytes/s, a backlog Q needs Q/(W-384,000) seconds to disappear
+while input continues, for W>384,000. For illustration, a 54,528-byte backlog
+(142 ms of audio) needs about 473 ms at W=500,000 bytes/s, or 89 ms at W=1,000,000.
+A second stall during that recovery starts with less free history. Average MB/s
+or one maximum call cannot establish this service envelope.
+
+The existing seven-stream fixture totals 12 float channels = 2.304 MB/s of stock
+payload writes. Extra stereo adds 0.384 MB/s (16.7% more write payload); stereo
+backing playback can add another 0.384 MB/s of reads, before metadata and cache
+traffic. Stock filesystem/SD locks serialize relevant work. An extra request can
+wait behind multiple stock operations; a stock request can also wait behind the
+extra request. Optional state-machine failure isolation does not prove ordinary
+recording deadlines remain unaffected by that sharing.
+
+The sample traffic alone produces approximately 0.768 MB/s for the audio copy,
+0.768 MB/s for the worker copy/scale and 0.384 MB/s of hash reads = 1.92 MB/s of CPU
+loads/stores, excluding driver/DMA/cache and metadata. FNV hashing 4 KiB executes
+20,484 emulated instructions, around 1.92 million instructions/s during recording;
+readback hashes the payload again after stopping. This is not a cache-miss or
+memory-bus bandwidth prediction. Measure before replacing the hash algorithm.
+
+The audio path copies exactly one 512-byte block and publishes bounded metadata;
+scaling/hashing/I/O stay on the worker. However, 'never spin' at block_exchange.c:50
+is not a strict generated-instruction bound: the strong compare-exchange at :61
+has an LDREX/STREX retry backedge on lost exclusivity. Other atomic fetch operations
+also have retry implementations. This is a contract/measurement caveat, not a
+reproduced audio failure. Changing just that CAS to weak would permit conservative
+drops and would not bound all other atomic loops. Avoid expanding this review
+into a new synchronization design without measured need.
+
+What primary SD sources do and do not justify
+-------------------------------------------
+The SD Association's Speed Class overview [S1] conditions performance on the
+host/card mode and specified access pattern, including unfragmented allocation
+units; it does not promise a maximum arbitrary filesystem-call latency.
+Its official-hosted Physical Layer v7.10, section 4.6.2.2 [S2], permits 250-ms busy
+periods and specified SDXC/SDUC write cases up to 500 ms. Those are card-protocol
+limits, not maximum time from requesting a filesystem lock through all commands,
+metadata work and scheduling. I verified the relevant official indexed excerpt;
+the PDF download itself was inaccessible in this browsing session. The official
+catalog currently lists v9.10; I do not claim a fresh full-document v9.10 audit.
+
+Consequently, neither 142 ms nor a card's advertised MB/s justifies a universal
+buffer. Even covering a single 500-ms stall needs 375 blocks before age/guard;
+the current power-of-two design rounds up to 512 and exceeds the measured heap.
+This arithmetic is illustrative, not a claim that every call must take 500 ms
+or that 512 slots would suffice for all filesystem paths. No chipset identity
+or particular silicon-manual timing is assumed in this review.
+
+Practical alternatives and decision
+----------------------------------
+1. Fix payload alignment and investigate explicit FPU targeting first. Both are
+   small, measurable optimizations that retain ownership and exact ranges. They
+   can improve catch-up without spending history memory. Keep 4-KiB staging as
+   the comparison baseline; 8/16 KiB can reduce public calls but consume 4/12 KiB
+   more memory and extend batching/lock service intervals. Measure rather than
+   assume bigger writes always help.
+
+2. Keep 128 slots as a CONDITIONAL capture-only experiment candidate after the
+   independent device gates. It leaves about 69 KiB with the present stack, so
+   it offers space to discover reserve needs. It is not a recommended reliable
+   song-recording budget and should be expected to reject some stress workloads.
+   Accept a test result only with zero missing samples and an explicit recorded
+   occupancy/guard margin, not merely a playable final file.
+
+3. Do not adopt 256 slots plus 16-KiB stack from today's free-heap observation.
+   The 1,672-byte remainder is unsuitable as an unexplained later-allocation
+   reserve. Reconsider only after demonstrating lower permanent costs, a measured
+   smaller stack and adequate largest-block/later-allocation reserve.
+
+4. If a measured service envelope falls between current sizes, a non-power-of-two
+   history can be an offline design option: 192 slots gives 256 ms, payload 111,071,
+   split-case charge 111,080, and remainder 35,464 with a 16-KiB worker. 224 slots gives
+   298.667 ms, payload 127,967 and remainder 18,568. Neither is accepted by current
+   APIs; mask-based indexing/validation/retention checks would all need coordinated
+   changes and wrap tests. 192 slots barely exceeds a 250-ms isolated stall, so it
+   does not magically meet a robust latency budget. Do this only if measurements
+   make the saved intermediate capacity valuable.
+
+5. Keep the large gap unowned until actual ownership is established. Two buffers,
+   direct disk I/O from claimed history, lossy/int16 history, or retaining a stock
+   processed ring would respectively duplicate memory, pin producer slots across
+   uncertain I/O, lose exact samples, or change the required tap. Compression has
+   no useful guaranteed worst-case saving here. Reducing four retained result
+   paths to one could save roughly 1.6 KiB, but cannot solve a 200-KiB timing gap.
+   Removing worker-only staging atomics might simplify the selected path later;
+   preserve research API contracts and measure the modest gain before doing so.
+
+Smallest meaningful next measurements and acceptance criteria
+------------------------------------------------------------
+First, offline: reproduce the two findings in actual native exFAT capture with
+exact bytes and command counts; make separately reviewable candidate corrections,
+then rerun the affected tests/packing checks. Collect generated stack reports and
+extend native call-stack observations to error/fragmentation/full-directory paths.
+Establish worker FPU/task context before enabling its floating-point instructions.
+
+Next observation-only hardware work should improve the existing probe rather
+than enable capture: split read/write durations, retain error count/first error,
+request sectors and maximum-operation identity, and separate busy-observer skips
+from weak-claim misses. Observe public filesystem elapsed/lock wait as well as SD
+calls if the instrumentation budget permits. Use bounded, nonblocking counters
+and maxima/histograms; do not stream logs or allocate in the audio path. Read the
+allocator's largest free block under a verified safe snapshot/exclusion, and
+measure stock task stack high-water and runtime priorities across sustained
+recording+pad playback and relevant later modes. A heap allocation experiment
+alone must be distinguished from the observer-only experiment.
+
+A capture trial additionally needs ring-age/high-water, dropped/overwritten
+selected-block counts, maximum gap between worker progress, complete public-write
+latency and audio callback deadline observations. Size acceptance requires:
+- owned contiguous allocations, measured stack reserve and a declared reserve R
+  for later stock allocations/provider storage, with allocator charge+worker+R
+  within a demonstrated available budget;
+- N satisfying an explicit age + service-blackout + catch-up + phase-guard target,
+  tested with repeated clustered stalls and adverse starting occupancy;
+- sustained stock+extra service with positive catch-up headroom and no stock
+  deadline regression, not just average transfer speed;
+- zero selected-sample loss, exact endpoints/payload checks, and correctly isolated
+  optional rejection when deliberately exceeding the chosen envelope;
+- completion/cache/source/storage/startup bindings independently established.
+
+For example, reserving 32 blocks (42.667 ms) as an engineering guard on a 128-slot
+experiment would require high-water no greater than 96 blocks under its declared
+workload. The observed 142-ms call by itself can consume 107 blocks from empty,
+so today's evidence already fails to demonstrate that example margin. The guard
+is an explicit provisional test target, not a standard or a safety certification.
+No amount of successful short testing establishes an unlimited worst-case bound;
+define the supported card/workload and deliberate extra-capture failure policy.
+
+Sources (primary; local evidence/calculations distinguished above)
+----------------------------------------------------------------
+[S1] SD Association, Speed Class:
+https://www.sdcard.org/developers/sd-standard-overview/speed-class/
+[S2] SD Association-hosted Physical Layer Simplified Specification v7.10,
+section 4.6.2.2 (official indexed text consulted; full PDF retrieval unavailable):
+https://www.sdcard.org/cms/wp-content/themes/sdcard-org/dl.php?f=Part1_Physical_Layer_Simplified_Specification_Ver7.10.pdf
+Current simplified-specification catalog:
+https://www.sdcard.org/downloads/pls/
+[S3] Zig project's optional Cortex-M feature issue and local pinned 0.13.0 source:
+https://github.com/ziglang/zig/issues/17374
+/private/tmp/l6-review-20261007/lib/python3.14/site-packages/ziglang/lib/std/Target/arm.zig:2293
+[S4] Clang command-line reference, -fstack-usage:
+https://clang.llvm.org/docs/ClangCommandLineReference.html#cmdoption-clang-fstack-usage
+[S5] Arm CMSIS-Core D-cache functions, 32-byte address alignment:
+https://arm-software.github.io/CMSIS_6/latest/Core/group__Dcache__functions__m7.html
+This supports the architectural alignment context; the three-versus-one native
+submission result comes from the original firmware instructions, not from
+assuming a particular MCU, DMA controller or hardware cache outcome.

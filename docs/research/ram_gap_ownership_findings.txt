@@ -1,0 +1,199 @@
+External RAM gap ownership follow-up — 10 October 2026
+=====================================================
+
+Result
+------
+Neither apparent gap is approved for capture. This follow-up found no confirmed
+stock consumer inside either interval. It bounded three concrete nearby paths
+and resolved the new derived-address scan's two apparent gap constants as
+Japanese character-table entries. Negative static findings cannot exclude
+runtime pointers, DMA, alternate images or the missing bootloader.
+
+There is now a stronger case for investigating the upper gap first. Its 872 KiB
+could hold the current 1024-slot capture history without shortening ordinary
+recording/playback buffers. The existing history-storage API already accepts
+contiguous slots; a qualified gap would avoid the eight-tail layout. No change
+to that layout, native capacity, firmware image or running device was made.
+
+Capacity, not ownership
+----------------------
+Interval                          Bytes       Current 1024-slot space remaining
+[80960078,80bb9400)             2,462,600                         1,921,928
+[81f26000,82000000)               892,928                           352,256
+
+The upper start is already 32-byte aligned. A 1024-slot history uses 540,672
+bytes, including slot metadata; it holds 65,536 stereo frames / 1.365333 seconds
+at 48 kHz. This is a proposed geometry, not a measured sufficient service budget.
+Two thousand forty-eight slots need 1,081,344 bytes and do not fit the upper gap.
+The separate arena/worker/stack footprint remains approximately 26.5 KB in the
+current design and is not included in these remaining-space figures.
+
+If this alternative is qualified, the native rings could retain stock capacity
+240000 frames / five seconds rather than 223104 / 4.648 seconds. This would
+recover the 352-ms native stall margin removed by the current tail experiment.
+It would not remove extra capture's 384,000 B/s storage traffic or resolve its
+completion, scheduling, stack, startup and code-size gates. Installed diagnostic
+12 retains its prior shortened capacity and keeps extra capture disabled.
+
+Reproducible bounded scan
+-------------------------
+Tool: tools/firmware/audit_ram_gap_consumers.py
+Report: analysis/ram_gap_consumers_audit.json
+Stock v1.10 SHA256:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+
+MAIN's effective payload and all five copied/decompressed initialized regions
+are scanned at every byte for raw gap values and at every halfword for candidate
+constant-producing instructions. There are 806,664 successful candidate decodes
+and 35,411 straight-line traces. Each trace is limited to 192 bytes / 48
+instructions, stops at a call/branch/IT block/PC write, discards unknown register
+writes, and never substitutes mutable global content as a constant. Supported
+arithmetic, shifts, PC-literal loads, scalar/multiple accesses and six inspected
+bulk helper ABIs cover more constructions than the earlier MOVW/MOVT search.
+Known accesses crossing into a gap from below are included.
+
+Raw results are 766 middle-gap values (210 word-aligned) and 173 upper-gap
+values (13 word-aligned). They remain candidates, not live-pointer counts.
+There are 110,049 unknown memory operands across overlapping trace windows;
+this is not a count of distinct instructions or reachable unresolved users.
+Unsupported instructions, wider constructions and paths across a branch/call
+remain outside the scan. Mixed code/data and seeds inside conditional contexts
+can produce false leads. No scan lead is automatically discarded.
+
+The two derived constants and three hypothetical gap accesses all arise when
+character data is decoded as Thumb instructions:
+  candidate instruction 8009bfb8 -> literal 8009c204 -> value 81f38102
+  candidate instruction 8009cae6 -> literal 8009cba4 -> value 80a57f77
+  hypothetical byte accesses 8009caf2,8009cb12,8009cb28 -> middle gap
+
+Original routine 8006fa08 loads table base 8009ae40 and uses 378-byte rows and
+two-byte character entries. Its encoded-input bounds imply a table span through
+exclusive 800a0b46. Executing that ORIGINAL decoder with 8e89/8e8a produces the
+two UTF-16 characters whose four bytes are 0281f381, exactly the first literal.
+Inputs 94eb/94ec similarly produce 777fa580, exactly the second literal. Those
+are character values, not recovered address constants in executable control
+flow. Twenty-four raw gap candidates lie wholly inside this table. This does
+not adjudicate the other raw values or prove no branch could ever enter data.
+The one nearby derived 82000000 at 80019a00 is a sample-data shift result, not a
+recovered end pointer; its source instructions convert signed audio samples.
+
+Concrete boundary consumers: 35 offline groups
+--------------------------------------------------
+Suite: tests/emulation/verify_ram_gap_consumers.py
+Report: analysis/ram_gap_consumers_verification.json
+
+Nine cases execute original 800740b8 with each of its eight table slots matching
+an actual stock-heap allocation, plus a nonmatch. It only clears a matching
+eight-byte pair at 80960038+8*i, then executes the original release 80073f48.
+The final pointer read ends at 80960078 exactly. Heap bytes return to their
+initial free count. Observed writes remain in the table, known heap/state and
+synthetic stack. Table population and other indirect users are NOT recovered.
+
+Two cases enter original caller 800727e8 and constructor 80071d40. The 0x90-byte
+setup object at this call is on its stack, not based at 8095ffe0. Its separate
+fixed callback writes use 8095ffe0 and end at 80960028, before both the eight-pair
+table and gap. Classification 2 skips these fixed writes. Configuration providers
+and classification are fixtures, and this initial check stops before the next
+setup-copy routine. No claim about every indirect constructor caller is made.
+
+Two cases execute original queue constructor 80076348 using original allocator
+8006de78, rather than fixture backing. The largest startup queue (4096 x 20
+bytes plus an 80-byte header) allocates within [808e2fe0,8095ffd8). Exhausting
+this heap returns null instead of growing into the gap. Critical sections and
+scheduler calls are modeled; other pools and live heap availability are not.
+
+Six groups verify the scan's bulk ABIs by executing original memcpy, byte fill,
+zero, memset, scatter copy and scatter zero across a synthetic gap boundary.
+Twelve assembled controls verify arithmetic, double-word/indexed/post-index/
+multiple/literal stores, cross-boundary bulk writes, and conservative handling
+of clobbers, mutable loads, branches, conditionals and calls. The positive
+controls independently observe actual emulator writes. One group executes the
+character decoder for both scan leads. Test assembly is offline only.
+
+Three follow-up groups extend the same original caller through800704d8 for
+classification0,1,2. For0/1, it copies the0xac-byte setup object from the caller's
+stack into[808e2eb8,808e2f64), then replaces callbacks in the stack object. The
+test captures the incoming bytes and verifies the fixed destination byte-exactly;
+all original copy instructions execute. Classification2 skips that copy. Every
+observed access avoids both gaps, and writes stay in the known fixed buffers and
+stack. Execution stops before80073748, which remains a separate downstream
+constructor. Configuration providers/classification remain fixtures, not a full
+USB boot or device-mode test. This closes one previously unexecuted copy path;
+it does not establish all USB destination ownership.
+
+Subsequent provider follow-up: 75 focused groups now execute original selector
+80053178 for all eleven stock profiles and both flags, followed by original
+727e8 through the complete descriptor builder43510. The mutable pointer808e2900
+is installed as802147a0, a fixed972-byte profile copy outside either gap. These
+new descriptor cases use original classification/providers, with explicit
+startup power/serial inputs, and stop before44fb0. Six worker-generated
+configurations also supply five internal-DTCM pool ranges through67980/66f18;
+70068 consumes their pointers before the unexecuted dynamic-length calculation.
+See usb_memory_providers_findings.txt. This supersedes the configuration-pointer
+uncertainty below, while endpoint transfers, physical aliases and eight-pair
+table population remain unresolved. No firmware or layout change was made.
+
+The existing heap/startup/MPU audit and 22 native-ring-layout groups also pass.
+The 774-group full capture regression is unchanged; these focused checks are
+separate, and no production code was changed or full regression rerun here.
+
+Next USB tracing boundary: original80073748 copies0xac setup bytes into
+808e0d58, obtains configuration through80067050 (a mutable pointer at808e2900),
+and builds a0x400-byte stack descriptor. Its call at80073930 goes through
+800451d8 ->80040ff0 ->80043510. The latter copies0x400 descriptor bytes into
+802123c8 before further descriptor construction. These are inspected instruction
+paths, not new execution/ownership proofs. The configuration provider, later
+endpoint buffers and actual DMA transfers still need their own bounds; do not
+infer them from the fixed setup copies. The eight-pair table's population also
+remains unresolved. The follow-up created no firmware or device changes.
+
+Reproduce using the established Capstone/Unicorn/ziglang Python environment:
+  python tools/firmware/audit_ram_gap_consumers.py
+  python tests/emulation/verify_ram_gap_consumers.py
+  python tests/emulation/verify_memory_layout.py
+  python tests/emulation/verify_stock_ring_layout.py
+
+Smallest next evidence
+----------------------
+Prepare a fixed-range passive fingerprint query for bounded pieces of the upper
+gap first. Compare complete coverage across idle, ordinary recording, pad/song
+playback, effects and before/after card/USB transitions. Query only while the
+original Editor/MIDI session is reachable. The query must read only, keep each
+handler bounded, preserve the earlier diagnostics and leave capture disabled.
+No host-supplied arbitrary address, pattern/canary writes or live reservation.
+A changed byte/fingerprint identifies activity and rules out an unconditional
+reservation; unchanged readings only add evidence. A range can be used read-only
+by native code without changing, and a digest has collision limits. This test
+cannot grant ownership or prove physical address independence. Ordinary CPU
+reads may see cached bytes and miss DMA writes; do not clean/invalidate unowned
+cache lines or change MPU/controller settings to strengthen this observation.
+
+In parallel, continue targeted tracing of callers which provide RAM destinations
+to audio/USB/DMA and remaining pools. Neither broad reads nor a harmless startup
+trial replaces that work. Before using either gap, document an ownership basis,
+physical/cache alias evidence and all required producer/consumer bounds. If
+that cannot be established non-invasively, retain the already-tested tail
+candidate while qualifying its reduced ordinary margin, or obtain physical
+chip/bootloader evidence. Pre-compressor capture remains the preferred feature;
+this audit gives no reason to pivot to the master-only fallback.
+
+Passive observer deployed — 10 October 2026
+--------------------------------------------
+Diagnostic 13 implements the bounded upper-gap query described above. The exact
+prepared image passes 53 offline groups, retaining all 42 prior diagnostic
+checks. It covers 872 fixed 1-KiB pages, reads each twice, and adds no reservation,
+patterns, cache maintenance or controller writes. Card staging/readback and
+normal transfer exit are verified. After update/reboot, the new query responds.
+Two complete idle sweeps agree. Disjoint halves across two USB-verified pad plays
+also match idle, covering all 872 pages. These are CPU-visible digest comparisons,
+not an ownership or cache/DMA alias proof. Two windows in a 165.251-second
+multitrack take also cover all 872 pages without changes. Full post-stop and
+post-transfer sweeps match. Only the first recording backing is audio-verified;
+the second is unconfirmed after a reported level/mute change. A full sweep during
+user-reported song playback and six sweeps across five audio-verified effects
+(including restored Room) also match idle. Song audio remains unverified because
+its USB MASTER is silent. Effect restoration is audio-verified. The remaining
+memory providers, aliases and unexercised transition paths are unresolved. This does not change
+any ownership conclusion or the capture layout. Detailed protocol, conservative
+host comparisons and limitations are in ram_activity_probe_findings.txt and
+experiments/13-ram-activity/README.md.

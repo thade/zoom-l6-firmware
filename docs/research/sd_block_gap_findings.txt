@@ -1,0 +1,52 @@
+Partial SD transfer completion refusal — 10 October 2026
+========================================================
+
+Finding and correction
+----------------------
+The offline native completion predicate accepted an admitted1024-byte span with
+TC set and host activity clear, even if PROT_CTRL held stop-at-block-gap10000 or
+continue20000, or the saved raw status was TC|BGE=6. The unchanged source lease
+is still an explicit prerequisite, but those states must not authorize a full-
+span completion. Four pre-change cases are saved in analysis/sd_block_gap_before.json.
+This is a reproduced predicate gap, not an observed fault on the mixer.
+
+Admission now rejects stop/continue modes and existing block-gap status before
+clearing status or entering native buffer/address effects. Completion permanently
+latches an admission fault on unsupported mode or current/recorded BGE. The
+enclosing chunk checkpoint also rejects sticky BGE before/after its provider.
+Clearing registers later cannot make this possibly partial transfer successful.
+No reset, retry, allocation or new state is added. The original frames, unit
+token and buffers remain held; a retained storage fault may stall ordinary IO.
+
+Verification
+------------
+The admission suite adds direct predicate counterexamples and extends initial/
+post-source checks. The combined suite injects stop, continue or BGE at data
+completion for read/write split transfers, then clears the live registers and
+gives repeated scheduling opportunities. It requires no read bounce copy, write
+refill, second DS_ADDR, ownership release or recovery call. Actual native IRQ,
+event and guard code execute; hardware state and partial completion are modeled.
+Source exclusion, physical span ownership and initial enumeration remain unbound.
+
+At this milestone the combined code was26180 bytes, with272 global bytes and2818 packed LZ4
+bytes spare. The stock codec is2748 bytes over capacity. The installed isolated
+loader diagnostic15 is unchanged and contains none of these storage guards.
+The subsequent startup PIO guard and updated footprint are documented in
+sd_enumeration_guard_findings.txt and capture_sd_retained_findings.txt.
+
+Primary-source cross-check
+--------------------------
+NXP's i.MX RT1060 Reference Manual, Rev0,08/2018, section25.9.1.14 (pp1703-1704),
+describes TC both for a completed transfer and a block-gap stop. Section25.9.1.12
+(p1693) describes stop/continue; section25.9.1.13 (p1696) requires waiting for
+reset self-clear and warns against resetting incomplete transfers. Therefore a
+reset alone is not treated as cancellation permission. The RT1042 SDK header
+defines the same SABGREQ,CREQ,BGE fields. RT1060 is a related-family source,
+not proof of the L6's fitted part; the RT1040 manual remains inaccessible here.
+
+NXP-authored manual, hosted by PJRC:
+https://www.pjrc.com/tmp/IMXRT1060RM.pdf
+Official candidate header:
+https://raw.githubusercontent.com/nxp-mcuxpresso/mcux-sdk/main/devices/MIMXRT1042/MIMXRT1042.h
+The web reader rejected the manual's size; it was downloaded and text-extracted
+locally for this bounded review. No device registers or audio levels were changed.

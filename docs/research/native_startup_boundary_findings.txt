@@ -1,0 +1,92 @@
+Cold mount and normal Main admission boundary — 10 October 2026
+==============================================================
+
+Five focused groups identify a concrete logical startup witness. This replaces
+an assumption about card presence with actual native branch evidence, but does
+not yet provide physical storage exclusion or authorize worker release.
+
+Original Main 8002c1e8 calls 80009a40 with argument zero at8002c1f0. In that
+routine, the branch at80009ab4 is reached after mounted-state checks, successful
+folder preparation80002d80 and successful directory changes80002ec8. The latter
+uses native8005bb08. Missing card, read-only folder failures and rejected cluster
+geometry bypass this branch. Either folder-preparation or directory-change
+failure also bypasses it. Missing card can still make the outer routine return
+zero: return status alone is not sufficient. FAT32 and exFAT paths are both
+executed on virtual card sectors.
+
+After initial card setup, Main performs recorder/pad/UI setup and calls
+8000c220(0,profile) at8002c344. That routine selects public USB modes5/7/9 for
+the three profiles; the separate USB-source audit identifies these as audio-only
+worker modes. Normal Main reception begins at8002c440. Mount/folder success is
+earlier than completion of this setup; release should not occur at09ab4 itself.
+
+The normal receive site is also reachable after special setup boot modes2/3
+process an ordinary button and reset the mode. The test executes those branches.
+Therefore a first-trial admission must retain the original boot-mode restriction
+and reject an intervening format/card/mode transition. A later normal-mode value
+or simply reaching2c440 is not an adequate substitute. Other special modes are
+not covered by this bounded test. The existing Main storage gate already closes
+its one lease irreversibly on its classified transitions, but initial setup
+buttons are another reason not to admit capture before ordinary startup.
+
+Smallest intended binding
+-------------------------
+Observe success on the first cold Main-owned card setup; remember whether the
+boot was the explicitly qualified ordinary mode. Do not admit from later remount
+or format success. Only consider worker release after ordinary initialization,
+with the concrete SD/source guard already armed and the storage lease still
+closed, unrevoked and owned. An absent/failed initial card leaves capture disabled
+for that boot. No retries, second dispatcher, private packet queue or generic
+READY callback are required. This is a concrete binding plan, not installed code.
+
+Remaining prerequisites are unchanged: physical previous-work joining and source
+exclusion, original buffer/cache-line ownership, exact combined code/state fit,
+and capture worker timing/stack qualification. A logical directory witness does
+not prove controller idle, DMA completion, lifetime of the mounted generation or
+availability of future filesystem service. Hardware activity may change while
+other tasks run even when Main is between received requests.
+
+Verification
+------------
+tests/emulation/verify_native_startup_boundary.py passes five groups. Original
+mount/filesystem/folder instructions execute with virtual sectors and modeled
+card notification. A separate original Main branch traversal supplies board
+callee results and setup-button input; it is not a whole-device cold boot.
+Fault injection covers each of the two directory stages. No memory reservation,
+worker release, new readiness API, code patch or hardware action is performed.
+Private report: analysis/native_startup_boundary_verification.json.
+
+Physical-source follow-up: concrete next investigation
+----------------------------------------------------
+The cold driver chain is 800684b8 -> 800687c8 -> 8006afc8. The first argument to
+684b8 is a configuration pointer, not a clock frequency value. It always selects
+unit zero, creates the unit token, then passes the pointer onward. An existing
+token bypasses this initialization path; it cannot count as a fresh reset.
+6afc8 calls the first functions in four native driver tables; the SD controller
+table begins with80069b20. Inspecting reset completion on that first cold path
+could establish a starting point before any guarded file transfers. This has
+not been implemented or accepted as a physical source lease. The subsequent
+eight-group continuous cold-path audit and passive diagnostic14 now cover reset
+observation and the first enumeration attempt; see sd_cold_start_findings.txt.
+Their observations still do not supply that lease.
+
+The existing controller-setup suite already demonstrates why the native return
+value is insufficient:69b20 requests reset but can return zero without observing
+self-clear. An initial guard must establish that reset actually completed and
+exclude competing controller/task sources, then cover all later relevant native
+transfers, including ordinary and metadata I/O before extra capture admission.
+Card-enumeration commands between reset/event creation and the first file
+transfer also need accounting; the existing block-transfer scope does not cover
+that entire interval. Observing one completed reset alone would leave this hole.
+Adding the guard only when the optional worker starts would leave older work
+outside its scope. Unresolved faults must retain their original frames/ownership;
+general reset/recovery and automatic remount are outside the first trial.
+
+NXP's current SDK separately checks reset-bit self-clear in USDHC_Reset and
+checks data/DMA errors before reporting data completion. This corroborates the
+direction; it does not prove the L6's exact silicon or physical source ownership.
+https://raw.githubusercontent.com/nxp-mcuxpresso/mcux-sdk/main/drivers/usdhc/fsl_usdhc.c
+The official RT1040 product page lists its reference manual as account-required;
+the direct manual URL was inaccessible to the web reader on10 October2026.
+No newer exact-part manual or reset guarantee was obtained in this follow-up.
+https://www.nxp.com/products/i.MX-RT1040

@@ -1,0 +1,397 @@
+Fixed native ring-tail diagnostic — experiment 08
+8 October 2026
+
+Result
+------
+A capture-disabled diagnostic image is prepared locally. Twenty new offline
+groups pass; 128 groups across eight focused suites pass including the previous
+four diagnostic images, native ring layouts/modes and writer staging. Previous
+images keep their exact builder hashes. No device operation or full redesign
+rerun is included in this result.
+
+Private image: deployment/08_ring_probe/trial_ring_probe/L6.BIN
+SHA256: 35aa147f5024a6dd563dac1766c6f39963144105b221e44b87c87650d7ec2f91
+Code plus loaded zero state: 3876 bytes at 800b2400.
+State including alignment: 612 bytes. Original MAIN/container lengths and
+panel/voice regions are preserved; exact decompressed DSP bytes are unchanged.
+
+This image changes the existing MOVW at 800121ce to set 223104 frames in both
+native descriptors. The original recorder setup caches both values. It leaves
+4.648 seconds of native recording/playback history and 67584 bytes at the end
+of each of twelve fixed lanes. The prospective first-eight-tail history could
+hold 1024 slots / 1.365 seconds, but it is not implemented or selected as a
+proven extra-consumer budget. The image has no extra capture, worker, heap
+allocation or additional file/SD operation.
+
+Cold clearing and indirect copies
+---------------------------------
+All eight original startup scatter outputs match stock. Entry 800a693c clears
+[80c74c00,81f26000), covering the whole native ring [81429800,81f26000).
+Guards therefore must be initialized after ordinary audio/recorder setup; cold
+zeroing is not evidence of unused memory. The native heap is below this arena.
+
+The effects interface initialized at 8001dc10 registers generic word-copy
+8005b741 and doubleword-copy 8005b791 at 80440cdc+2c/+30. Immediate mode copies
+to a caller-supplied destination; deferred mode publishes a destination/count
+at 80445308/80445310 with source staging at 80445164/804451f0. Thus computed
+effect destinations remain an unresolved alias source. Original immediate copy
+bodies into synthetic tail destinations corrupt guards and are detected by the
+diagnostic tests. These negative controls do not establish that stock effects
+ever supply those addresses. Do not confuse separate 8003b791 registrations
+with 8005b791; their MOVT upper halves differ.
+
+Known ring initializer/reader/writer address construction and bounded audio
+tests do not exclude other computed pointers, cache aliases, USB/reentry users
+or DMA. The next hardware test qualifies exercised states rather than claiming
+complete ownership. A fault retains evidence; there is no capacity repair.
+
+Diagnostic protocol and bounds
+------------------------------
+Fixed SysEx request 75/reply 74 accepts only an eight-byte packet in a connected
+Editor session and Thread mode. No address, size, reset, recording or assignment
+command is accepted. Legacy timing protocol 7B/7A and stock messages remain.
+
+1: status: guard progress/fault, both arena bases, both descriptor sizes, both
+   cached sizes and native cursors. It does not write guards.
+2: explicitly initialize at most 512 guard words (2 KiB). Both bases must equal
+   the fixed arena, all four sizes must equal 223104, and recording/playback
+   cursors must be in range. Native recording/recorded-song activity refuses or
+   pauses initialization. All 396 chunks are needed to arm the twelve tails.
+   An armed/faulted probe cannot overwrite/rearm guards; reboot starts anew.
+3: check the next 512 words, without rewriting guards. One complete sweep is
+   396 chunks. First bad address/expected/actual and observed bad words latch;
+   faulted scans stop. Counts describe checked chunks, not every corrupted word.
+4: requested public READ/WRITE and SD-packet CPU buffer spans: requests,
+   overlaps, invalid spans, first intersecting operation/address/length and
+   omitted claims. SD byte counts are checked for overflow. No request is
+   blocked/retried; the original routine is called exactly once.
+5: sample native recorder producer/active consumer positions. Maxima are
+   sampled modulo distances; unstable snapshots are skipped. Missed whole laps,
+   unsampled maxima and true extra-consumer service/queue delay are invisible.
+
+One weak observer claim precedes each bounded update and is released before
+any native IO call or MIDI reply. Busy/missed claims report omissions rather
+than waiting for an observer. Individual replies have before/after epochs;
+they are not simultaneous cross-page or whole-audio snapshots.
+
+The host tool uses explicit --initialize-guards to write guards. Its bounded
+iterator checks each chunk and stops on refused initialization, faults or
+incomplete progress. --scan completes one sweep and never writes guards. The
+default reads status/source spans and samples backlog, without guard writes.
+Fresh logs are required and preserved on failure.
+
+Offline coverage
+----------------
+tests/emulation/verify_ring_probe.py                  20 groups
+deployment/08_ring_probe/offline_verification.json
+analysis/ring_probe_regression.json                 128 groups / eight suites
+
+Full actual-image initialization/reinitialization retains four coherent sizes
+in mode-getter fixtures 0/1/2 and preserves armed tails. The guard initializer
+writes each of 202752 words exactly once and leaves every native prefix intact.
+All twelve last-word corruption controls, both original generic effect-copy
+controls, nine base/size/cache/cursor failures, activity refusals, weak-claim
+failure and odd epochs are covered. Strict host decoding and the 396+396 query
+sequence pass. The largest 123-byte reply is copied into the original protected
+wrapping MIDI ring before the caller's stack can be reused.
+
+Original file/SD requests, sectors, results and close match baseline. Observer
+arguments/results, SP and callee-saved integer/FP registers match. All four
+complete audio callbacks preserve exact fixture output through wrap with flags
+0/1/2 and armed tails. Effects are idle and ADC/delay data are synthetic. ARM
+MAX executes stock double-precision audio; the M7 protocol fixture separately
+checks IPSR/session refusal. In the ARM MAX audio fixture only the compiled
+guard body is invoked directly because that model cannot execute M-class IPSR.
+
+Modeled guard-write/read chunks execute 8743/9238 instructions with 200-byte
+stack depth. The real sender path also uses 200 bytes in the fixture. Exercised
+native file/SD stack rises from 1176 to 1296 bytes, and instructions from 13379
+to 15301. These are path measurements, not hardware cycles, stack high-water,
+timing margins or proof of completion. Scans add workload and must be listened
+to on hardware; first validate after stopping, then during normal recording.
+
+Next hardware qualification
+----------------------------
+After exact staging/readback and the manual update, check idle layout, explicitly
+initialize guards, and perform a stopped full sweep. Record with the established
+looping backing/input 3 workflow, stopping with Record. Observe before/during/
+after, then scan again. Validate all seven ordinary WAVs, settings/pad restoration,
+old evidence hashes, exact backing repeats and listening. Exercise recorded-song
+playback, effect changes and transfer/remount in bounded separate steps; preserve
+guards across those steps and recheck, or explicitly log any reboot/reinitialization.
+Start without scanning during audio; add a live scan only after the stopped
+baseline passes. No canary result proves that reads, cache aliases or physical
+DMA completion are safe. All untouched tails are guards, not owned allocations.
+
+Storage service attribution is still incomplete after experiment 07's slot
+exhaustion. This layout image retains aggregate legacy timing only and supplies
+no new per-task service claim. Improve attribution and measure actual optional
+occupancy, stalls/catch-up, ordinary margin and stack/priority before selecting
+a budget or enabling continuous extra capture. Physical source/cache/SD joins,
+storage transitions, safe worker startup and final pad handoff remain gates.
+
+Staging follow-up
+-----------------
+The exact 3756544-byte image is now staged/readback verified on the previously
+identified L6 card. All 107 recording/pad entries retain their metadata, global
+settings are byte unchanged, and all 51 saved evidence files match their earlier
+hashes before and after staging. The previous experiment 07 root update file
+and settings have verified local backups. Safe unmount and transfer exit pass.
+Original pad assignments/counts and normal MIDI port names match prior controls;
+all legacy timing pages are consistent and have no observed errors. Current
+free heap remains 163104 bytes, historical minimum 160664. No guard command or
+firmware-update command was sent. Manual update is pending; there is no installed
+flash readback, ring-layout execution or hardware ownership result yet.
+
+Device execution and idle guards — 8 October 2026
+-----------------------------------------------
+After the user-reported update/reboot, new fixed diagnostic replies confirm
+experiment 08 execution. Both descriptors and both caches report 223104 frames;
+original pads, normal MIDI ports and legacy controls pass. Current/minimum heap
+is 163104 bytes. This is behavioral confirmation, not installed-flash readback.
+
+The first source snapshot has 846 requests, zero overlaps/invalid spans and one
+omitted claim. Its cause and omitted address are unknown. The initial host gate
+incorrectly rejected every later interval for that historical omission. The
+host now preserves it and checks consistent source pages before and between
+guard chunks, rejecting any newly omitted observation or counter regression.
+It does not reset counters or qualify complete boot/source coverage.
+
+All 396 initialization chunks succeed: 202752 words / 811008 bytes, state armed.
+The first scan stops after 183 successful chunks because one guard claim is
+missed; no fault, guard write or progress occurs in the missed body. Host-only
+bounded retries now accept that case only with fresh consistent progress and a
+new missed-claim count, up to three total attempts. Missing transport replies,
+activity refusals, corruption and unexpected progress are not retried. Full
+scans require 396 successful chunks from any starting index, returning there;
+crossing only the next sweep boundary is insufficient.
+
+idle-scan-02 completes 396 successful chunks, starts/ends at word 93696 and
+reaches sweep 1. prepared-scan-03 completes another full cycle and reaches
+sweep 2, with one additional guard claim safely retried. Both scans retain zero
+bad words/layout faults/activity refusals. Source omission count stays one;
+source requests rise from 846 to 905 during backing-pad preparation, with zero
+observed overlaps or invalid spans. Guard claim omissions total two. No storage
+work is observed during the scan intervals themselves. Nine pure host groups
+and the twenty probe groups pass after these host fixes; the deployed image is
+unchanged.
+
+Official Editor prepares pad 1 with GLORY_BOX.WAV, Loop, 0 dB and Multi Track.
+Other pad assignments/counts match their controls. workload_preparation.json
+records all preparation checks passing with historical limits retained. No
+record command has been sent. Keep the mixer powered; next collect read-only
+status/backlog during about three minutes of backing plus input 3, stop using
+Record, stop the pad, then scan guards before any transfer/reboot. This idle
+evidence does not establish all-mode memory ownership, reads/cache/DMA lifetime,
+physical IO completion or an optional-consumer service/buffer budget.
+
+Ordinary recording follow-up — 8 October 2026
+-------------------------------------------
+The user completed take 261008_153310 and reported no audible problems. Seven
+valid finite 48-kHz float32 WAVs have the same 9484800 frames / 197.6 seconds.
+The first bounded idle collector expired before recording; a restarted collector
+observes 33 fresh active samples and three stopped samples. Recording start was
+not sampled. Five new source observations are omitted since preparation (six
+total); addresses/cause remain unknown. There are 5328 additional observed
+source requests and zero observed overlaps/invalid spans. Legacy pages show no
+observed errors but also retain omissions; this is not full storage coverage.
+Current/minimum heap stays 163104 bytes. Sampled ordinary modulo lag reaches
+75121 frames / 1.565021 seconds; five-second queries can miss peaks/whole laps
+and do not select a safe extra-consumer history budget.
+
+The stopped full guard scan completes 396 successful chunks without retries,
+returns to word 93696 and reaches sweep 3. All 202752 checked words remain intact
+across twelve tails, with no layout fault or invalid sampled cursor. Source
+omissions remain six throughout this stopped scan; no fresh omission occurs.
+No guards are rewritten. This qualifies checked writes for this exercised
+ordinary recording only, not reads, all modes, physical DMA/cache lifetime or
+complete source exclusion.
+
+Raw unnormalized audio matching picked a louder unrelated passage and was
+rejected as loop evidence. Its original report is retained. Normalizing the
+eight-second template energy before coarse and fine matching finds backing
+starts at frames 52784, 3480223 and 6907662. Both periods exactly equal the
+3427439-frame source. Eight independent windows recover their exact loop start;
+local 0.2-second join models explain over 99.99999999 percent of master energy.
+No substantial coherent backing copy is detected in the stems (largest absolute
+correlation 0.00411). Track 4 carries the strongest performed input in this take;
+track 3 is near its noise floor, so an input-3 performance is not inferred.
+Global constant-gain fit is 79.93 percent and some local windows remain lower;
+amplitude/level behavior remains deferred, without claiming every sample free
+of dropout or identifying a cause. No extra recording stream is enabled.
+
+Preservation, transfer and restoration follow-up
+----------------------------------------------
+Copying reads the identified card only. All seven copied file hashes verify;
+all 51 prior evidence hashes remain unchanged, existing audio metadata is
+preserved, and ZOOM_L6.SYS is byte unchanged from staging. The only permitted
+prior metadata change is the backing-pad settings file. Safe unmount and
+official Editor transfer exit pass without reboot. A separate full scan after
+transfer reaches sweep 4, with no corrupt word/layout fault; two missed guard
+claims were safely retried. Requested-source counts rise from 6233 to 84900,
+with 57 additional omissions (63 total), zero observed overlaps/invalid spans.
+This qualifies checked tail writes through this transfer, not complete source
+exclusion or physical SD/cache joins.
+
+Pad 1 is restored to OD_261002_181142.WAV, One-shot, 0 dB; all original pad
+assignments/counts and normal MIDI ports match controls. Another full scan after
+restoration reaches sweep 5, with two missed claims safely retried, no guard
+rewrites and no corruption/layout fault. Source counts rise by 60 to 84960;
+omissions remain 63. No new source omission occurs within either scan interval.
+Guard claim omissions total six, all missed initialization/check bodies retained
+in logs. Legacy pages are consistent with no observed errors; current heap is
+163104 and historical minimum is now 160664 after transfer/reentry. Extra capture
+remains disabled. Recorded-song playback/effects and broader aliases/modes,
+service/stack/physical joins remain gates; no firmware/image change occurred in
+this follow-up.
+
+Recorded-song playback follow-up — 8 October 2026
+------------------------------------------------
+The user reported playback started and later stopped, with no audible problems.
+The read-only collector began after playback was already active. It collected
+120 individually checked snapshots over its ten-minute bound; 29 consecutive
+sample-to-sample cursor advances span 145.075 seconds from the first sample.
+Later sampled cursors remain fixed. Neither the start transition nor the exact
+playback duration is proved by these modulo snapshots. The collector expired
+before the user completion message; later unsampled activity is not attributed.
+
+There are 958 observed source requests since the restoration baseline during
+collection. One new source observation is omitted at sample 23 while the sampled
+playback cursor advances; the count rises from 63 to 64. Its address/cause remain
+unknown. No observed overlap/invalid span, invalid backlog cursor or legacy IO
+error is recorded. Legacy timing also retains omissions. Current/minimum heap
+stays 163104/160664 bytes. Extra capture and live canary scans remain disabled.
+
+After the user completion message, a full stopped scan completes 396 successful
+chunks, with one missed guard claim safely retried. It returns to word 93696 and
+reaches sweep 6; all 202752 guarded words across twelve tails remain intact with
+zero layout faults. Both end-to-end scan snapshots have playback cursor 197504
+and the same source counters. Source requests total 85988, including 70 after
+the collector's last sample; their workload phase is unknown. Source omissions
+stay 64 throughout this stopped scan; no fresh omission occurs. Guard claim
+omissions total seven. Fresh original pad/count queries match the restored
+baseline; current heap and legacy replies remain good. playback_verification.json
+records the evaluated guard checks passing while full source coverage remains
+false. This qualifies checked writes through exercised recorded-song playback,
+not complete read/cache/DMA ownership, physical completion or a buffer budget.
+
+Official Editor exposes all ten effect parameters. An exact baseline is saved:
+Hall DECAY/TONE 40/50, Room 50/50, Spring DWELL/TONE 90/30, Delay TIME/FEEDBACK
+501/35, Echo TIME/REPEAT 501/50. Automatic approval review rejected the first
+attempted Hall change because explicit authorization to alter effect controls
+was required. No parameter changed at that point; the user subsequently granted
+that authorization and the completed follow-up is recorded below.
+Editor parameter updates while transport is stopped cannot independently prove
+selection/activation of every effect engine or its active audio path.
+
+Authorized effect-parameter follow-up — 8 October 2026
+----------------------------------------------------
+The user authorized temporary parameter changes and exact restoration. Official
+Editor numeric entry changed Hall DECAY 40 to 41, Room DECAY 50 to 51, Spring
+DWELL 90 to 91, Delay TIME 501 to 502 and Echo TIME 501 to 502, restoring each
+before testing the next effect. A complete guard scan after every change and
+restoration passes: ten scans reach sweeps 7 through 16. All ten original values,
+including unchanged tone/feedback/repeat values, are observed together and again
+after closing/reopening the effect dialog. A final complete scan after closing
+the dialog reaches sweep 17 without a missed guard claim.
+
+All 202752 words / 811008 bytes across twelve guarded tails remain intact. There
+is no layout fault or invalid sampled cursor. Queried recording masks remain
+zero and the sampled playback cursor stays fixed. Source requests stay 85988, with the same 64
+historical omissions and no observed overlap/invalid span. Nine missed guard
+claims during the ten step scans are safely retried, taking the cumulative count
+from seven to sixteen. These omissions are distinct from source observations;
+each scan still completes all 396 successful chunks and a full circular cycle.
+Hall restoration briefly showed 0 after numeric focus dropped a digit; fresh
+field observation and exact entry restored 40 before its scan. No fault was
+observed. The private step log preserves this transient rather than omitting it.
+
+Final fixed read-only ring, legacy timing, pad/count and MIDI-port controls are
+saved in effect_parameter_verification.json. Original pad assignments/modes and
+levels are restored; current/minimum heap remains 163104/160664 bytes. Approval
+is resolved. No firmware change, guard rewrite or extra capture is introduced.
+This qualifies checked writes through stopped Editor parameter updates only.
+Selecting each engine and making its effect audible with live input remains the
+next hardware step. Full read/alias/cache/DMA ownership, physical storage joins,
+segmented history and an optional-consumer service/buffer budget remain gates.
+
+Computer-controlled effect-audio preparation — 8 October 2026
+------------------------------------------------------------
+The user requested Python orchestration with USB audio and identified Room as
+the selected effect. The official Editor's MIDI mapping is channel 1, EFX TYPE
+CC117, on L6 Mixer Control Port. Executing original stock instructions verifies
+all 128 parser values and all 128 type-decoder values, plus wrong-channel and
+unmapped-controller negative controls. Type boundaries are 26, 51, 77 and 102;
+midpoints 12/38/64/89/115 select Hall/Room/Spring/Delay/Echo. Those instruction
+windows are byte-identical in the installed diagnostic image. External event
+delivery/selection is intercepted offline; this is not DSP or live MIDI proof.
+
+tools/device/l6_effect_audio_test.py sends bounded quiet bursts on USB outputs
+1/2, captures twelve USB inputs, switches only effect type, samples fixed ring
+status during audio and scans all guards after stopping. It restores the original
+effect in cleanup and compares a final response. It never starts the SD recorder,
+rewrites guards, changes firmware, or changes sends, gains, routing or effect
+parameter values. Evidence and float WAV files stay on the computer.
+
+The first 24-second Room pass establishes USB channel-5 dry correlation
+0.9999999999999983 with the generated fixture, 12683-frame host/device alignment,
+finite returned samples and no reported host stream error. Two complete guard
+scans, before/after, pass and reach sweep 19. Source requests remain 85988 and
+historical omissions 64; none newly omitted. Recording is stopped and playback
+cursor remains 197504. All twelve tails remain intact, with no layout fault.
+
+The script stops before sending any effect-selection command because there is
+no effect tail above background at the current send/return setup. Master peak
+is 0.000139669; tail RMS 0.000000376 is below baseline RMS 0.000000472. The earlier
+USB route smoke test's nonzero post-burst RMS also matches background; it must
+not be interpreted as an established effect response. Offline analysis controls
+reject both actual/no-effect and muted-master cases, and accept a known synthetic
+master-only tail. The user is asked to raise channel 5 EFX send and EFX RTN before
+another automated run. Active five-engine qualification remains pending; this
+preparation does not close SD storage/service, alias or buffer-budget gates.
+
+Computer-controlled five-effect audio qualification — 8 October 2026
+--------------------------------------------------------------------
+After the user raised channel 5 EFX send and EFX RTN and replied ready, the
+computer completed six 24-second USB passes: original Room, Hall, Spring,
+Delay, Echo and restored Room. Four identical quiet broadband bursts per pass
+reach channel 5 and the master. All twelve USB inputs are captured to local
+float WAVs. All six dry-input correlations exceed 0.99, all captures are finite,
+dry tail windows are silent, and no host callback error is reported. Each effect
+produces a tail above measured silent background. Only four effect selections
+and the final Room restoration are sent, using the vetted channel-1 CC117 values.
+No transport, pad, numeric effect-parameter, gain or route command is sent.
+
+One preflight scan and six stopped scans complete seven full circular sweeps
+(20 through 26). All 202752 words / 811008 bytes across twelve tails remain
+intact, with no layout fault. Two missed guard claims are safely retried; their
+cumulative count is 22. No guard is rewritten. Twenty-four fixed live snapshots
+also retain coherent layout/status. Recording masks remain zero and playback
+cursor stays 197504. Source requests remain 85988 and omissions remain 64;
+no fresh omission or observed source conflict occurs. No new SD/file source
+requests are observed; this workload cannot qualify SD service or missing calls.
+
+The runner's original final assertion rejects restored Room because its mean
+waveform differs by 38.17 percent. The original failure report is preserved.
+An offline follow-up uses 20ms stereo RMS energy envelopes, averaging energy
+over four bursts and subtracting the silent background. Room's restored decay
+differs by 2.933 percent, with correlation 0.999570; all four other engine
+references differ by at least 68.75 percent and fail restoration controls. Wrong
+engine, doubled gain, silent restoration and the earlier no-effect recording
+are explicitly rejected. Every pair of effect energy responses differs by at
+least 33.61 percent. The host runner now uses this energy comparison and reports
+full-tail RMS without cancelling variable waveform phase. This establishes a
+matching restored decay/level, not sample-for-sample reverb phase reproduction.
+No second hardware run was needed for the corrected analysis.
+
+Fresh official Editor observations confirm all ten baseline numeric parameters
+unchanged; the dialog is closed. Final read-only pad/count, MIDI-port, layout,
+heap and legacy timing checks pass. Current/minimum free heap remains
+163104/160664 bytes. Private automated-effects-20261008-02/evaluation.json links
+the unchanged original report hash and captured WAV hashes; final-controls.json
+records the control checks. Room restoration is supported by the verified MIDI
+selection and measured response; there is no independent active-type readback.
+The user's send/return setup stays in place. Firmware and extra capture remain
+unchanged/disabled. Checked writes through these five exercised effect paths
+are qualified; complete aliases/read/cache/DMA ownership, physical storage
+joins, omitted source calls, segmented history and a service/buffer budget remain.

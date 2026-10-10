@@ -1,0 +1,182 @@
+CURRENT STATE — later on 8 October 2026
+Segmented history is now implemented offline alongside a finite span-access
+inventory. See segmented_history_findings.txt. The fixed 1024-slot geometry is
+still not a proven hardware service budget; physical memory/storage/startup
+bindings remain gates. Earlier next-step recommendations below are historical.
+
+Native writer staging and stock-ring layout audit
+7 October 2026
+
+Result
+------
+Twenty-seven new offline groups and 38 existing focused regressions pass:
+65 groups across seven suites. Original producer/worker instructions reproduce
+unsafe final-stream staging reuse under a controlled delayed schedule. This is
+not a reproduced device defect or proof the real scheduler permits that schedule.
+It is enough to reject assuming arbitrary added work at this boundary is safe.
+Retain the separate optional worker design pending complete staging/scheduling
+proof; no native-writer replacement is implemented.
+
+The memory lead is stronger. With either illustrative shortened capacity,
+original DSP recording copies for all twelve lanes, all mono/stereo float32
+readers, alternate PCM16/PCM24/float32 writers and DSP master playback respect
+the tested bound and do not access proposed lane tails. Samples are exact in
+these fixtures. Both ring descriptors and both cached recorder capacities must
+agree, before production starts. Startup reinitialization restores the old bound.
+This is bounded evidence, not exclusive ownership of those tails on hardware.
+No capture source, device, card, firmware image, or actual memory layout changed.
+
+Evidence
+--------
+  tests/emulation/verify_native_writer_staging.py        5 new groups
+  tests/emulation/verify_stock_ring_layout.py           22 new groups
+  analysis/native_writer_staging_verification.json
+  analysis/stock_ring_layout_verification.json
+  analysis/native_storage_layout_regression.json       65 groups / 7 suites
+  analysis/native_ring_capacity_refs.txt               bounded static leads
+Both new suites are in tools/firmware/verify_redesign.py. The complete redesign
+runner was not rerun; the previous 618-group result is prior evidence, not a
+new 645-group claim. The stock image is unchanged:
+  64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+
+1. Why the final-stream schedule matters
+---------------------------------------
+Original producer 80038e60 uses C=8077ca30 and a global buffer selector at
+C+1ddc. Staging addresses are 807c6d28 and 80847128, separated by 80400 bytes.
+Before requesting the stock write token it copies a prior per-stream remainder,
+reads ring samples through the actual reader, saves any new remainder, then
+calls the original submission callback 80037590 with pointer and byte count.
+Only inside that callback does 800375b2 wait on the token at W(804467f8).
+The global selector increments/toggles after the submission callback returns.
+
+The ordinary nonfinal two-stream fixture submits 512 bytes for stream 2 in
+buffer 0, then stream 10 in buffer 1. The first write is consumed when the next
+submission blocks on the unavailable token. Both distinct stereo payloads reach
+their corresponding files exactly, with no writes into an unconsumed payload.
+
+At the seeded final-stream boundary C+4e4+index*4 == 64, the producer's normal
+complete-sector path toggles the selector, then the final-remainder branch
+800392a4..8003933a toggles it again even with zero remainder. Thus the next
+stream also uses buffer 0. In the controlled delayed schedule its source reader
+writes that address before the next submission waits for the previous token.
+When the worker finally consumes the first queued pointer, it sees the second
+stream's samples. The second file remains exact. Actual memory writes are
+observed against the unconsumed pointer span; messages are never granted an
+artificial send-time payload copy. A contrasting immediate-service schedule
+consumes each final request before reuse and preserves both files.
+
+Two original instruction CPUs supply explicit shared C fields, token/queue
+state and live payload visibility. Disk calls, request metadata and kernel
+scheduling are modeled. No actual runtime priorities, SD direct/bounce lifetime,
+interrupt scheduling or whole-song producer order is established. This explains
+the earlier exploratory observation in recorder_file_worker_findings.txt without
+silently declaring it impossible or reporting a stock hardware corruption bug.
+
+Short and failed writes still execute the original error latch and acknowledge
+the attempted native request. Failure acknowledgement is not IO success. Any
+extra lifecycle must keep its own result separate and preserve stock ordering.
+
+Implication: neither 'after a public WRITE' nor 'between file messages' alone
+proves an insertion is safe. Added work before the next receive can delay
+consumption of an already published pointer. A proposed combined writer must
+cover this final-stream schedule, producer admission, stable payload lifetime,
+preparation/final draining wakeups and stack usage. Retaining the independent
+extra worker avoids introducing this unproved scheduling dependency, while its
+shared storage contention still needs capacity/service measurement.
+
+2. Two ring descriptors, plus two cached capacities
+--------------------------------------------------
+B=20010a48. The original initialization window 800121a0..800121e4 sets:
+  B+53e0: recording ring base = 81429800
+  B+53e4: recording cursor = 0
+  B+53e8: recording capacity = 240000 frames
+  B+53f0: alternate/playback ring base = 81429800
+  B+53f4: alternate/playback cursor = 0
+  B+53f8: alternate/playback capacity = 240000 frames
+These describe the same physical twelve-lane arena, with fixed 960000-byte lane
+spacing. The descriptor distinction is logical, not a second free audio arena.
+
+The native float32 reader 80018fd0 uses the recording capacity B+53e8 but fixed
+lane addresses. Alternate writer 80019498 uses B+53f8 and fixed lane addresses.
+Its PCM16/24 conversion left-aligns signed samples into internal 32-bit units;
+its float32 conversion scales normalized samples by 2^31. Tests account for
+that scaling, rather than expecting the alternate writer to store input bits
+unchanged. The reader returns the resulting internal float bits exactly.
+
+DSP recording window 20229b74..2022a77a copies all twelve lanes using the cursor
+at B+53e4, then wraps it against B+53e8. Original DSP playback override
+20221792..202219f8 reads the master pair from the alternate descriptor, places
+it at B+37b8/38b8, then advances/wraps B+53f4 against B+53f8. Tests exercise
+last-block wrap with 64-aligned capacities. Arbitrarily unaligned lengths are
+not proposed; block copies precede cursor wrap.
+
+Wrappers 80002468 -> 80018eb8 and 80002458 -> 80018e60 return the two capacities.
+Configuration 8000ad7a..8000ad96 calls them and caches recording capacity at
+C+50 through 800381d0, and alternate capacity at C+1e94 through 800381b0.
+Changing only the B fields later leaves both C fields stale. Tests reproduce
+that mismatch explicitly. Repartition must be before this configuration and
+before any producer, or under a fully joined reconfiguration contract updating
+all derived state. No such binding is yet installed or fully audited.
+
+A negative control reduces only B+53e8 while leaving B+53f8=240000. An alternate
+write straddling the proposed shorter end accesses the tail and no longer agrees
+with the shortened reader. Another test executes the original initializer after
+a shortened layout: both descriptors return to 240000, invalidating that layout.
+A live/idle shrink or one-word patch cannot supply ownership.
+
+3. Fixed tail layouts examined, not selected
+-------------------------------------------
+Both proposals preserve original lane addresses and all twelve signal lanes:
+
+ ordinary frames  ordinary seconds  tail bytes/lane  extra slots  extra seconds
+     231552            4.824             33792            512          0.682667
+     223104            4.648             67584           1024          1.365333
+
+Use the first eight lane tails for one logical history. A 528-byte current Slot
+fits exactly 64 or 128 times per tail. Addresses are fixed and segments disjoint;
+the first address of each segment is 32-byte aligned. No claim follows that every
+528-byte history sample payload is DMA-aligned: history is copied into the
+separately aligned contiguous staging before native IO.
+
+Address calculation for the 1024-slot illustrative history:
+  logical_slot = sequence & 1023
+  segment = logical_slot >> 7
+  in_segment = logical_slot & 127
+  address = 81429800 + segment*960000 + 223104*4 + in_segment*528
+The 512-slot illustration uses >>6, &63 and capacity 231552. This arithmetic is
+checked; it is not connected to the current contiguous exchange/manager/arena
+APIs. No dynamic borrowing from reader progress, spare stock lane, scatter-gap
+allocation, fidelity reduction or silent master replacement is proposed.
+
+This reduces ordinary stall retention to 96.48% or 92.96% of stock, which needs
+real backlog-margin evidence. The larger example leaves more room than the
+measured 481-ms held interval; neither is selected as sufficient. Actual optional
+service, age before a stall, occupancy, repeated stalls and catch-up remain
+unmeasured. The other task's 962-tick take is not an exact optional blackout.
+These geometries conserve memory by a deliberate fixed change to the large
+stock arena; simply eliminating the extra task cannot fit the observed backlog
+in the free heap.
+
+4. Remaining audit and next milestone
+------------------------------------
+The immediate memory milestone is cold-start/alternate-mode ownership for a
+fixed layout, before changing the exchange API or preparing a hardware image.
+Trace the alternate MAIN audio callback chosen at B+53c8, all writers/setters
+and descriptor resets, recorder/playback/USB callers, cursor/lookback/stop and
+split/rearm behavior, fixed-size initialization/copies, aliases and DMA/cache
+users. The 52 textual static leads are not an exhaustive reference proof.
+Several superficially similar 9800 immediates actually refer to sound-pad
+memory at 80e49800, which is a distinct occupied region and is not proposed here.
+
+Once every relevant producer respects the shortened bounds and setup happens
+before cached capacity/source admission, implement the fixed segmented history
+as a separate offline layout with the existing contiguous path retained. Test
+slot identity, all segment crossings, audio byte equality, delayed readers,
+start/stop/rearm and disjoint spans. The present tests do not authorize passing
+a first-tail pointer into the current contiguous allocator.
+
+Improve the eight-slot service diagnostic before another attributed recording;
+its saturated boot cannot measure new tasks completely. Reuse stable task
+identities and account for omissions. Full ordinary and optional backlog,
+service/catch-up, physical SD/source/cache lifetime, storage transition joining,
+startup release and eventual one-pad handoff remain deployment gates.

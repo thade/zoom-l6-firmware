@@ -1,0 +1,252 @@
+SD command/buffer observation — 9 October 2026
+=============================================
+Status: offline verification, staging/readback, user-reported update/reboot,
+new-protocol execution, stopped startup, automated pad playback and ordinary
+backing/live-input recording pass. No flash readback or complete command-observer
+coverage is claimed. Concrete physical storage binding remains unfinished.
+
+Purpose and finite scope
+------------------------
+Diagnostic 10 established raw TC/error and cache/TCM observations during native
+recording, but its DS_ADDR may have advanced and the interrupted task was not
+the submitting task. Diagnostic 11 supplies the before-address and command-entry
+context needed to choose a concrete storage binding. It does not substitute a
+software sequence for physical source exclusion or completion.
+
+Four exact before-DS_ADDR sites are patched: 80069fec direct read, 8006a180
+bounce read, 8006abf0 direct write and 8006adac bounce write. Each adapter saves
+all integer registers and APSR, aligns its C call, records the proposed address
+and task/IPSR/raw/PRES/SYS, restores state and replays the displaced instructions.
+The direct-write adapter reads ORIGINAL R4 from its saved frame, not its own
+stack-base R4. Both word-aligned stack variants pass differential tests.
+
+The 8006a348 command entry delegates through the original eight-byte prologue
+and resumes at 8006a350. Only native packet codes22/23 (read) and32/33 (write)
+are tracked. Packet +16 is a 16-bit block count, NOT the packed BLK_ATT register;
+the native engine supplies the fixed 512-byte block size. Packet +20 selects
+DMA. These offsets and codes are exercised through actual original read/write
+paths. Earlier unverified local attempts used a mistaken packet interpretation;
+they are retained privately and were never staged.
+
+The command journal captures original DS_ADDR, bytes, unit, Thread task/event,
+preprogram sequence/site/address and raw/PRES/SYS before the native engine.
+Raw IRQ bits accumulate before native W1C. The existing four data-wait hooks
+keep their original return-site identity and publish status, defined output
+flags, PRES and sampled advanced DS_ADDR. Native command failure publishes
+without a data wait. All native results/event mapping/recovery remain original.
+There is no observer epoch claim held across a blocking native command/wait.
+
+412 bytes hold counters, one preprogram marker and current/latest/latest-condition
+samples. Claim contention increments omissions rather than waiting. Overlap,
+missing/consumed context, unexpected packet shape, task/event mismatch, raw
+errors, missing TC, failed/mixed data wait, activity/reset and observer gaps are
+explicit conditions. Activity is an observation and may be trailing DAT0 busy,
+not a fault. Non-block packet observation reads only its opcode byte; the
+original stock delegate remains free to use its real packet layout.
+
+Three fixed 71/70 queries return 213-byte sample or 73-byte counter replies.
+They read stored state only; they do not read controller registers, clear state
+or lock IRQs. Before/after epochs mark busy/changing snapshots incomplete.
+Raw75/74, detailed73/72 and health7D/7C protocols remain available.
+
+Verification and exact identity
+-------------------------------
+Image SHA256 c17c662b40f516fc34bea2e987c825a79a0ecd5362123f0caecc555588e114fc
+ELF SHA256   0359101013609e259624b257b68e91df658a79c0f243912706673725d04bd66e
+Code/state 6524 bytes, including 1052 aligned state bytes. Native capacity is
+223104 frames. No capture/task/allocation/guard/reset/retention/retry is enabled.
+
+analysis/sd_command_probe_verification.json records 35 passing groups: all 23
+retained raw/detail/health groups against this exact image plus 12 new groups.
+Native command, transfer, original IRQ and actual ANY-event predicate execute
+on the same emulated CPU stack. A separately built emulator helper supplies IRQ
+delivery; it is never linked into the device image. W1C, DS_ADDR advancement,
+response registers, kernel scheduling and physical origins are modeled.
+
+Twelve normal direct/bounce read/write cases preserve MMIO writes, payloads,
+return status, command order, event masks, wait ABI and unit release. Every
+proposed address matches command-entry address and remains original when the
+fixture advances DS_ADDR. TC plus a masked raw error remains visible although
+stock reports success. Timeout never reads undefined output flags. Busy native
+admission, trailing activity, observer contention, old tickets, wrong task/event/
+unit, overlap and malformed/read-only queries are checked. A non-block opcode at
+the last mapped byte proves the journal performs no extended packet read.
+
+The modeled native caller maximum is 700 bytes in normal cases. The retained
+IRQ-only test has 132 software stack bytes without an active command. Neither
+qualifies real exception/preemption stack, elapsed cost or physical headroom.
+Original boot scatter and full DSP output are preserved; the whole-image change
+allowlist and loaded-zero/integer-only states are checked. Rebuilding 09, 09
+detail and 10 gives identical BIN bytes in sd_command_prior_image_identity.json;
+debug ELF metadata may change after editing conditional source. The separate
+main capture regression remains 730 groups/64 suites, not 765 groups.
+
+What this deliberately does not prove
+------------------------------------
+A late prior-origin TC is explicitly delivered during a new command. It still
+matches that scope with no condition, because hardware does not carry our
+software sequence. Both physical_completion_proven and transfer_owner_identified
+remain false. Command task/event observation identifies native context; it is
+not exclusive buffer ownership or a proved physical transfer owner.
+
+NXP's primary driver independently treats data/DMA error status before normal
+transfer completion and includes configured read-cache invalidation. It supports
+keeping full raw errors and a separate cache contract; it does not identify this
+mixer's exact silicon or establish the required native join policy:
+https://raw.githubusercontent.com/nxp-mcuxpresso/mcux-sdk/main/drivers/usdhc/fsl_usdhc.c
+
+Finite hardware check — complete
+---------------------------------
+Staging/readback/preservation, normal update/reboot, stopped startup pages,
+one-shot pad playback and one ordinary backing/live-input take are verified.
+Seven valid aligned files and the full captured USB interval are inspected.
+Settings/pads are preserved, transfer observations are separate and retained
+conditions/omissions grant no safe reuse permission. See the recording evidence
+below. This trial adds no new audio stream or deliberate fault.
+
+Then bind concrete completion and source exclusion BEFORE address programming,
+including error exits and metadata IO, with exclusive original buffer spans and
+the appropriate cache contract. Do not claim the journal closes that gate.
+Native outer storage transitions, exact code/global/history memory ownership,
+startup release and measured optional service/stack budget remain before a
+capture-only TMP trial. Automatic pad assignment follows reliable capture.
+
+Verified staging — 9 October 2026
+---------------------------------
+The exact candidate was copied atomically to the identified card after backing
+up the preceding diagnostic-10 update file and settings. Readback matches the
+verified hash above. All 142 RECORDER/SOUND_PAD files (3960862988 bytes) match
+their hashes and metadata before/after staging. All 128 earlier files also match
+the saved diagnostic-10 hashes; all 142 metadata entries match the last take
+inspection. Settings are byte-identical. No audio or pad assignment was changed.
+
+Fresh UUID/media/filesystem identification precedes normal Eject of disk6;
+the volume is no longer mounted. Official Editor transfer exit/reconnection,
+original pad counts [5,2,1,0] and names, all three native MIDI ports and retained
+diagnostic replies pass. Current/minimum heap is 163104/160664 bytes. Installed
+flash bytes have not been read back. No update command or recording was sent.
+Private evidence is under deployment/11_sd_command. Next the user performs
+PLAY/STOP power-on update, waits for rapid green completion and reboots normally;
+fresh 71/70 replies must confirm diagnostic-11 execution before its workload test.
+
+Startup and pad playback — 9 October 2026
+-----------------------------------------
+Following the user's update/reboot, all three 71/70 pages and retained raw/detail/
+health replies respond; the Editor is normally connected. Original pad counts,
+names and three MIDI ports are unchanged. Current/minimum heap is 163104/163104.
+Two stopped startup sets have 1200 programs/data commands/data waits, 1812 total
+commands, zero unmatched scopes and no active command. Latest bounce start is
+2000c4d4, 512 bytes, advanced wait address 2000c6d4; task808f2998 and event80934ac0
+match preprogram context. Command/wait results are0, flags4, raw3 and one TC.
+
+One startup observer omission remains. Its retained sequence1101 has rawCC1,
+no observed TC and reasons0x810 (NO_TC|OBSERVER_GAP), while the native wait
+returns0/flags4. This is incomplete observation, not an established SD fault.
+The independent raw observer has 3024 IRQs, 1206 TC/1200 DMA-mode TC, zero errors
+and omissions; detail has 1200 waits, zero omissions/conditions. Full boot
+command coverage is explicitly false.
+
+The fixed pad1 one-shot is then triggered by the computer, without setting or
+record-transport changes. An 18.005333-second, finite twelve-channel USB capture
+matches the source at0.99226466; windows at source1/5/10 seconds are0.99775838,
+0.98590861 and0.99495434. No host callback warning occurs. Pad1 assignment and
+current/minimum heap remain unchanged. This checks playback and USB audio, not
+SD recording or every audible artifact.
+
+The stopped interval adds1163 programs/data commands/waits and1163 raw TC/DMA_TC,
+all on bounce reads, plus1217 total commands. Raw/detail have no new omissions,
+raw errors or detailed conditions. Command omissions rise1->3 and conditions
+1->46, with no unmatched or active scope at the final checkpoint. Only the
+latest condition is retained: sequence2350, 4096 bytes from2000c4d4, preprogram/
+entry raw0x08, rawCC|TC3, one TC, native result0/flags4 and reasonENTRY_RAW4.
+Do not infer the reasons of all45 newly counted conditions from that last page.
+
+Six live pages at capture2.006/6.014/10.023 seconds fall inside the matched
+backing window (1.014667..13.986667 seconds). All pages are individually epoch-
+consistent and retained completed samples match original address/task/event,
+512/4096-byte lengths and advanced DS_ADDR. The middle kind1 page shows a new
+command active but reports the previous completed command. Its kind3 page has
+a later epoch, so the pair cannot be combined into one snapshot. Queries take
+6..11ms at the host; this does not measure firmware IRQ/stack overhead.
+
+Private evidence includes installed_startup_verification.json, playback-01/
+command_verification.json, live query index and playback_evidence_hashes.json
+(19 local files). Command coverage remains incomplete; physical completion and
+exclusive ownership stay false. The following recording check exercises native
+writes with backing and substantial live input.
+
+Ordinary recording — 9 October 2026
+-----------------------------------
+The user starts and stops recording, reporting audible backing and no unexpected
+audio problems. The computer triggers pad1 once, captures input-only USB audio
+and sends fixed read-only queries; it sends no recording transport or audio output
+and changes no levels. Take261009_213512 has12613760 frames /262.786667 seconds.
+Its MASTER and six input files all have valid RIFF lengths, finite float32 audio,
+48kHz rate and identical frame counts. The backing lasts12.972 seconds within
+this take; this is not full-song backing playback or a new eighth stream.
+
+Substantial input3 and input4 audio reduces the initial USB raw source match
+to0.77515. The original threshold-failure summary is preserved. Accounting for
+the captured input channels raises the residual match to0.99614, with separated
+source1/5/10-second windows0.99845/0.99364/0.99741. The copied SD master identifies
+the source at30.342333 seconds, residual correlation0.99764 and window matches
+0.99168/0.99902/0.99755. The largest absolute source/input correlation is0.01252;
+this supports absence of strong coherent backing in the stems, not zero leakage
+or absence of every possible artifact. Linear fitting is not exact reconstruction
+of nonlinear master processing.
+
+The entire18.005333-second USB capture,864256 frames, is aligned with SD at
+frame1407762. MASTER and all ten input channels match within4.657e-10 per sample;
+silent input5 is sample-identical. USB samples are finite with no host callback
+warning. This checks the captured interval and full-file finite/length validity;
+it does not prove every sample throughout the rest of the recording.
+
+From the last stopped playback checkpoint to the stopped recording checkpoint,
+programs/data commands/waits and raw TC/DMA-mode TC each rise by6579. This interval
+includes preparation/start/stop activity and is not the exact recording-time
+counter window. Per-path waits add13 direct reads,1686 bounce reads,1366 direct
+writes and3514 bounce writes. Raw/detail omissions and raw errors remain0.
+Detailed detections add1382, comprising1366 direct and16 bounce writes, with
+only data-inhibit/data-line-active reason categories. These can be trailing card
+activity; they do not establish a storage or audio fault. Broad observations add
+570 reads/2150 writes and omit2 calls, with historical maximum98 ticks.
+
+Command omissions rise3->8 and conditions46->2841, with no unmatched scope and
+no active command at the stable repeated stopped checkpoint. Only the latest
+condition is retained: sequence8903, write code33,2048 bytes from2000c4d4,
+task8090b338 and event80934ac0. The before-program task/address match the command
+entry; wait address is2000ccd4, raw0x13 includes one TC, native command/wait0 and
+flags4, reasonWAIT_ACTIVITY0x100. Do not attribute all2795 new conditions to this
+single page. Complete command coverage remains false.
+
+Six individually consistent command pages are sampled during the backing and
+nine later pages while recording continues. Retained bounce-write starts at
+2000c4d4,512 bytes, task808ee6d8 and event80934ac0 match their before-program
+context; a sampled bounce read is4096 bytes/task808f2998. Completed waits advance
+the address by the observed length and return0/flags4 with one TC and no retained
+raw errors. A live page with active1 still describes the previous completed
+command. The middle backing pair has different epochs and cannot be combined.
+The added later set also contains an active command. These are temporal samples,
+not complete direct-write span histories or proof of physical source freshness.
+
+All142 prior audio/pad metadata entries are unchanged. The seven new files and
+pad1 source are copied and hash-verified locally (610449008 bytes total). Settings
+remain byte-identical to staging, pad1 has its original SHA and the card-root BIN
+still matches the exact diagnostic11 hash. Prior audio content hashes are not
+repeated in this inspection. No card files are changed by the inspection.
+Fresh card UUID/media identification, normal Eject of disk6, official Editor
+transfer exit/reconnection, original pad names/counts and all three MIDI ports
+pass. Current/minimum heap is163104/163104 before transfer and163104/160664 after.
+The transfer interval has two further command omissions (8->10), recorded
+separately from the recording. No flash readback is claimed.
+
+Private evidence: recording-01/{stopped_verification,command_verification,
+usb_backing_analysis}.json, recording_evidence_manifest.json,
+recording_analysis_261009_213512.json, recording_usb_sd_crosscheck.json and
+recording_post_transfer_verification.json. recording_evidence_hashes.json indexes
+44 evidence files and the eight verified audio copies. This completes the finite passive
+workload check. Next bind physical completion/source exclusion before address
+programming and before native frames/copies unwind, for audio AND metadata IO,
+with exclusive original spans and the correct cache contract. Outer transitions,
+exact memory ownership and measured worker capacity still precede capture-only
+TMP deployment; automatic pad assignment follows reliable capture.

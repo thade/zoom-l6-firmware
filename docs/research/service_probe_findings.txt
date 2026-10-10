@@ -1,0 +1,241 @@
+ATTRIBUTED STORAGE-SERVICE DIAGNOSTIC
+7 October 2026
+
+Purpose
+Prepare the narrower next slice recommended by Astra's storage investigation:
+observe original public calls and actual normalized native token wrappers by
+stable TCB, without enabling extra capture, a file, worker or memory reservation.
+The earlier 460-tick SD/public WRITE is not an established consumer blackout.
+
+Exact prepared image
+  deployment/07_service_probe/trial_service_probe/L6.BIN
+  SHA256 9680fba71788974ac8cfd3794395084e7d9015904880a591dc8e0e3ae986863b
+  3,756,544 bytes; original container/trailer/panel regions preserved.
+  Code/load span 0x800b2400..0x800b4358, 8,024 bytes including 4,280 state bytes.
+  service_stats: 3,832 bytes; timing_stats: 444 bytes; alignment: 4 bytes.
+  Original stock DSP 55,004 bytes compresses to 36,172 bytes and still expands
+  through the original startup decoder to exactly the original output.
+
+Six entry hooks
+  800301f0 original MIDI parser -> existing parser shim + service_dispatch
+  80068378 original SD dispatcher -> retained timing observer
+  80060620 original public READ -> task observation + retained timing observer
+  800622b0 original public WRITE -> task observation + retained timing observer
+  800328f0 native indefinite take wrapper -> task/token observation
+  80032890 native give wrapper -> task/token observation
+Original prologues/tail branches are replayed once with the original arguments.
+No startup hook, kernel/list manipulation, new command, file or task is added.
+
+Why the actual token wrappers
+Filesystem selector 8001bf88 ignores the normalized take result and returns
+zero. Observing its return would falsely report acquisition on native failure.
+The original 800328f0 wrapper supplies timeout -1 and reaches 800327c8; the
+kernel 80076950 return 1 becomes normalized success 0, other returns -50.
+The give wrapper tail-branches to 80032588; kernel 800763d8 return 1 becomes 0,
+other returns -43. Instrumenting these boundaries preserves native behaviour
+and observes normalized results rather than claiming ownership from a selector.
+
+Selected opaque identities
+  filesystem 1  W(801f8da4)
+  filesystem 2  W(801f8da8)
+  SD unit 1     W(801f5fc0)
+  SD unit 2     W(801f5fdc)
+Duplicate current identities are counted and not attributed. Unrecognized
+objects run the original wrapper. Give matches a retained successful identity
+even if teardown changed its current native slot. Failed gives retain unresolved
+observation; this is never used as ownership or physical-completion permission.
+
+Publication and correlation
+Eight permanent zero-loaded slots hold one stable current TCB each, from
+W(808e291c), admitted only in Thread mode with scheduler flag W(801f9048)==1.
+A single weak compare-exchange attempts a free slot; a miss is counted without
+retrying admission. Full slots/context skips also retain the original operation.
+Per-task fields are atomic; an epoch begins before writes and ends before EVERY
+native call that can block/schedule. Thus WAIT, HELD and HELD|GIVING snapshots
+can be consistent while the native operation remains in progress. Stable slot
+ownership and one writer exclude task deletion/reuse and IRQ writers.
+
+Each public job records operation (READ=1/WRITE=2), handle, requested bytes,
+entry tick and per-task sequence. Nested token takes copy that parent context.
+The public slot cannot replace an active outer job: nested calls are counted
+and passed through. Token users outside READ/WRITE report parent job/identity/
+amount zero. The native close fixture produces the largest domain held interval
+without a public job, illustrating why zero must not be called an extra writer.
+
+Context state combines B(80578ebc) with B(801f8c50)<<8. Token held peaks retain
+the state at take entry; public peaks sample state and tick at completion.
+Do not equate these bytes with exact recording boundary or complete physical
+button ingress. Durations/counters are uint32 modulo; jobs wrap, and unchanged
+maxima do not identify each later equally long event.
+
+Timing meaning
+Take duration: wrapper entry to normalized native take return, including wait
+and any scheduling before the return. HELD body: successful take return to give
+entry, including scheduling within that interval. Give duration: give entry to
+normalized return, including any post-release scheduling. HELD is a lower bound
+on true ownership, not the exact acquisition/release interval. SD held body does
+not isolate card busy, DMA completion or preemption. Probe overhead contributes
+to measured intervals. There is no new consumer, enqueue/ack trace or measured
+consumer admission-to-progress gap; maxima cannot choose the production buffer.
+
+Protocol
+Fixed 77 requests / 76 replies, kinds 1..41 and 7-bit token, require connected
+Editor state 2 and Thread mode. Kind 1: schema/layout, five original heap words,
+six global omission counters and tick. 2..9: task file pages. 10..41: task/token
+pages in filesystem1/filesystem2/SD1/SD2 order. Each task page gives owner,
+epoch-before, fixed fields, epoch-after and tick. Equality/evenness validates
+only that page. There is no multi-page coherence or arbitrary memory/reset API.
+The maximum reply is 153 bytes, copied by the original protected Editor sender.
+Legacy 7B/7A timing is retained; no 79 reservation handler is linked.
+
+Offline verification
+Run tests/emulation/verify_service_probe.py: 17 groups pass. The exact image,
+all original startup/scatter outputs, entire stock DSP decoder, complete
+Cortex-M function disassembly/no FP, ABI/short counts/errors, unsigned wrap,
+native failed take/give normalization, changed identity, nested/unknown/duplicate
+tokens, independent pending WAIT/HELD/GIVING states, concurrent public calls,
+slot exhaustion/context refusal, failed weak admission, strict read-only 41-page
+queries, legacy Editor dispatch and full protected reply lifetime are covered.
+Native file/FAT/cache/SD requests, sector bytes, results and CLOSE match the
+unmodified baseline. Failed I/O retains the native stack/locks until the explicit
+MODELED join; the observer cannot unwind, release, retry or grant completion.
+Kernel scheduling, sectors, DMA/cache and joins remain fixtures, not hardware.
+
+Measured exercised fixture stack/instruction counts
+  native read1024/write1024/close: stock 1,176 B / 13,379 instructions;
+                                probe 1,336 B / 18,623 instructions.
+  protected largest query: 248 B / 3,319 instructions.
+The 160 B path increase is not worst-case live stack or cycle/utilization proof.
+Examined stock StreamFileAccess creation uses 1,024 words (4 KiB); runtime spare
+stack and observer wall-clock effects remain unmeasured. No extra task is made.
+
+Previous diagnostic image regressions also pass: health 13, timing 12,
+reservation 15 = 40 groups, retaining all three exact image hashes. These checks
+also cover the shared builder's optional placement parameter without changing
+the defaults. No broad capture suite was rerun for this separate diagnostic.
+
+Next hardware milestone
+The exact image is now staged/read-back verified on the identified card.
+All 100 audio/pad inventory entries and global settings were preserved, and
+all 44 saved audio evidence hashes passed before and after replacement of the
+card-root update file. The previous experiment 06 root image and settings have
+private backups. Safe unmount, Editor transfer exit and normal fixed status,
+pad and MIDI queries passed: current free heap 163,104, historical minimum
+160,664, no observed errors, original pads/modes/levels preserved.
+
+After the user-reported update and normal reboot, all 41 new service pages and
+seven legacy timing pages pass. New protocol execution confirms diagnostic
+behaviour, not installed flash bytes. Four distinct native task identities own
+slots, with matching file/token page identities and consistent even epochs.
+There are no active file/token scopes at the check. All six omission counters
+are zero, as are public file, token take/give and legacy SD/file errors. Heap
+current and historical minimum are both 163,104 bytes. Original pad assignments,
+catalogue counts and L6 MIDI ports match the pre-update baseline; Editor connected.
+Pad 1 is subsequently prepared with the existing GLORY_BOX.WAV, Loop, 0 dB and
+Multi Track recording; other pads are unchanged. The recording is now inspected below.
+
+Capture before/during/after the bounded comparable recording, use Record start/stop,
+validate seven new files and listen. Stock swapping is deferred by user choice.
+Do not enable continuous capture until owned memory and actual service/catch-up,
+physical SD/source/cache lifetime, transitions and startup release are justified.
+
+This is a narrower first probe, not completion of Astra's entire measurement
+wishlist. It does not trace queue enqueue/dequeue/acknowledgement, command submit,
+individual driver entry/return, exact kernel atomic ownership instants, IRQ/card
+busy waits, pending age or verified runtime priorities. Add a needed boundary
+when these per-task/domain observations identify the next uncertainty.
+
+Completed hardware workload
+---------------------------
+Private take RECORDER/261007_222747 lasts 258.204 seconds. MASTER and all six
+input files have 12,393,792 finite float32/48-kHz frames, with the intended
+mono/stereo formats and complete RIFF lengths. Three source loop joins have
+zero frame-period error; eleven separated waveform windows agree on alignment.
+Input 3's maximum absolute backing correlation is 0.0020954, supporting source
+separation in this take without proving absence of every leak. The user reports
+no audible problems. All 44 prior audio evidence hashes and global settings are
+unchanged; the prior audio metadata is preserved (the deliberately changed pad
+settings are tracked separately). New files were copied without changing card
+files. Safe unmount, transfer exit and restoration of original assignments,
+One-shot modes, 0-dB levels and normal MIDI/Editor controls pass. No stock swap
+or new firmware installation occurred during collection.
+
+The constant-gain full audio model explains 35.184% of master energy, while
+128 of 130 locally fitted two-second windows exceed 99%. One window at 48 s
+explains 27.073%. Gain changes/nonlinear mixing are possible explanations, not
+established causes. Levels remain deferred by user preference. These samples
+and listening do not certify every frame against dropout or leakage.
+
+Collection chronology matters. The original collector logged 20 idle samples
+from 09:15:05 UTC, then timed out at 09:20:08 before the user reported this take
+at 11:58:23. The restarted collector begins at 11:59:53 and retains 23 complete
+samples through 12:05:23. Recording start is not fully sampled live, and the
+physical button timestamp is unknown. The prepared baseline also precedes an
+unsampled idle interval. Do not call every baseline-to-final delta a recording
+operation. All original failed/partial logs are retained privately.
+
+All 920 new per-task pages in the restarted series are consistent. Eight
+legacy pages from samples 7 and 9 have an odd epoch during active native calls
+and are excluded from stable-snapshot claims. Sampled current and historical
+minimum heap remain 163,104 bytes. All observed public, token and SD errors are
+zero. Eight permanent slots fill: 22 full-slot omissions and 22 unmatched gives
+first appear between samples 9 and 10, as observed public READ/WRITE counts reach
+their final values. This suggests stop/finalization overlap but does not identify
+the omitted task or exact button/operation. The subsequent transfer/remount/
+restoration interval raises both omission counters to 62,337; this is outside
+the workload. Other omission counters remain zero. After restoration current
+heap is 163,104, with historical minimum 160,664. A full-slot miss is an omitted
+observation, not an observed native failure; unmeasured calls have no zero-error
+guarantee. Do not reuse this saturated boot as complete attribution evidence.
+
+New peaks rise between samples 7 (12:01:23) and 8 (12:01:38), before omissions,
+and subsequent READ/WRITE counts continue increasing:
+  Slot 6 public WRITE job 1132: 524,288 bytes, handle 0x801fab54,
+    elapsed 484 ticks; context hint 0x201.
+  Same slot/job/handle/amount SD1 held-body peak: 419 ticks.
+    This is explicit parent correlation within the public write. It includes
+    scheduling while the SD token is held and lower-bounds true ownership.
+  Slot 6 filesystem1 held-body maximum: 481 ticks, parent job/identity/amount 0,
+    state hint 0x201. This is a separate retained peak outside instrumented
+    public READ/WRITE. Do not attach it to job 1132 or a specific CLOSE.
+  Slot 3 public READ job 453: 96,256 bytes, handle 0x801f9270,
+    elapsed 414 ticks. Same job/handle/amount filesystem1 take: 396 ticks.
+    Its take elapsed includes scheduling before return; it is not a measurement
+    of only kernel wait. The slot's greatest held body remains 86 ticks from
+    another job, and must not be substituted into job 453's timeline.
+  Slot 5 filesystem1 take maximum: 962 ticks, no public parent. No file-job,
+    exact queue age or task-name/priority attribution follows. This is not
+    962 ticks of filesystem ownership or an added-consumer blackout.
+  Slot 1's 598-tick filesystem and 336-tick SD held maxima were already in
+    the pre-recording prepared baseline and are unchanged. Exclude them from
+    recording-attributed peaks.
+
+Implication and next boundary
+At approximately one millisecond per native tick, a 481-ms continuing producer
+makes 184,704 float stereo sample bytes. That exceeds the entire 163,104 free
+heap before history metadata, staging, stack or reserve. A new same-domain
+writer arriving near the beginning can be blocked longer than today's
+170.667-ms history. This now has observed held-body support; the old aggregate
+460-ms call alone did not distinguish pre-acquisition waiting. It still does
+not measure optional-consumer admission-to-progress, maximum future latency,
+occupancy, catch-up, exact physical busy or DMA/cache completion. The 962-tick
+take is a separate scheduling/wait observation and is not a buffer budget.
+
+Next, audit the original serialized writer's producer/staging ownership and
+completion ordering offline before inserting any extra job. In the same design
+work, establish an explicitly owned larger history layout; merely eliminating
+the extra worker or enlarging the heap arena cannot hold this sample backlog.
+A subsequent diagnostic should cover the relevant native task set and recognize
+saturation before recording, preserving stable TCB identity rather than silently
+recycling live slots. No new measurement image or capture deployment is prepared
+by this workload analysis. Physical completion, storage transitions, startup
+release and eventual pad handoff remain separate gates.
+
+Private evidence index
+  deployment/07_service_probe/completed_workload_summary.json
+  deployment/07_service_probe/storage_service_analysis.json
+  deployment/07_service_probe/post_recording_verification.json
+  deployment/07_service_probe/recording_audio_analysis.json
+  deployment/07_service_probe/recording_evidence_manifest.json
+  deployment/07_service_probe/evidence_safe_unmount.json
+  deployment/07_service_probe/restored_controls-20261007T121243312889Z.json

@@ -1,0 +1,398 @@
+Astra storage strategy investigation — 7 October 2026
+======================================================
+READ-ONLY INVESTIGATION; proposals are not device bindings
+
+Recommendation
+--------------
+Do not select the 128-slot heap recorder for reliable continuous overdubbing.
+Do not simply enlarge its ring, reduce the reserve floor, or use the scatter
+gap. Preserve float32/48-kHz stereo and the existing seven ordinary outputs.
+
+The next milestone should be an attributed, capture-disabled storage-service
+probe, prepared and checked offline first. It should distinguish actual shared
+lock occupancy from waiting before acquisition, identify the native requesting
+task, and measure the intervals in which an added file consumer could progress.
+This investigation performs no device action; the probe must first be made
+concrete and verified before hardware staging or a manual update.
+
+In parallel with that *offline investigation*, audit whether one narrow extra
+file job can be serviced in the native serialized writer, outside its existing
+public file calls and without expanding the twelve-channel recorder. Adopt it
+only if it removes a worker/queue/polling dependency and preserves native buffer
+ownership. It is a potential simplification, not a memory solution by itself.
+
+If an actual service blackout exceeds the heap history, the best concrete owned
+memory lead is a deliberate, audited repartition of the stock recording rings.
+Their tails have an arithmetic path to substantially more extra history while
+retaining over four seconds for ordinary recording. Today those tails are BUSY
+stock memory. This requires a broad bound/ownership audit and ordinary-recorder
+regression proof; it is not a safe allocation yet. Prefer an explicit, modest
+storage-layout change over inventing a complex scheduling/ownership overlay just
+to preserve the current prototype unchanged.
+
+If neither service nor an owned repartition can be established, the specified
+full-fidelity workflow remains unproved on this memory budget. A controlled
+128-slot overflow trial can still teach us something, but it must not be sold as
+the intended whole-song recorder.
+
+Scope and evidence
+------------------
+Reviewed the working tree, including the existing alignment/FP corrections;
+changed no production source, tests, firmware, settings, or previous evidence.
+Only this report was added. No device/card access, capture enablement, emulator
+execution, installation, commit or push was performed. Existing dirty changes
+were preserved. The full 618-group/56-suite result is prior evidence, not a
+fresh run claimed by this investigation.
+
+Primary local evidence used:
+- src/capture/native_arena.c, native_worker.c, capture.c, block_exchange.c,
+  emulator_bridge.c, session_manager.c, lifecycle.c and their headers.
+- docs/architecture.md and research reports named below.
+- Original-instruction listings analysis/main_linear_disassembly.txt and
+  analysis/ram_audio_disassembly.txt, cross-checked against bounded native
+  execution findings already in the repository.
+- deployment/06_reservation_probe/unreserved_comparison/ JSON evidence,
+  including buffer_budget_observation.json; the parent independently checked
+  the workload sample chronology reported below.
+
+This report makes no new card-specification, silicon-identity or vendor latency
+claim. Calculations below follow the locally established sample format and
+native memory layouts; proposals and remaining physical contracts are labeled.
+
+1. Established hardware facts and the inference they permit
+----------------------------------------------------------
+Capture-disabled experiment 06 image SHA256:
+  c06f9d567eae7880fc704852e4f34d8053e55f13af7ce269056c4828baeb69b7
+It adds no audio tap, file or worker. The reserved run obtained three unused
+allocations, charging 93,848 bytes and leaving 69,256 during sampled ordinary
+recording. Later transfer/remount minima are separate observations.
+
+After normal reboot, the same image ran unreserved: all reservation fields were
+zero/UNTRIED. Thirteen live samples across 180.072 s reported 163,104 current and
+historical-minimum free bytes. Take RECORDER/261007_174914 has seven finite
+float32/48-kHz files, all 8,503,040 frames (177.146666... s). Backing repeats match
+the source length, and no audible problems were reported.
+
+Baseline-to-final counts: SD unit 1 reads/writes 1,101/1,488; public reads/writes
+1,308/944. SD read/write peaks 60/460 ticks; public peaks 380/460. The clock
+measurement puts 460 ticks at 459.949–460.071 ms. The peak SD write was 1,024
+sectors (512 KiB), and peak public write 512 KiB. Peak public read was 96,256 B.
+There were zero SD observer skips and 93 shared public skips (88 busy + 5 claim
+misses). Read and write pages repeat that shared count; do not add it twice.
+Observed native error counters were zero. These are incomplete observations of
+software calls, not a physical-completion or maximum-latency certificate.
+
+The cumulative SD/public write maxima rose from 44/85 to 460/460 between live
+sample 3 (07:19:56.750001 UTC) and sample 4 (07:20:11.759298 UTC). SD/public write
+counts rose from 345/217 to 445/289 there, then to 1,496/948 by sample 13
+(07:22:26.798621 UTC). Thus the peak is not merely a final collection/transfer
+artifact: substantial subsequent writes occurred. Exact REC-active state and
+originating task were not logged, and separate equal maxima are not an explicit
+parent/child correlation between the public call and SD request.
+
+The earlier reserved take's Channel 1 five-second excess is deferred at the
+user's request. It neither establishes nor excludes a reservation effect. Use
+Record consistently for a future trial's stop action; no fresh stop diagnosis
+is proposed here.
+
+2. What the 512-KiB call really serializes
+----------------------------------------
+The answer is conditional, but stronger than merely saying timing is unknown.
+
+The original public WRITE at 0x800622b0 selects its file domain from the handle.
+For the examined unit/domain-1 path it calls lock helper 0x8001bf88 at
+0x80062318, calls the actual file driver indirectly at 0x80062462, clears its
+per-task call context at 0x80062466..0x80062482, and reaches unlock 0x80035168
+at 0x800623c8. The same-volume public writer cannot enter this locked driver
+interval concurrently. See native_filesystem_findings.txt and the original
+listing; handoff_locks_findings.txt executes the matching public-read domain.
+
+The SD dispatcher 0x80068378 takes the per-unit token at 0x800683ac, dispatches
+WRITE at 0x80068478, and gives the token at 0x8006848e. The executed findings in
+sd_transfer_lifetime_findings.txt retain it through data waits and final status.
+An overlapping extra write to this unit therefore waits for the residual
+held interval, plus its own scheduling and work. Existing nested file locks
+can impose a longer interval than any one SD command.
+
+However, the diagnostic timers start BEFORE those acquisitions and include
+scheduler time. A 460-ms observed call might contain a long preceding wait, a
+long held interval, or both. It does not prove a 460-ms blackout for the proposed
+worker. If most of the 460 ms is held on the shared domain/unit, a worker arriving
+near its beginning can indeed lose approximately that interval. If the delay is
+mostly before acquisition, blindly allocating 460 ms of history attributes the
+wrong cause; arrivals can still queue behind several requests and wait longer.
+
+Neither higher optional priority nor smaller optional 4-KiB requests preempts
+an already issued native transfer. Cutting only SD requests into smaller pieces
+does not admit another public writer while the outer file lock remains held.
+Releasing that lock inside an ongoing native file operation is not a safe patch:
+its file position, metadata, exception context and buffer ownership are live.
+Do not invoke extra public WRITE reentrantly from the native SD/file driver.
+
+The native public-write boundary is the meaningful cooperative chunking point.
+Splitting a stock 512-KiB request there could create service opportunities, but
+requires preservation of its original data pointer lifetime, accumulated actual
+count, failure latch, final acknowledgement and caller expectations. It may also
+increase filesystem/command overhead and ordinary-file service latency. Do not
+assume a 512-KiB call is one 512-KiB physical transfer on every allocation layout.
+
+3. Memory and service arithmetic
+-------------------------------
+48,000 frames/s * two channels * four bytes = 384,000 sample bytes/s.
+One 64-frame block is 512 bytes and 1.333333 ms. Each current Slot is 528 bytes.
+For supported power-of-two N, native_arena requests 528*N + 9,695 bytes.
+Normal native split charges are 528*N + 9,704, plus 16,560 for the experimental
+16-KiB stack and 148-byte task object. These are favorable allocation charges,
+not a fragmentation guarantee. Only the actual 128-slot reservation is measured.
+
+ N    retained ms   arena request   total incl. worker   left from 163,104
+128     170.667        77,279             93,848              69,256
+256     341.333       144,863            161,432               1,672
+512     682.667       280,031            296,600            -133,496
+
+The compiled sizing function rejects 345 (not a power of two). More fundamentally,
+460 ms alone generates 176,640 float sample bytes: this exceeds the entire
+163,104 free heap with ZERO metadata, stack, staging or reserve. Removing the
+power-of-two restriction, shrinking the worker stack or piggybacking on a stock
+task cannot alone make that literal blackout fit this heap.
+
+Preserving the experimental 65,536-byte floor with the present fixed charges
+allows floor((163104-65536-16560-9704)/528) = 135 slots, or 128 under current APIs.
+The floor is an experimental reserve policy, not measured required stock reserve;
+there is no evidence here justifying its reduction. A smaller measured stack
+could improve reserve, but cannot solve the sample-only impossibility above.
+
+Nominal retention is not the permissible call latency. Let A be the age in
+frames of the oldest uncopied selected block before a service gap. A conservative
+engineering guard is:
+  A + 64*ceil(48000*T/64) + 64 <= 64*N.
+T must include lost scheduling/service, resumed copy time and any lock wait.
+The last block is a producer-phase guard. Continuous idle history and accepted
+start/admission delay mean A need not be zero. Existing latent 0.5/2-second
+lookback branches must be rejected unless supported; normal initialized stock
+selection currently has no lookback (record_boundaries_findings.txt).
+
+The worker releases each history claim after copying into staging and BEFORE
+extra_drain calls WRITE (emulator_bridge.c:285–301). Keep this useful boundary.
+Its full 4-KiB staging is occupied during WRITE and cannot also count as another
+10.667 ms of free capacity. A second queue or a second task that fills staging
+while I/O blocks only helps if it adds defensible owned storage; it otherwise
+moves the backlog and introduces another ownership protocol.
+
+At 4 KiB, the added stream needs 93.75 public writes/s. Ordinary twelve-lane
+float payload is 2.304 MB/s; total writes become 2.688 MB/s (+16.7%), and one
+stereo backing can add 0.384 MB/s reads before metadata. A 460-ms gap generates
+176,640 B backlog. If subsequent effective optional service W is 1 MB/s, catch-up
+takes 176640/(1000000-384000) = 0.287 s; at W=500,000 B/s it takes 1.523 s.
+Repeated clustered stalls can overrun a buffer that survives one maximum call.
+
+The existing worker always delays after a pass (native_worker.c:106–115).
+The fixture's four steps/one tick can add about 2 ms polling per eight-block
+batch if the delay actually lasts 1 ms. Real delay-to-tick behavior, runtime
+priority and wakeup latency remain unmeasured. Adaptive/bounded catch-up may be
+useful after measurement, but a priority increase cannot cure held card locks.
+
+4. Native integration: worthwhile simplification, bounded scope
+--------------------------------------------------------------
+The stock route is source rings -> StreamUpdateRecStream (0x80039340) ->
+producer 0x80038e60 -> one-entry/16-byte file queue -> StreamFileAccess
+(0x80037380) -> public WRITE. Four-word file messages carry operation, stream
+index, pointer and length. Completion releases the stock token at 0x804467f8.
+See recording_writer_findings.txt, record_scheduler_findings.txt and
+recorder_file_worker_findings.txt. The latter already records an unresolved
+cross-stream staging-reuse schedule; do not assume that arbitrary added delay
+at this boundary is safe merely because ordinary hardware recordings work.
+
+The promising narrow offline experiment is ONE worker owning extra lifecycle
+and staging as well as native file service, with an explicit bounded opportunity
+between native requests, after native public-call return. A direct-handle extra
+job can avoid fabricating a thirteenth stock stream. Its own result/error state
+must remain separate from the native stream error latch. Preserve stock queue
+semantics and acknowledgement ordering; do not acknowledge before buffer reuse
+is safe. Inspect the actual shared staging contract before inserting work.
+
+This could remove the separate L6Overdub task, its polling and some stack cost.
+It cannot remove the extra source history, a live blocked write or pad-read
+contention from other tasks. The stock writer's creation stack is only 1,024
+words; adding manager/finalization/handoff is not automatically stack-safe.
+Current worker task-identity assumptions also need deliberate adaptation.
+Preparation before recording and final drain when no ordinary messages remain
+need an explicit wake/lifetime mechanism. If that requires a large second
+scheduler, queue overlay or invasive recorder rewrite, retain the independent
+worker instead; simplicity should be assessed on the resulting design.
+
+Do not expand arrays/masks to fourteen channels casually. Original stream setup
+0x80037ca0 rejects >11, handle getter 0x800374f0 returns zero for 12, and reader
+0x80018fd0 emits silence for out-of-range lanes. These native tests are in
+extra_capture_findings.txt. The second index of each stereo pair is occupied.
+Stock REC+pad uses master-only mask 0x0c00 and drops input stems, so it does not
+satisfy the workflow either (direct_pad_recording_findings.txt).
+
+5. Existing stock audio memory: no spare signal, a concrete repartition lead
+-------------------------------------------------------------------------
+There is no established pre-dynamics stereo history to reuse unchanged.
+The candidate tap is a transient 64-frame mix at 0x20013e00/0x20013f00, overwritten
+by subsequent master processing. The twelve source rings contain ten clean
+input lanes and processed MASTER L/R, all required by the user. Replacing either
+master ring changes the ordinary MASTER; taking an input pair sacrifices stems.
+Reconstructing the selected mix later from stems would also require pad audio,
+time-varying gains/pans, effect state and earlier mix processing. No reversible
+inverse of late dynamics is established. AUX/output buffers are neither this
+signal nor a spare persistent history. See uncompressed_tap_findings.txt and
+audio_task_and_taps_findings.txt.
+
+The stock recording arena is established as [0x81429800,0x81f26000), twelve
+lanes at fixed 960,000-byte stride, each 240,000 float frames (5 s). Original
+initialization 0x800121a0..0x800121e4 writes the base/capacity. Original DSP
+0x2022a748..0x2022a776 wraps its cursor using a loaded runtime capacity. Original
+reader 0x80019028..0x8001904a uses fixed lane stride (0x753 << 9) and separately
+loads capacity B+0x53e8. Existing tests run reader/producer wrap with synthetic
+128-frame capacities. These are positive leads for reducing *effective* length
+while preserving original lane addresses, not a proof all users obey that length.
+
+Illustrative repartition, NOT IMPLEMENTED OR AUTHORIZED MEMORY:
+- Reduce the common ordinary capacity from 240,000 to 231,552 frames, leaving
+  4.824 s (96.48% of the original retention).
+- Every lane then has a 33,792-byte tail. Eight such tails each hold exactly
+  64 current 528-byte Slots: 512 extra slots total, or 682.667 ms of stereo.
+- Use a single logical history with eight fixed segments; slot high bits select
+  the segment, low six bits its element. No dynamically allocated scatter list
+  or per-block allocation is necessary. Extra staging remains contiguous/aligned.
+- At 128 slots per tail, eight 67,584-byte tails provide 1,024 Slots/1.365333 s,
+  while ordinary capacity becomes 223,104 frames/4.648 s (92.96% retained).
+These examples retain float samples and current per-slot ownership metadata.
+Neither history size is selected as sufficient; measured service and catch-up
+must decide. They illustrate that a small percentage of the large *owned stock
+arena* is materially different from squeezing another few KiB from the heap.
+
+A simpler addressing alternative is ONE contiguous tail holding only the
+512-Slot history (270,336 bytes), with the small control/staging objects still
+heap-owned. With the examined common capacity, freeing that tail requires
+shortening every ordinary lane by 67,584 frames: ordinary retention falls to
+172,416 frames/3.592 s (71.84%). This preserves contiguous Slot addressing but
+makes a much larger ordinary-buffer tradeoff. Putting the whole current arena
+there needs still more room. The eight-segment example saves ordinary retention
+at the cost of a new fixed layout; aggregate reclaimed bytes do not constitute
+a contiguous arena or automatically fit current native_arena_alloc. Compare
+these explicit designs only after ordinary backlog margins are known. Neither
+segmentation nor moving unchanged float samples inherently reduces fidelity.
+
+This is a wide audit, not a one-word patch. Initialization also writes a second
+ring descriptor at B+0x53f0; its purpose and every alternate user need tracing.
+Check native recorder C+0x50, fixed-size copies/zeroing, reader modes, alternate
+DSP callbacks, playback/USB routes, setup and restore, start lookback, saved stop,
+split/pause/rearm, and any direct or DMA access. Cold/idle repartition must happen
+before any producer can use the old bound; a mid-recording shrink is unsafe.
+The current contiguous manager/native_arena validators and slot addressing must
+be adapted explicitly, with disjoint spans checked. Simply supplying a pointer
+to a tail is not valid with the current contiguous history API.
+
+Tradeoff: this reduces ordinary recorder stall tolerance. Every stock stream
+must retain adequate measured backlog margin and byte-exact output. Existing
+ordinary ring contents cannot be borrowed dynamically just because their reader
+has passed them: continuous production, delayed start and other readers retain
+claims, and the added signal needs its own historical samples. A fixed audited
+repartition is simpler to reason about than opportunistic borrowing. Until the
+audit and tests pass, all tails remain unavailable.
+
+The unrelated [0x80960078,0x80bb9400) scatter gap stays unowned. No-canary-change,
+allocation success elsewhere or absence from a bounded static scan proves it
+free. Code/permanent-global placement remains a separate requirement.
+
+6. Chunking, preallocation and fidelity alternatives
+---------------------------------------------------
+Preallocation before publishing live history can move allocation/fragmentation
+work out of recording and is worth a focused native exFAT API audit. It cannot
+remove card busy time, another file's long lock interval or scheduling delays.
+No checked reserve/extent API is established in the reviewed implementation.
+Seeking alone must not be called allocation; zero-filling a maximum-length file
+adds preparation time, space and final truncation/recovery requirements. Allocate
+through the filesystem with exclusive ownership; do not bypass it with raw
+sector writes or an unverified contiguous-file assumption. Test exact valid/data
+lengths, append/seek, close, failure and reopen on native exFAT before proposing a
+device experiment. Ordinary files may still allocate independently.
+
+Keep 4-KiB staging as the initial comparison. Bigger staging lowers call count
+but consumes scarce memory and can increase time before copying history again.
+Smaller native chunks can help fairness only at a release boundary which really
+permits competing work, and only if single-command busy periods and cumulative
+throughput also meet the budget. Neither is established by request size alone.
+
+Fidelity changes must be explicit user tradeoffs, not silent fixes:
+ representation/rate                sample B/s   payload produced in 460 ms
+ stereo float32, 48 kHz                384,000               176,640
+ stereo packed int24, 48 kHz           288,000               132,480
+ stereo int16, 48 kHz                  192,000                88,320
+ stereo float32, 24 kHz                192,000                88,320
+ stereo int16, 24 kHz                   96,000                44,160
+These exclude metadata, staging, stack and guard. With 71,304 B available for
+history under current floor/fixed charges, int24, int16/48k and float32/24k still
+cannot cover that literal gap. Only the last illustrative combination fits the
+sample-only arithmetic; it reduces bandwidth and precision and still needs a
+guard/catch-up budget. Packed int24/16 fixed-point needs an agreed headroom and
+clipping policy: current float capture preserves values above +/-1. Half-rate
+capture needs proper filtering/resampling and pad-format compatibility, plus
+exact mapping of start/stop sample positions. Repeated lossy overdubs accumulate
+errors. Lossless compression cannot guarantee lower worst-case history storage.
+
+7. Concrete bounded next milestones and gates
+--------------------------------------------
+A. Prepare an attributed observation-only probe OFFLINE; no added recorder.
+   Track original public WRITE request entry, successful domain acquisition,
+   native-driver entry/return, unlock and wrapper return. Track SD unit take,
+   command submission, waits/status and release under a request correlation ID.
+   Retain task identity, byte count, record-active state and minimum/maximum
+   pending age. Observe actual StreamFileAccess queue enqueue/dequeue and
+   acknowledgement intervals where their ownership is understood. Account for
+   every missing observation; avoid a single busy scope silently omitting the
+   very concurrent waiter we need to characterize. Use bounded per-task slots
+   and counters/top events, no allocating or log streaming in audio/IRQ paths.
+   Verify real runtime priorities, rather than copying creation priorities.
+
+   This quantifies contention and native service opportunities. Without an
+   added consumer it cannot measure that consumer's real admission-to-progress
+   delay; a virtual schedule is explicitly an estimate. Do not invent a worker
+   blackout by equating the largest native elapsed call with it.
+
+   Once the probe is prepared, verified and staged for a manual update, one
+   bounded comparable three-minute stock recording with the same backing,
+   Record start/stop, known card/settings and no reservation/capture would
+   distinguish lock wait, lock held, card wait and preemption. Preserve earlier
+   files and validate all seven lengths/audio. Broaden the workload only when
+   these results identify what further measurement is needed.
+
+B. Audit/execute a minimal native-writer scheduling composition OFFLINE.
+   Preserve the seven original files and inject labeled eighth-stream blocks
+   with explicit delays around actual token/queue boundaries. Compare independent
+   worker vs bounded between-request service, with the same requested I/O trace.
+   Delay native writes across stream changes to resolve the known staging reuse
+   uncertainty; require original error/short-write propagation and exact final
+   acknowledgements. Test extra service after ordinary messages stop, preparation,
+   cancellation, readback, and task stack/context. Do not expand all stream arrays
+   or add a general scheduler before proving this narrow integration is useful.
+
+C. If service does not fit the owned heap, audit stock-ring repartition OFFLINE.
+   Inventory every relevant capacity and access, instrument the reclaimed spans,
+   then run original startup/DSP/read/producer/stop paths over repeated wraps with
+   per-frame labels, adverse delayed consumers and alternative modes. Require no
+   native access to reclaimed tails and exact ordinary outputs. Failure means
+   memory is not available. Sampling/canaries alone are supporting diagnostics,
+   not an ownership proof. Select a size only from measured ordinary and optional
+   backlog margin, not from the illustrative 512/1,024-slot arithmetic.
+
+D. Only after the separate device bindings are complete, an actual capture
+   trial must measure oldest-selected-block age/high-water, gap between successful
+   copies, selected loss/overwrites, extra public-call elapsed/wait/held time,
+   backlog recovery, stock service/backlog/deadlines and stack high-water. Check
+   exact eight-file ranges/payload, including first/last partial blocks. Deliberate
+   excess blackout must reject only extra eligibility and preserve prior backing;
+   it must not accept silence, skipped blocks or a truncated take as successful.
+   Stop must retain the selected tail until copied even while audio continues.
+   A late endpoint behind the consumer continues to invalidate the extra take.
+
+Independent gates remain physical DMA/cache/source lifetime and checked failure
+completion, supported callback/tap coverage (including active dynamics/effects),
+storage generation/card/USB transitions, code/global ownership/loading, task
+startup/release, and optional stopped pad handoff. Moving work into a stock task
+does not prove these gates. Measurements must declare a supported workload and
+failure policy; a finite successful test cannot establish unlimited SD latency.

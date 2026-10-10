@@ -1,0 +1,155 @@
+Heap-backed capture arenas — 6 October 2026
+===========================================
+
+Result
+------
+A separate capture-only experiment obtains every runtime arena, history,
+manager and worker from the original v1.10 allocator at 8006de78. It does not
+claim the large scatter-table gap. Fourteen groups run the compiled adapter
+with original allocation/free instructions. Selected compositions also run
+original application mount, folder creation, file creation/finalization/readback
+and SD instructions. No device operation or firmware image was added.
+
+The existing capture, placement, startup, encoded-hook, minimal and handoff
+profiles retain their original loaded bytes. The adapter is included only by
+build_extra_capture.py --heap-fixture, producing capture-only-heap.elf at
+emulator addresses. It is an alternative for future device integration, not
+an automatic change to the current packed/startup proposal.
+
+Allocation and lifetime
+-----------------------
+native_arena_alloc(slots, session, queue) requests one contiguous allocation.
+Every object begins at a 32-byte boundary inside that returned payload, with
+31 additional requested bytes covering worst-case alignment of the raw pointer.
+The native allocator's own metadata is additional. Actual compiled layouts
+supply the descriptor's transport/router/bridge/exchange/lifecycle lengths;
+the C definitions supply capture, history-slot, manager and worker sizes.
+
+The returned header contains the original allocation pointer, requested size,
+manager/worker pointers and the normal ten-word descriptor. Only the small
+header, manager and worker are cleared here. Normal bounded manager steps
+initialize the other objects; exchange preparation initializes slot ownership,
+and sample payloads are overwritten before publication. History is not cleared.
+
+Invalid slot counts, zero session/queue and Handler context are rejected before
+allocation. Native exhaustion returns null without task creation, capture
+admission or file work. The old 4,096-slot request does not fit this heap and
+is rejected by its original allocator rather than extending into the RAM gap.
+
+Cold exclusive initialization remains a caller requirement. Successful storage
+is permanent until reboot, including after optional registration failure; there
+is no live free/reset API. The manager and hooks can retain references after
+registration, so a registration failure is not permission to free the arena.
+Worker stack/task allocations and all later stock allocations remain separate
+budgets. Allocation success neither measures those budgets nor releases capture.
+
+Tested sizes, not selected hardware settings
+--------------------------------------------
+   slots   requested payload   history at 48 kHz
+      32        26,591 bytes        42.67 ms
+     128        77,279 bytes       170.67 ms
+     256       144,863 bytes       341.33 ms
+
+The histories are much shorter than the old 5.46-second candidate. A real SD
+latency spike can exceed them. The overrun test deliberately starves the worker
+and confirms that optional capture is cancelled while every ordinary file
+retains its exact expected samples. This is functional failure coverage, not
+a measured throughput or scheduling guarantee.
+
+Fourteen passing groups
+-----------------------
+* Three sizes complete an exact 13,312-byte extra take and seven unchanged
+  ordinary files with a separate 65,536-byte native allocation already occupied.
+* Invalid inputs and Handler context perform no allocator call.
+* The large old history and an occupied heap refuse optional allocation while
+  ordinary recording continues unchanged.
+* Worker starvation cancels only the extra result and preserves ordinary audio.
+* Later native allocations/free remain usable beside permanent capture storage.
+* The actual task creator's first/second heap-allocation failures preserve the
+  sleeping/closed optional state; the partial stack is freed by native code.
+* Original application mount/folders and native extra-file operations complete
+  capture in both sector-callback and original SD-driver configurations.
+* A native SD failure retains the file/transfer frames and heap-backed buffers
+  while ordinary audio/STOP continue on another fixture stack. Only explicit
+  modeled completion permits unwind; this is not a device completion provider.
+
+Storage evidence and remaining boundary
+----------------------------------------
+The examined public SD dispatcher at 80068378 accepts packet units 1 and 2
+and subtracts one at 80068390 before selecting state and controller callbacks.
+The existing A-volume compositions supply packet unit 1 and use controller
+index zero. Event construction at 800699b8 selects the IRQ descriptor at
+800a07bc + index*8 and enables IRQ110 + index. That is native selection evidence,
+not proof that controller index one/IRQ111 is unused on the actual device.
+Other software notification, late-status and outer transition sources remain
+the obligations described in sd_event_sources_findings.txt.
+
+The connected-card observation from the successful hardware marker test reports
+exFAT. The fourteen groups above use controlled FAT32 sectors. The follow-up
+native_exfat_findings.txt adds twenty-two groups, including a heap-backed native
+mount/folder/file/SD composition with 256-KiB clusters. It covers native exFAT
+allocation, entry checksums, close/readback and selected failures on virtual
+sectors; exact actual-card geometry/contents and physical behavior remain
+unmeasured. No card data was read or changed during either experiment.
+
+Live heap capacity/later allocation reserve, worker stack headroom, SD latency,
+source exclusion, cache effects and physical I/O completion still need device
+evidence. Code/permanent-global placement, automatic startup release and storage
+generation/transition protection are still unbound. The user chose to skip the
+separate packed-loading trial; loading remains an uncertainty for the first
+eventual functional hardware trial. No recording firmware is ready to flash.
+
+Subsequent diagnostic hardware evidence
+---------------------------------------
+Experiment 04 ran a separate 984-byte packed diagnostic addition on the device,
+with capture disabled. Fixed MIDI replies confirm its execution; this does not
+validate the full capture build or its large runtime allocations. Three idle
+samples and observations after two short recordings, one with pad playback,
+reported 163,104 bytes free and the same minimum. The combined read/write call
+maximum reached approximately 142 ms. Four calls were unmeasured; the latest
+return was successful, but earlier errors and the peak operation type are not
+retained. The two saved takes had valid, aligned channel/master files and the
+pad test supported the expected backing/master/stem separation. The user heard
+no audible problems. Untouched stock restoration from this working trial was
+then verified through ordinary replies around a diagnostic-query timeout.
+
+This aggregate free memory does not prove one contiguous arena, worker-stack
+reserve or later allocation capacity. The 128-slot history has only about 29 ms
+nominal margin beyond the observed peak, without complete timing coverage or
+added capture I/O. The 256-slot payload would leave only about 18 KiB before
+native allocator metadata, extra task/stack and later stock allocations. Neither
+size is selected for hardware. Physical completion and storage release remain
+unbound. See experiments/04-health-probe/README.md for scope and limitations.
+
+Later experiment 06 evidence (7 October 2026)
+--------------------------------------------
+The exact 128-slot arena plus unused 16-KiB worker/task allowance succeeds on
+hardware: native charge 93,848 bytes, with 69,256 current/reported minimum free
+through sampled ordinary recording. No worker or extra capture runs. Channel 1
+has an unresolved five-second length excess in that take. A normal reboot
+releases the blocks, and a same-image unreserved comparison has seven aligned
+177.147-second files. No causal relation to reservation is established.
+
+The unreserved comparison measures a roughly 460 ms native SD/public write,
+exceeding 128- and 256-slot histories. Offline compiled sizing additionally
+verifies 512 slots: request 280,031 bytes, normal arena/stack/task charge 296,600,
+which exceeds observed free heap before considering later reserve. A 345-slot
+input is rejected, as counts must be powers of two. No larger allocation was
+attempted on hardware. The next continuous-capture candidate needs a revised
+owned-memory/storage strategy and measured worker service/catch-up. These
+elapsed native calls include waits/scheduling and do not prove an added-worker
+blackout or physical completion. The earlier 29 ms nominal margin is historical,
+not current justification. See capture_performance_findings.txt.
+
+Reproduce
+---------
+python tools/firmware/build_extra_capture.py --heap-fixture
+python tests/emulation/verify_capture_heap.py
+python tools/firmware/verify_redesign.py
+
+Reports: analysis/capture_heap_verification.json and
+analysis/capture_heap_profile_stability.json. Native scheduler exclusion,
+successful task creation, audio scheduling, ordinary file endpoints and explicit
+Main authorization remain fixtures. Board initialization, SD sectors, DMA,
+interrupt timing, completion/source permission and cache effects also retain
+controlled inputs; the actual SD error case uses the separate test-only guard.

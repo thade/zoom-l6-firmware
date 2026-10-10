@@ -1,0 +1,136 @@
+USB memory providers and candidate-gap follow-up — 10 October 2026
+=================================================================
+
+Result
+------
+The recovered USB profile selector, setup chain and complete descriptor builder
+use fixed storage outside both candidate external-RAM gaps. The USB polling
+worker also supplies five buffer base/length pairs in the configured internal
+DTCM address window, rather than the upper external gap. These close specific
+previously unresolved providers; they do not prove all USB accesses bounded or
+either gap unused. No firmware, capture layout or device state was changed.
+
+Reproduce: python tests/emulation/verify_usb_memory_providers.py
+Private report: analysis/usb_memory_providers_verification.json
+Stock v1.10 SHA256:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+75 passing groups: 22 selections, 44 complete descriptor constructions,
+two unknown-ID cases, six worker/pool-provider paths and one MPU-map check.
+These are separate from the existing 35 gap-consumer checks and 774-group
+capture regression. No production code changed; the full regression was not rerun.
+
+Profile pointer resolved
+-------------------------
+Original 80053178 selects among eleven initialized profiles at 801f60a8+3dc*i.
+They carry IDs 0860,088f,089f,088e,089e,0866,0868,088d,089d,0865,0867 in address
+order. Tests recover their actual bytes by executing decompressor 80001994 with
+the stock scatter arguments, not by synthesizing descriptor contents.
+
+Every selected profile is copied into [802147a0,80214b6c), 972 bytes, then receives
+the original format-list transformations. The selector installs 802147a0 at
+808e2900, the previously unresolved mutable pointer. Associated metadata at
+808e28fc points to the chosen source profile minus 16. Other writes remain in
+the selector's fixed globals and stack. All source and destination accesses are
+observed; both selector-flag branches are exercised for every profile. The six
+format counts stay within their eight-entry arrays in these stock-data cases.
+
+Original getters 80067050 and 80053b68 return these pointers only for class 1;
+classes 0,2,3 return null. Original classification 80072720 returns class 1 for
+the tested selections. Unknown ID ffff returns zero and preserves the prior
+provider/profile contents, both before and after a successful selection.
+This is not a claim that no other code can subsequently modify those globals.
+
+Complete descriptor construction
+---------------------------------
+Each selected state feeds original caller 800727e8, with its original providers,
+classification, 80071d40 and 800704d8 setup copy. No function return is mocked in
+this chain. Power=0 with absent serial and power=1 with a supplied RAM-AUDIT
+serial are explicit startup fixtures: 11 profiles x 2 selector flags x 2 cases.
+They are not a full Cartesian test of arbitrary runtime inputs.
+
+The native stack setup object passes into 80073748, which calls the original
+profile getter and builds a 1024-byte stack descriptor. The full path through
+800451d8 -> 80040ff0 -> 80043510 executes, including string/format construction
+and its helper calls, and returns success to 80073934. Execution stops BEFORE
+80044fb0 registers callbacks and before subsequent endpoint/controller setup.
+
+Captured input bytes match all three fixed copies exactly:
+  800704d8 setup copy       [808e2eb8,808e2f64), 172 bytes
+  80073748 retained setup   [808e0d58,808e0e04), 172 bytes
+  80043510 descriptor copy  [802123c8,802127c8), 1024 bytes
+
+Additional observed writes use initialized descriptor templates, fixed format
+arrays, string tables and stack; the report lists precise read/write spans for
+each case. The 11..24 generated strings use the original 29-slot table and
+33-byte string slots, with verified pointers, terminators and descriptor lengths.
+Every observed read/write avoids both candidate gaps. Unknown destinations and
+MMIO accesses fail the bounded checks. Maximum observed software stack extent
+in this fixture is 1400 bytes, including the caller; this is not a device stack
+budget or high-water measurement and excludes interrupts/concurrency.
+
+USB worker supplies internal buffer ranges
+-------------------------------------------
+Original UsbPollingTask 80045cf0 builds the configuration for selectors 5..10,
+covering the six previously recovered audio/storage configurations. Its event
+wait, startup helpers and peripheral effects use the established scheduling
+fixtures. The request is captured at 8003b5a8, before USB starts. Its original
+construction executes; no buffer pointer is inserted by a fixture.
+
+The wrapper adds 4 to the request address; 8003aeb8 passes that object+38 to
+80067980. Tests preserve the captured request in separate synthetic storage and
+execute 80067980 plus the original 80066f18 getters. All six configurations
+install the same five base/length pairs at [808e0d1c,808e0d44):
+
+  Provider index    Base        Length      Base + length
+       0          20003200       1536         20003800
+       1          20003800         12         2000380c
+       2          2000a420       1536         2000aa20
+       3          20000200      12288         20003200
+       4          20003820      27648         2000a420
+
+These provisioned ranges total 43,020 bytes within the already measured 128-KiB
+DTCM mapping. This is address-placement evidence, not a new spare-memory total
+or physical DMA-reachability test. The buffers are not candidates for capture.
+
+Original audio-state constructor 80070068 then consumes provider IDs 3 and 4,
+placing their bases and table pointers into the states at 808e2f80 and 808e2e54.
+Execution stops before 80070298. That routine calculates frame sizes, ring
+lengths and clearing sizes from format/rate inputs; those resulting spans and
+later wrap/transfer paths remain the next bounded audit. Merely installing a
+small base/length pair does not prove later arithmetic respects it.
+
+Alias evidence and remaining decision
+-------------------------------------
+Original MPU programming puts both ends of both candidate gaps under the same
+highest-priority region 10: [80000000,82000000), TEX=0,S=0,C=1,B=1, full access.
+This extends the existing map check to the actual candidate boundaries. It is
+a cache/access-attribute result, not address translation or alias exclusion.
+The live SEMC evidence still gives one valid 32-MiB decode window; it does not
+measure fitted density or guarantee that different addresses select different
+physical cells. No physical/cache behavior is simulated by these tests.
+
+Unchanged passive fingerprints cannot settle that distinction. No safe writable
+locations in the gap have yet been established, so a destructive pattern test
+there would assume the ownership it is meant to prove. Chip/BOM evidence or a
+controlled address-independence test with independently owned locations remains
+necessary for a stronger physical conclusion.
+
+Next: trace 80070298 and later USB endpoint/transfer destinations, including
+mode changes. Population of the eight-pair table ending at 80960078 and missing
+bootloader ownership remain unresolved. Do not repeat unchanged passive sweeps
+as a substitute. Keep extra capture disabled and retain the current history
+layout until the ownership/physical questions are resolved. The pre-compressor
+recording remains the preferred feature; this audit supplies no reason to pivot
+to recording only the processed master.
+10 October ring-length follow-up
+-------------------------------
+verify_usb_ring_bounds.py adds 22 passing groups: 600 format/timing combinations
+and 616 wrap/inactive cases through the original ring initializer, sizing and
+claim/consume instructions. All nonempty duplex format pairs in the eleven
+profiles and four timing selectors stay within the two supplied internal-DTCM
+pools. Exact clears stop at active length; trailing bytes remain unchanged.
+Profiles with an all-zero absent direction are explicitly excluded from duplex
+combinations, not interpreted as zero-stride active audio formats. This bounds
+the exercised arithmetic, not host negotiation, DMA, arbitrary caller counts,
+other pools or physical aliases. No RAM reservation or device change follows.
+Report: analysis/usb_ring_bounds_verification.json.

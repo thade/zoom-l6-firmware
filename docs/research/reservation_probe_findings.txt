@@ -1,0 +1,152 @@
+EXPERIMENT 06: EXPLICIT CANDIDATE MEMORY RESERVATION
+7 October 2026
+
+Result
+A capture-disabled trial is staged, its execution is confirmed after the
+user-reported manual update, and one explicit reservation succeeds on hardware.
+Normal boot does not reserve memory. One exact new editor-session command attempts the fixed candidate
+allocation after normal startup; status queries remain read-only. This avoids
+adding an optional allocation ahead of stock Main/card/pad initialization or
+claiming that the earlier post-idle startup candidate provides later reserve.
+No capture, task, audio/file/SD operation or pad mutation is enabled.
+
+Allocation contract
+The current capture ABI yields a 77,279-byte request for 128 slots. Separate
+16,384-byte stack and 148-byte task-object requests mirror native task creator
+allocation sizes without creating a task. The original allocator's usual split
+charges are 77,288 + 16,400 + 160 = 93,848 bytes. Full-block consumption can add
+up to 16 bytes per request. Require 159,432 free bytes before allocation to
+retain the experimental 65,536-byte floor even with all three remainders.
+
+The original allocator/free entries are 8006de78/80073f48. Both nest native
+scheduler suspension 80074780/resume 80077540. The added outer suspension keeps
+preflight, all allocations, the post-check and reverse-order rollback together;
+it does not disable event sources or replace native pending-task/PendSV handling.
+Native scheduler suspension is the word at 801f904c. Admission also requires
+running flag 801f9048=1, initialized heap sentinel 801f901c=8095ffd0, current TCB
+808e291c nonzero, Thread mode and clear BASEPRI/PRIMASK. No new RTOS task is added.
+
+Successful pointer ownership lasts until reboot. Payloads are unused and never
+zeroed. Partial failures free only newly obtained, unpublished allocations.
+Current free bytes are restored on those failures; the historical minimum and
+allocator counts need not be restored. One weak compare/exchange admits an
+attempt without spinning; a missed claim leaves UNTRIED, an accepted failure is
+terminal for the boot. Status publication is monotonic UNTRIED -> BUSY -> one
+terminal status, so matching non-busy before/after reads identify stable fields.
+The elapsed count excludes final native resume/scheduling. No heap-list scan,
+arbitrary address/size, live release, allocation retry loop or reset is exposed.
+
+Image and compatibility
+Exact image SHA256 is c06f9d567eae7880fc704852e4f34d8053e55f13af7ce269056c4828baeb69b7.
+Code/state occupy 2,624 bytes in the same audited diagnostic MAIN/DSP-source tail.
+Persistent state totals 480 bytes, including 444 timing bytes, alignment and a
+32-byte reservation record. Only the original diagnostic parser and SD/public
+file prologue sites are patched. There is no boot or task-creator patch.
+The shared parser assembly defaults to its original callback; only this build
+selects the reservation dispatcher. Experiments 04 and 05 retain their exact
+984-/1,756-byte builds and original hashes; all 25 prior diagnostic groups pass.
+
+Verification
+Fifteen groups execute the compiled trial and native allocation/free/suspend/
+resume instructions. Success from 163,104 free bytes charges exactly 93,848 and
+leaves 69,256. A deliberately fragmented native heap refuses the large request
+despite 271,856 aggregate free bytes. Three actual unsplittable remainders charge
+93,896 and leave exactly 65,536 at the preflight boundary. Null returns at each
+allocation test exact rollback and no repeated attempt. Memory-write observation
+confirms no reservation payload writes. Original unrelated occupied payloads,
+protected MIDI reply lifetime and native file/SD results remain exact.
+The existing native heap-backed capture suite also passes its 14 groups.
+
+Critical-section effects, pending task lists, preemption/interrupt delivery,
+storage sectors and DMA/cache behaviour retain fixture inputs. Pending PendSV
+register writes run natively against simulated MMIO; no hardware exception is
+delivered. These are software-contract checks, not measured device headroom or
+allocator latency. The sandbox cannot map the emulator memory on this host;
+the checks ran outside the sandbox. The exact image was staged/read-back verified
+on the expected card, preserving settings and all 86 recording/pad entries;
+all 30 saved audio evidence hashes were checked before and after. Safe unmount,
+transfer exit, original pad/MIDI replies and normal Editor connection passed.
+Hardware observations
+After the user-reported update/reboot, exact new replies show the expected
+budget, UNTRIED status and all seven reservation fields zero. Idle current and
+historical minimum heap are both 163,104 bytes. All seven timing queries and
+ordinary pad counts/assignments pass, the Editor connects normally, and all
+three L6 MIDI ports remain available. Other connected instruments are excluded
+from the L6 port comparison. This confirms diagnostic execution and installed
+behaviour, not installed-flash bytes or recovery from broken firmware.
+
+The existing GLORY_BOX.WAV was selected on pad 1 in Loop mode at 0 dB before
+reservation; other pads and catalogue counts stayed unchanged. One explicit
+kind-2 command obtains all three blocks. Its reply and a separate read-only
+kind-1 status agree: HELD, 163,104 free before, 69,256 after, exact charge
+93,848 bytes, three distinct 8-byte-aligned pointers. The timing heap query
+matches 69,256 current/minimum free; allocations rise from 203 to 206 and frees
+remain 1. Native scheduler suspension is zero in both replies. Reservation
+elapsed work reports zero ticks, which does not establish wall-clock latency
+or bound interrupt/scheduling effects. All retained timing observations are
+consistent with no observed errors. The blocks remain unused and held.
+
+Private post-update, reservation and before/after timing evidence is saved.
+The recording and inspection are now complete. Fourteen live query sets span
+195.064 seconds, covering active writes and the stopped period. All reservation
+samples stay HELD. Sampled current and reported historical minimum free bytes
+stay 69,256; final pre-transfer snapshots are consistent with no observed errors.
+The pre-recording baseline-to-final interval includes 1,033 measured SD reads,
+1,432 writes, 1,292 public reads and 915 public writes. Cumulative peaks rise to
+68/61 SD read/write ticks and 68/92 public file ticks. Host tick bounds are
+999.83-1,000.09 Hz. One SD call and 79 public file calls go unmeasured, counted
+once from shared scope counters. Two live SD sets and three public file sets
+are in-progress observations; they are not treated as completed timing samples.
+The user reports no audible problems.
+
+All seven saved WAVs have verified copies, valid formats and finite samples.
+MASTER and five channel files have 8,191,488 frames (170.656 seconds); Channel 1
+has 8,431,488 (175.656 seconds), exactly one additional 240,000-frame native
+ring. The files are preserved. Both backing loop periods and eight alignment
+windows match exactly; input 3's coherent backing correlation is low. No
+all-files-aligned pass is claimed. Original stop arithmetic can reproduce this
+excess with synthetic consumer state beyond the saved stop, but the hardware
+cause and any relation to reservation remain unproven. See
+docs/research/stop_cursor_lap_findings.txt and the one passing group in
+tests/emulation/verify_stop_cursor_lap.py. The subsequent same-image comparison
+without reservation below helps isolate it but does not establish its cause.
+
+All 30 earlier evidence hashes and earlier audio metadata remain unchanged;
+global settings and card-root image are preserved. Safe unmount, transfer exit,
+original pad restoration and normal Editor/MIDI checks pass. The unused blocks
+remain held with 69,256 current free bytes. Historical minimum is 66,816 after
+transfer/remount/restoration, beyond the recording's final observation window.
+The 64-KiB floor and 128-slot history remain experimental, not a final safe
+budget. An unused stack allowance
+does not measure an actual worker's stack, scheduling or throughput. Physical
+SD/storage guards remain separate gates. Stock restoration between working
+trials is deferred; a normal reboot releases memory with this trial installed.
+
+The subsequent normal reboot and unreserved comparison are complete. UNTRIED
+status, all reservation fields zero and 163,104 current/reported minimum free
+persist through 13 live sets spanning 180.072 seconds. All seven saved files
+contain 8,503,040 frames (177.147 seconds), pass format/finite checks and retain
+verified copies. Both backing repeats and eight separated alignment windows
+match exactly. The user reports no audible problems. The earlier five-second
+excess did not recur; one control is not causal proof or a stop fix.
+
+Measured deltas from the prepared baseline are 1,101 SD reads, 1,488 writes,
+1,308 public reads and 944 writes, with no observed errors. All final epochs
+are consistent and histogram totals match calls. SD read/write peaks are
+60/460 ticks, public file peaks 380/460; no SD calls and 93 public calls went
+unmeasured. Host timing bounds 460 ticks at 459.949-460.071 ms. These elapsed
+calls include scheduling/waits and do not prove physical completion or measure
+an added-worker blackout. The write exceeds 128/256-slot nominal histories;
+512-slot compiled arena sizing exceeds observed free heap. See the revised
+budget gate in capture_performance_findings.txt.
+
+All 37 prior evidence hashes and earlier audio metadata remain unchanged.
+Global settings and card-root image are preserved. Safe unmount, transfer exit,
+original pad file/One-shot/0-dB restoration and normal Editor/MIDI checks pass.
+Status remains UNTRIED; current heap is 163,104 and minimum is 160,664 only after
+the transfer/remount/restoration interval. No firmware update or reservation
+command was sent during this control. The user later recalls using Play/Stop
+for the affected take and has deprioritized that follow-up. Both high-level
+record/play stop requests share the original recording-state callback offline;
+the hardware cause remains unproven. Use Record consistently for later trials.
+The revised owned-memory/storage strategy is the next development priority.

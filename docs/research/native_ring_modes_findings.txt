@@ -1,0 +1,171 @@
+CURRENT STATE — later on 8 October 2026
+Segmented history is now implemented offline alongside a finite span-access
+inventory. See segmented_history_findings.txt. The fixed 1024-slot geometry is
+still not a proven hardware service budget; physical memory/storage/startup
+bindings remain gates. Earlier next-step recommendations below are historical.
+
+Native ring initialization, audio modes and song playback
+8 October 2026
+
+Result
+------
+Twenty-four new offline groups pass. With related recorder, startup and audio
+regressions, 115 groups across eleven suites pass. Both proposed capacities
+survive full original audio initialization and recorder configuration. All four
+recovered audio callbacks match the stock-sized fixture through two blocks
+across wrap, with playback flag 0, 1 and 2. Original recorded-song refills also
+wrap safely in the tested mono/stereo/sample-format cases.
+
+The simplest binding candidate is one existing size instruction, changed at
+startup. No new capacity-setting hook or late resizing is needed. This remains
+an offline proposal: it establishes tested native bounds, not hardware ownership
+of the tails, sufficient buffering or a finished firmware image. The mixer,
+microSD, firmware images and capture implementation are unchanged by this audit.
+
+Evidence
+--------
+  tests/emulation/verify_stock_ring_modes.py             24 new groups
+  analysis/stock_ring_modes_verification.json
+  analysis/native_ring_modes_regression.json           115 groups / 11 suites
+The suite is included in tools/firmware/verify_redesign.py. The full redesign
+runner was not rerun; this is a focused result, not an updated full-suite count.
+Stock v1.10 SHA256 remains:
+  64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+
+1. One size instruction feeds both descriptors and both caches
+-------------------------------------------------------------
+B = 20010a48, native recorder C = 8077ca30.
+Original audio initializer 80011920 clears/initializes the audio control state
+and sets both descriptors to the same arena, 81429800. At 800121ce it executes
+MOVW r1,#a980, followed by MOVT r1,#3: capacity 240000 (3a980) frames.
+STRD at 800121d8 and 800121dc supplies this value to B+53e8 and B+53f8.
+Physical lane stride remains 960000 bytes, independently of this capacity.
+
+The test changes only the four-byte MOVW in emulator instruction memory:
+  231552 frames (38880): MOVW r1,#8880; existing MOVT r1,#3 retained.
+  223104 frames (36780): MOVW r1,#6780; existing MOVT r1,#3 retained.
+Capstone verifies the exact stock instruction and both replacements. No BIN,
+checksum/update package or new loader is produced.
+
+The full original recorder initializer 8000ad48 executes next, including its
+native reset body and all callback registration. Original capacity getters
+80002468/80002458 and setters 800381d0/800381b0 then populate C+50/C+1e94
+with the same reduced value. Reexecuting these original initializers refreshes
+both caches, resets both cursors to zero, and leaves all twelve tail canaries
+unchanged in the fixture. Changing the instruction avoids the old problem where
+native reinitialization silently restores the original full size.
+
+Mode getter results 0,1,2 are supplied explicitly: 1 selects MAIN callback
+800124d8, while 0 and 2 select RAM callback 2022a790. These numeric branches
+are not assigned USB/factory/UI meanings by this audit. Time and kernel priority
+effects are intercepted. There is no whole boot, scheduler or interrupt proof.
+
+Bounded direct MAIN references confirm:
+  Main board initialization 8001b280 -> audio wrapper 800026a0
+  audio wrapper             800026b0 -> audio initializer 80011920
+  Main setup tail           8001b29e -> recorder initializer 8000ad48
+  recorder configuration    8000ad7e -> recording capacity setter 800381d0
+  recorder configuration    8000ad92 -> playback capacity setter 800381b0
+This supports changing the existing initialization constant, preserving native
+call order. Linear references do not exclude indirect initialization/reentry or
+establish release of the optional capture worker.
+
+2. Complete known audio callbacks, with explicit state limits
+-------------------------------------------------------------
+The original common dispatcher 8001077c..8001078e executes each callback:
+  2022a790: normal RAM DSP chain
+  80010960: MAIN alternate conversion path
+  800124d8: MAIN callback selected by mode getter result 1
+  800133e8: MAIN alternate renderer selected by runtime setter 8000cab0
+No DSP/math instruction or secondary callback is replaced. Unicorn ARM MAX
+executes the stock double-precision instructions unsupported by its M7 fixture;
+this is not physical processor identification or a cycle/cache/IRQ model.
+
+Each callback runs two blocks at native cursor capacity-64, then through wrap.
+Synthetic live inputs, a looping pad and selected mixer coefficients exercise
+audio data. The initialized secondary callback is the original thunk 2022a788.
+The complete audio scratch/output bytes and corresponding twelve ring-lane
+samples match otherwise identical stock-240000-frame fixtures. All proposed
+tails retain canaries; memory hooks observe no read or write into them.
+
+Playback flag 0 and 1 take the normal copy path: 768 lane sample writes per
+block, recording cursor wraps and available frames saturate at the capacity.
+Flag 1 alone does not enable the master playback override. Flag 2 with playback
+activity enabled reads the recorded master pair through B+53f0/53f4, wraps
+against B+53f8, and skips the twelve recording copies. The recording cursor
+still advances and wraps. The three MAIN alternatives perform no ring access
+in these fixtures and leave the seeded ring cursors unchanged.
+
+Effects processing and deferred parameter work are idle, and delay/input source
+buffers are synthetic. Existing pad_reader_audit_findings.txt identifies generic
+parameter-copy destinations and secondary callbacks as unresolved alias sources.
+No-access results here do not establish safety for every effects/routing setting,
+USB/ADC/DMA caller, pointer mutation or mode transition schedule.
+
+3. The alternate writer is used by recorded-song refills
+------------------------------------------------------
+Original recorder setup registers 80002d11 at C+227c through setter 80038228.
+This wrapper forwards all six arguments to native alternate writer 80019498.
+Original song-refill worker 80038b50 obtains requested frames, cursor and cached
+capacity through 80037680. It invokes that registered writer for sample
+conversion/copy, then acknowledges frames through original 800375f0. The
+acknowledgement wraps C+1e8c against C+1e94 and updates its 64-bit count.
+This identifies a real recorded-song playback user; it is not labeled USB.
+
+For each proposed capacity the worker runs all twelve mono lanes and all six
+stereo pairs in PCM16, PCM24 and IEEE float32: 54 refill cases per capacity.
+Each request starts at capacity-32 and supplies 64 frames through wrap. Native
+registration, worker, wrapper, conversion, ring copy and acknowledgement execute.
+The original float32 reader returns exactly the expected internally scaled
+samples; the playback producer cursor becomes 32. Every tail remains untouched.
+File bytes, rounded sector read completion and lock scheduling are modeled;
+there is no native filesystem/SD read, DMA or RTOS completion proof here.
+
+A stale playback cache counterexample leaves C+1e94=240000 with both B sizes
+reduced. The first refill's native writer wraps correctly, but acknowledgement
+advances the producer cursor to capacity+32. Its next refill writes proposed
+tails. Both descriptor sizes and both native caches must agree; checking only
+the audio descriptor is insufficient.
+
+4. Existing cursor/control semantics and unsafe live resizing
+------------------------------------------------------------
+Original activity, playback-cursor, availability and callback-selector setters
+preserve both sizes and arena bases in the examined states. Original lookback
+selection still returns the correct cursor for zero, 0.5-second, 2-second and
+available-frame-clamped histories. Original stop conversion computes correct
+absolute endpoints for all twelve enabled streams across shortened wrap.
+No UI meaning or hardware button timing is inferred from synthetic flag states.
+
+A second negative control makes all four sizes coherent but retains a recording
+cursor beyond the new end. Native DSP writes all twelve proposed tails before
+its later wrap correction. Thus updating sizes/caches during live audio is not
+safe. The candidate must change the original startup constant, use valid native
+initial cursors and retain its fixed layout. Any later dynamic reconfiguration
+would need its own complete producer/consumer join and is excluded from the
+proposed simple design. Native reinitialization is tested, not authorized while
+the extra worker holds history or I/O.
+
+Remaining work
+--------------
+The two layouts still offer 512 slots / 0.683 seconds with 4.824 seconds of
+ordinary history, or 1024 slots / 1.365 seconds with 4.648 seconds of ordinary
+history. Neither is selected as a proven service budget.
+
+Before hardware reservation, complete the remaining alias/source checks,
+including deferred effects copies, startup/scatter clearing, DMA/cache users and
+reentry/USB/storage transitions. A memory-layout diagnostic should verify the
+four coherent sizes, tail preservation and ordinary producer/consumer backlog
+under real recording and recorded-song playback. It must leave extra capture
+disabled and preserve the current separate-worker design.
+
+Once the native fixed spans are qualified, adapt the existing history addressing
+to those separate tails in offline tests. The current contiguous API cannot use
+the first-tail pointer as one continuous allocation. Keep slot identity,
+publication/reuse checks, exact samples, all segment crossings and overflow
+behavior. Do not reduce sample fidelity or give up an ordinary channel/master.
+
+Actual optional-consumer occupancy, repeated stalls, catch-up throughput, stack
+and priority headroom, physical SD/source/cache joins, storage-generation
+transitions and optional startup release remain gates to continuous capture.
+The separate native-writer staging risk from native_storage_layout_findings.txt
+is unchanged; this audit does not justify putting extra work in that writer.

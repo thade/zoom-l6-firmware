@@ -1,0 +1,157 @@
+Native outer transition executor and caller contract — 9 October 2026
+===================================================================
+
+10 October follow-up: storage_main_findings.txt adds five offline Main receiver
+patches and storage-only shutdown. They retain the original request/continuation
+while the extra file closes, without waiting for full control retirement. The
+explicit executor below remains separately tested. The no-Main-binding claims,
+packing figures and next-binding proposal below describe the earlier milestone.
+
+Result
+------
+A separate offline fixture now refuses to enter any of five recovered native
+storage-transition bodies until the extra recorder's generation is retired.
+Attempts while recording work remains pending return immediately and leave the
+original operation untouched. Once joined, the unchanged native body executes
+on Main with the original arguments and return value. No new queue, persistent
+state, allocation, task, wait loop or recovery policy is added.
+
+This completes the executor component, NOT the native request-deferral binding.
+No new stock transition patch is installed or proposed by this planner. A test
+caller explicitly retains and retries its request. Existing Main callers cannot
+be replaced with a BUSY-returning callee: original-instruction negative controls
+show the request being consumed anyway, followed by further cleanup. Whole
+request ownership, ordering, overlapping-request backpressure and a safe native
+retry/wakeup path remain open. Lower source/physical/cache ownership is also
+unbound. There is no installable capture image or device operation in this slice.
+
+Implementation
+--------------
+src/capture/storage_transition.c/.h
+tools/firmware/build_extra_capture.py --transition-fixture
+tools/firmware/plan_capture_transitions.py
+tests/emulation/verify_storage_transitions.py
+
+The executor is retained only in capture-only-transitions.elf. All prior builds
+remain separate, including capture-only-storage.elf. Its MAIN/DSP instruction
+patches are identical to the storage fixture: no entry-point replacement is
+silently enabled. Startup still registers the worker closed/asleep.
+
+The caller contract has two distinct results:
+  status 11: no native body ran; retain the entire request/continuation and let
+             ordinary completion processing run before a later attempt;
+  status 12: invalid task, scheduler, ISR, argument or unbound storage gate;
+  status 0:  native body returned; native_result preserves that result and is
+             NOT a trusted mount observation or evidence of USB success.
+The caller never retries a completed request. The executor stores no request
+and makes no acceptance, ordering, duplicate suppression or lossless-backlog
+claim. It is not a raw native-function replacement ABI.
+
+Validation precedes revocation. Only the established nonzero native Main task
+in Thread mode, after scheduler startup, can execute a recognized request.
+USB start accepts argument 0/1 and profile 0/1/2; stop/change accept argument
+0/1 with unused profile zero; card release accepts both unused arguments zero;
+card setup accepts argument 0/1/2 with profile zero. Invalid input does not disable
+an otherwise admitted recording generation. Stock ordinary-recorder admission
+and source exclusion must still be preserved by the eventual whole-request
+caller; software lease retirement excludes only the extra manager.
+
+The executor closes the one-generation lease, requests optional cancellation and
+tries joining once. No native operation begins on BUSY, including initial helpers,
+state clearing, delay, mount/detach, USB mailbox or pad/catalogue cleanup. An
+unfinished file operation keeps its worker frame and pin. An uncertain close
+remains held indefinitely without retry. Only a positively joined RESET/STOPPED
+state permits retirement; there is no automatic readmission before reboot.
+
+Original bodies exercised
+-------------------------
+  8000c220: USB start; profile-dependent request and optional preceding release.
+  8000c288: USB stop; state clearing and optional mount/release.
+  8000c2d8: USB change; initial helpers before stop, optional setup and repeated
+            release, state clearing, delay, new request and UI-state tail.
+  80009b18: card release; detach before pad/transport/catalogue cleanup.
+  80009a40: outer card setup; its apparent return is not actual mount admission.
+
+These bodies retain stock ordering and nested calls. Lower transition effects
+are modeled as in capture_transitions_verification.json. In particular, the
+setup comparison executes the outer wrapper's no-media and mode-rejection paths,
+not a physical mount. Separate native filesystem/exFAT suites cover setup and
+sector translation. The guard does not repair the stock bodies' error handling.
+
+Native caller evidence
+----------------------
+Both original Main loops run receive, physical-event dispatch and completion
+dispatch against the stock FIFO. The normal switch table at 8002c9f2 maps code
+32 to 8002cdc8 and 33 to 8002cde8; the alternate table at 8002d0c2 maps them to
+8002d49c and 8002d470. Code 32 subtypes 8/9 select card setup/release; code 33
+uses the original subtype decoder for USB-change argument. Table bytes are
+decoded explicitly rather than mistaken for executable instructions.
+
+A deliberately unsafe callee returning 11 consumes card/USB events in BOTH
+loops. Card removal still calls 800350d8 afterward; the normal loop also runs
+8000a5d8. The following reload completion is dispatched, but the transition
+request has gone. This demonstrates that keeping Main responsive by merely
+returning BUSY would lose requests and continue effects. Conversely, parking
+Main is not the selected solution: required native event service must continue.
+
+The bounded MAIN direct-call scan records twenty references to the five bodies,
+including startup/Main mode setup, helper callers at 8000a178 and 8000aae8,
+normal/alternate physical dispatch, and nested release/setup calls. There are
+no literal Thumb entry-pointer matches in this firmware container. Neither
+absence of literal pointers nor this linear scan proves indirect/copy coverage.
+
+Additional static inspection identifies an existing delayed command path:
+80020cc0 writes callback 80049b39 at 8060e340 under mutex 80446870; 80020d08
+writes 80049b59 at 8060e34c. The callbacks form category-2 packets with codes
+a2/a3 via 80020ca0. Helper 8000a178 calls USB stop then arms the second channel
+with argument 1000 even if stop reports BUSY; helper 8000aae8 loads saved argument
+at 801f8c44, obtains the current profile and tail-calls USB start. These are
+inspection leads, not proven safe retry channels. Their producer, overwriting,
+coalescing, scheduling and normal/alternate-mode coverage still need execution
+tests before reuse. Category 1/2 cannot be assumed universally safe completion
+traffic: the category-1 dispatcher also branches into the broader 8000ab08
+operation, which contains USB stop and preceding audio/control effects.
+
+Verification and accounting
+---------------------------
+Eleven focused groups pass:
+  - original packed scatter/startup binds a closed/asleep heap arena;
+  - invalid callers and arguments have no revocation or native effects;
+  - fifty comparisons preserve all five bodies' arguments/order/native results;
+  - apparent outer setup success does not readmit a generation;
+  - forty pending combinations cover all five operations during create, initial
+    header, audio, final header, readback header/audio, and both file closes;
+  - separate-stack attempts leave pending worker frames unchanged while
+    independent audio and native control FIFO processing continue;
+  - joined write failure permits fenced cancellation before the transition;
+  - seven ordinary recording files remain byte-identical during cancellation;
+  - uncertain close keeps the operation held without another close attempt;
+  - both original Main loops reproduce the unsafe raw-callee binding;
+  - switch tables/direct references and integer-only executor code are checked.
+
+Request retention/retry and physically joined completions are explicit fixture
+inputs. This is neither concurrent RTOS scheduling nor hardware source joining.
+No physical timing, buffer service margin or fault recovery is established.
+
+The variant keeps 9887 requested heap bytes, 104 proposed global bytes and the
+experimental 16384-byte worker stack. Raw code is 21208 bytes, packed capture
+code 17620 bytes, packed DSP 36172 bytes, leaving 1212 of the original 55004-byte
+source capacity spare. The executor adds 196 raw / 184 packed bytes relative
+to the storage fixture and no persistent runtime storage. These are arithmetic
+placement figures, not physical reservations or installable-image approval.
+
+Reports: analysis/storage_transitions_verification.json and
+analysis/capture_transition_plan.json. The full regression passes 774 groups
+across 67 suites, including the eleven new groups and expanded profile-isolation
+coverage. This is one complete runner execution, recorded in
+analysis/redesign_verification.json and docs/progress.md.
+
+Next binding
+------------
+Recover the native whole-request ownership and delayed-command mechanisms, then
+choose a deferral boundary before the first mutation. Preserve stock admission,
+ordering and duplicate/coalescing behavior, retain overlapping requests with
+explicit backpressure, and ensure retry can wake Main without parking it or
+depending on a sender blocked by Main. Reject a callee-only or timer-only patch
+unless every enclosing continuation is handled. Keep the worker asleep until
+this binding, old-source exclusion and exact memory/cache ownership are proved.

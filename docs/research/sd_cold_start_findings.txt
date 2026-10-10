@@ -1,0 +1,156 @@
+Native SD cold initialization and small startup reads — 10 October 2026
+=====================================================================
+
+Ten offline groups execute a continuous original path through cold driver
+initialization, completion-object setup and card enumeration. A synthetic
+card supplies response-register and FIFO bytes. Original command
+construction, response decoding, FIFO reads, event predicates, dispatcher
+locking and readiness updates execute. This is not a whole-board boot, a
+hardware completion proof or an enabled capture guard.
+
+Cold chain
+----------
+800684b8 receives a pointer to [clock, callback], creates the unit-zero token
+and calls 800687c8 -> 8006afc8. The latter calls original initializers from four
+tables, including controller setup 80069b20. The configuration's clock value
+is passed to each initializer, and its callback is saved at 808e07d4. No SD
+command or completion event is created by this first stage.
+
+An existing token returns 1 without rerunning initialization. A null pointer
+returns 2. A failed token allocation can still result in return 0; the native
+controller routine can also return 0 with reset still asserted. A failed driver
+initializer retains the allocated token. None of these outer return values is
+a fresh, successful physical reset witness.
+
+Dispatcher operation 0 sets up the event through 80068580 -> 8006af00 and
+800699b8. Failed event allocation releases its controller semaphore, but leaves
+the unit's registration byte set. Repeating operation 0 then rejects the already
+registered unit. First-trial capture must remain disabled after incomplete cold
+setup; retrying the same public calls is not a clean starting point.
+
+Previously uncovered data path
+-----------------------------
+Dispatcher operation 4 runs card enumeration at 800688d0 under the same unit
+token used for normal file transfers. The tested one-bit/default-speed card
+issues physical commands:
+
+    0, 8, 55, 41, 2, 3, 9, 7, 55, 13, 55, 51, 16
+
+The ACMD13 status read is 64 bytes and the ACMD51 SCR read is 8 bytes. Both
+reach 80069c58, but take its programmed-I/O/FIFO branch, with DMA disabled and
+no DS_ADDR write. Their FIFO-ready wait is at 80069e5a and their final data
+wait is at 80069d64. The symmetric write-side sites are 8006aa1a and 8006a904;
+they are identified in original code but not reached by this card negotiation.
+The previously exercised four block-DMA waits do not cover these paths.
+
+Stopping the emulator at the first final FIFO wait leaves the original caller,
+enumeration frame and unit token live. Resuming completes both data reads and
+marks the virtual card ready. This provides a concrete location for any future
+retention check, rather than an invented READY/QUIET port.
+
+Controlled negative cases
+-------------------------
+The original final FIFO wait uses an ANY predicate over 0x185. Supplying 1,
+0x80, 0x100 or 0x104 makes the event routine return success, and enumeration
+still sets card-ready. Command waits separately reject error/notification
+flags, and an incorrect CMD8 echo rejects this card before its data reads.
+The injected final flags are counterexamples in a model, not faults reproduced
+on the mixer or a claim that normal Zoom startup is broken.
+
+Installing the existing compiled block guard and selecting its ports does not
+change that counterexample: its scope is created only for normal block reads
+and writes, so its state stays inactive through operation 4. This is a known
+integration gap, not an authorization to widen the scope blindly. In particular,
+enumeration includes nested application commands, PIO, alternate negotiations
+and reset/error paths that the block-only command validator deliberately rejects.
+
+Next binding requirements
+-------------------------
+A physical source lease must start from a qualified cold reset and account for
+enumeration before covering ordinary file, filesystem metadata and extra-file
+I/O. A successful mount/folder branch alone cannot close that earlier hole.
+The first trial should still exclude reset/recovery, remount and storage-mode
+transitions, retaining unresolved native frames instead of retrying them.
+
+Passive diagnostic 14 is prepared and verified to record the first controller reset
+observation and first enumeration's raw IRQ and PIO-wait results on hardware.
+It observes rather than changes the driver's decisions, and supplies no capture
+admission. It passes 63 offline groups (ten new and 53 retained). Its exact image
+is installed after the user's update/reboot, and new replies confirm execution.
+See experiments/14-sd-startup/README.md for test status.
+
+Hardware result and high-speed follow-up
+---------------------------------------
+One native enumeration returns zero with31 command entries,43 IRQs,43 waits and
+6 PIO completions. The four-entry journal retains reads of64,8,64,64 bytes at
+80069d68; every saved wait has status0,flags4,raw0x23. Two entries are explicitly
+omitted, with no claim skips or observer errors. The host therefore refuses a
+complete-trace claim. These are observer counts, not a physical-source join.
+
+The first reset snapshot has SYSTEM=018f801f: RSTA is still set, with raw/signal
+and the observed NVIC bank all zero. It has cleared by the first retained PIO
+snapshot (SYSTEM=008f801f). The inline observation at69c14 is too early to serve
+as successful reset admission. This does not demonstrate a stock startup fault.
+
+The new synthetic SDXC-like fixture enables the original SCR/four-bit/high-speed
+branches. Data requests then execute as:
+  ACMD13 status64, ACMD51 SCR8, CMD6 check64,
+  CMD6 check64, CMD6 switch64, CMD6 check64.
+The intervening native ACMD6 selects the four-bit bus. Its original R1 validator
+at6b1d8 rejects a missing APP_CMD bit; the model supplies it. Native parser69160
+executes both69220 checks, switch selection and clock setup. No command or data
+routine is stubbed to force those outcomes.
+
+Six synthetic not-ready ACMD41 responses before ready produce31 commands and
+43 waits, with the same first four completion positions and card-state word
+015a0220 as the hardware. This is an explanatory match, not proof of those exact
+physical responses or identities for the omitted reads. A busy switch response
+also exercises the native repeated-check failure path and journal overflow.
+The original final-ANY false-success counterexample remains on the high-speed
+path; the newly added paths do not repair or authorize it.
+
+The detail revision uses eight entries, saves each enclosing software
+request code/argument (without replacing them with recursive CMD55 prefixes),
+and records the same fixed registers at first-command entry. This is inside the
+clock-enabled native callback; the outer dispatcher entry/return can be clock
+gated and must not host those MMIO reads. The later snapshot distinguishes an
+early still-set reset from a still-set reset when commands begin. It remains
+observation only; no controller policy or capture guard is enabled.
+
+Expanded hardware result — 10 October
+------------------------------------
+The user's update/reboot is followed by all11 schema2 replies with a stable
+epoch240, one completed enumeration, native result0,31 commands,43 IRQs/waits,
+6 PIO reads and0 omissions/skips/errors. Enclosing code/argument/length at the
+six completion positions are:
+  command22: code17,argument0,64 bytes (ACMD13 status)
+  command24: code41,argument0,8 bytes (ACMD51 SCR)
+  command25: code5,argument1,64 bytes (CMD6 check)
+  command28: code5,argument1,64 bytes (CMD6 check)
+  command29: code5,argument80000001,64 bytes (CMD6 switch)
+  command30: code5,argument1,64 bytes (CMD6 check).
+All final waits have status0,flags4,raw23,PIO MIX80000010. The software request
+identities now corroborate the original high-speed path, including both reads
+omitted by the first diagnostic. FIFO response contents are not recorded.
+
+SYSTEM is018f801f at early observation and008f801f at first-command entry.
+The later snapshot has raw/signal/pending/active zero and IRQ110 enabled.
+Thus reset has cleared by command entry; neither snapshot establishes physical
+source exclusion. Original pads/MIDI and retained health replies pass, with
+free heap163104 and agreeing memory configuration. No audio test was performed.
+Capture remains disabled. Raw evidence and interpretation are private under
+deployment/14_sd_startup_detail/. This completes the passive startup question;
+another unchanged startup/recording trace is not a substitute for a bound guard.
+
+Verification and limits
+-----------------------
+tests/emulation/verify_sd_cold_start.py: ten groups.
+Private report: analysis/sd_cold_start_verification.json.
+Original v1.10 SHA256:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+
+Clock division, reset/initial-clock self-clear, semaphore scheduling and card
+responses are modeled. This covers default-speed/one-bit and high-speed/four-bit
+synthetic cards. Other negotiation branches, physical IRQ/DMA/cache
+semantics, source exclusion, mounted-generation lifetime and real timing remain
+unqualified. No firmware image or on-device action is produced by this suite.

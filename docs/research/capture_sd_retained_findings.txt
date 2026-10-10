@@ -1,0 +1,116 @@
+Combined capture, Main retirement and retained SD guards — 10 October 2026
+========================================================================
+
+Result
+------
+One offline ELF now contains the minimal segmented capture, heap arena, worker,
+generation lease, Main receive binding, and the existing SD admission/chunk/
+event/cache helpers. It uses the same guard sources under L6_SD_RETAIN_ONLY.
+That variant excludes the test recovery and synthetic IRQ-delivery callbacks,
+stop/reset/retry code and enclosing operation-finish model. A fault instead
+yields indefinitely while retaining the original transfer frames, unit token
+and buffers. Existing research behavior remains in its separate test profile.
+
+This is an integration and size milestone, not a deployable capture image.
+The initial source contract is still unbound: its new pointer defaults to zero.
+Admission and completion pointers also start zero, and missing permissions hold
+before native bounce-buffer effects or DS_ADDR. Applying the SD patches in that
+state would hold ordinary native file IO as well; the combined ELF is therefore
+NOT a passive diagnostic or a complete bootable candidate. No BIN is generated.
+
+Footprint of this exact linked implementation
+--------------------------------------------
+Raw executable payload:                    27,248 bytes
+Proposed zero-initialized globals:             272 bytes (168 over prior104)
+Native heap arena request:                   9,887 bytes, unchanged
+Experimental worker stack:                  16,384 bytes, unchanged
+Segmented history:                         540,672 bytes, unchanged
+Stock decoder source budget:                3,524 bytes OVER capacity
+Alternative LZ4 source budget:              2,168 bytes spare
+LZ4 helper:                                   512 bytes, included above
+
+The source envelope and original MAIN length remain unchanged. The alternative
+loader is chosen by this separate planner and the isolated diagnostic15 builder;
+normal capture profiles still use the original decoder. Neither positive packed fit nor a zeroed global span
+establishes owned physical memory. The proposed global interval is
+80960080..80960190, with an offline link ceiling80960200. No new global/heap/history
+reservation is made on hardware. Further initial-source binding and observations
+must still fit within the remaining packed margin; final fit is not established.
+
+Encoded integration
+-------------------
+The plan combines13 MAIN audio/control patches,2 startup patches,5 Main receive
+calls, the native ring-capacity instruction,2 DSP hooks and11 SD patches. The SD
+patches are original read/write/command entries, event-wait wrapper, raw IRQ
+sampling, four pre-address adapters, and the enumeration/PIO-read entries.
+Candidate code is within B.W range,
+so the SD adapters no longer need the research harness's invented near veneers.
+Original bytes, complete displaced instructions, independent branch decoding,
+non-overlap and bounded direct interior-entry scanning are checked. Indirect
+entries remain outside that scan's claim.
+
+Verification
+------------
+The original nine focused groups cover this linked ELF:
+- Original scatter executes the LZ4 helper, initializes all eight original
+  regions and the combined code/globals, and stops before Main on corrupt size.
+- Compiled native cold registration allocates the same arena and starts a worker
+  that only sleeps, with all SD permission pointers and capture hooks inactive.
+- After explicit model release, capture preserves seven ordinary files and
+  finishes its exact extra TMP; the file backend is logical in this case.
+- Main retains a USB request and later FIFO packet while a capture write is
+  pending, and continues only after modeled storage closure.
+- Twenty-four native direct/bounce read/write cases across two stack alignments
+  preserve payloads and commands with exact in-range SD patches and native drain.
+- Missing source/admission/completion permissions stop before buffer/address effects.
+- Split transfers resume after modeled source admission; command/data errors and
+  timeout retain original frames through repeated scheduler opportunities,
+  without recovery callbacks, follow-up commands or later buffer reuse.
+- A lying source model still admits a late prior-origin TC. This negative control
+  explicitly prevents treating the combined link as physical source proof.
+
+IRQ timing now comes from the host test scheduler, not a callback inside the
+compiled retained guard. Original IRQ/event instructions execute. Exception
+arbitration, DMA/W1C/cache effects and positive source permission remain models.
+The startup, capture/Main and native-SD checks exercise the same linked artifact
+in separate bounded harnesses; they are NOT one concurrent whole-board boot or
+eight-stream physical-card simulation.
+
+Files and next boundary
+-----------------------
+tools/firmware/build_extra_capture.py --sd-retained-fixture
+tools/firmware/plan_capture_sd_retained.py (JSON only)
+tests/emulation/verify_capture_sd_retained.py
+Private reports: analysis/capture_sd_retained_plan.json and
+analysis/capture_sd_retained_verification.json.
+
+The expanded diagnostic14 now answers the passive startup question completely.
+The later enumeration guard retains original startup PIO failures, with ten
+focused groups; it does not supply initial physical reset/source qualification.
+See sd_enumeration_guard_findings.txt.
+Next bind a qualified initial reset/enumeration and supported normal-mode source
+lifetime into this combined artifact, including IRQ111 refusal and notification/
+detach exclusions. Complete the finite code/global/history/cache ownership ledger,
+then native mount admission and measured worker release. No additional passive
+recording or identical startup trace is needed to re-answer the closed question.
+Automatic pad handoff remains after a verified capture-only TMP trial.
+
+The full regression now passes869 groups across80 suites. The separate loader
+diagnostic15 also passes71 offline groups and boots on hardware; ordinary pad
+playback is source-matched with no USB callback errors. It expands only the
+unchanged stock DSP to its original destination and does not load this combined
+capture artifact. Code/global ownership, complete fit and physical source
+admission remain separate gates. See experiments/15-loader/README.md.
+
+The subsequent block-gap fix adds a tenth combined group: six modeled partial-
+completion cases retain direct/native ownership before bounce copy/refill or a
+second address store, even after later register values are cleared. The updated
+footprint includes that fix and the subsequent enumeration wrappers;
+see sd_block_gap_findings.txt for the precise issue and manual-source limitation.
+
+Three continuous-startup checks, included in the full count, now join previously separated scatter
+and registration harnesses through the original cache/MPU routine. Existing and
+disabled-cache fixtures perform original maintenance before first capture code;
+a malformed packed block cannot reach that code. The worker remains asleep and
+all SD permissions stay zero. Physical cache effects and remaining board/kernel
+behavior are still modeled. See sd_cache_contract_findings.txt.

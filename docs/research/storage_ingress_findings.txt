@@ -1,0 +1,90 @@
+Native storage ingress and USB startup acknowledgement — 10 October 2026
+=======================================================================
+
+Corrected Main classification
+-----------------------------
+The original category-2 dispatcher8002c510 selects by packet[2] only. Its165-entry
+TBH table routesa2 to8000a178 (delayed USB stop) anda3 to8000aae8 (delayed start).
+It never checks packet[1]. The optional storage gate previously required subtype4,
+so it could pass another subtype through to those handlers without closing the
+extra file. The old compiled fixture reproduces that mismatch for(2,0,a2,91,92).
+Production senders producing such a packet are not established by this result.
+
+The fix removes that one subtype condition. It adds no state, allocation, queue
+or new hook and reduces the combined code by8 bytes. Ordinary commands, including
+adjacenta4, keep their previous classification. The installed diagnostic is
+unchanged and extra recording remains disabled.
+
+verify_storage_ingress.py passes five groups. Original table decoding and native
+dispatch execute for18,960 invocations across five dispatchers, ten subtypes,
+bounded code ranges and four uniform getter-result scenarios. All80 observed
+routes to the selected storage/power boundaries fall within the guarded set.
+The compiled wrapper protects60 distinct packets, including all-ones subtype.
+Both Main loops using the delayed-command handler retain the request through all
+eight outstanding-file phases (32 combinations), preserving the later FIFO
+packet and dispatching once after storage closure. Neighboring a4 stays ordinary.
+Deep callees and scheduling/physical completion remain models; this is not a
+transitive or exhaustive state-space proof.
+
+Direct caller ledger
+--------------------
+audit_capture_storage_ingress.py pins and classifies44 direct references to16
+entries, failing if that inventory changes. Known mount/detach references fall
+inside card/USB bodies, boot-key selection or format setup. The format chain
+8002c304 ->800099b0 ->80009938 ->8000ac18 belongs to the examined special Main
+setup branch. Its exclusion depends on retaining the original normal-boot
+restriction, not merely observing the later normal Main loop. The boot-key
+selector800086b0 is called from board initialization at8001b278.
+
+The independent USB worker notification remains outside the Main packet gate.
+Guarding notifier68508 is too late for detach (registration already changed),
+and blocking it is unsuitable because it may run in ISR context. No additional
+lower-level blocking guard is introduced by this audit. Indirect callers, aliases
+and complete lock dependencies remain outside the direct-reference claim.
+
+USB request versus settled worker
+--------------------------------
+Four additional groups in verify_usb_startup_ack.py execute ordinary Main's
+outer USB call8000c220 through the public request8003b7e0. Profiles0/1/2 produce
+worker commands20/80/200 (bits5/7/9), then give the request semaphore at801f9108
+and wait indefinitely on its acknowledgement at801f9114. The command and argument
+are at801f910c/801f9110. The original worker consumes and clears those words at
+80045d5e..80045d62, then acknowledges at80046cce before proceeding to polling.
+
+Six cold-worker cases (three profiles, USB setup success/failure) acknowledge
+with SD-active localR7 zero, empty command slot and no unit0 setup or notification.
+Acknowledgement also occurs when USB setup fails, so it is not proof of working
+USB audio. An injected stale acknowledgement lets the outer call return and
+update its mode without any worker execution: acknowledgement identity matters.
+
+A second counterexample starts storage command40, then requests20/80/200 without
+STOP. The existing USB instance remains PID088f and local SD-active state remains1;
+disconnect still posts a unit0 notification. With real worker STOP command800
+between requests, unit0 teardown occurs before acknowledgement, and the subsequent
+audio request has inactive SD state and no later notification. This is a controlled
+sequence, not a fault reproduced through the ordinary mixer UI.
+
+Next binding
+------------
+The initial source contract must retain cold-worker history and associate the
+first qualified audio-only request with its actual consumption/acknowledgement.
+A requested mode, native return value or empty command word alone is inadequate.
+Special boot modes and later storage-mode changes remain excluded for the first
+capture trial; no recovery or readmission is added. This supplies concrete native
+observation points, not a new READY callback or permission to enable the worker.
+Cold reset completion, IRQ/source exclusion, physical buffer/cache ownership and
+the initial mount witness still need to be joined into one admission contract.
+
+Private reports: analysis/storage_ingress_verification.json,
+capture_storage_ingress_audit.json and usb_startup_ack_verification.json.
+Original v1.10 SHA256:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+
+Final verification
+------------------
+The rebuilt full regression passes869 groups across80 suites,
+including the five new ingress groups and ten source-reuse groups. The four
+USB acknowledgement groups pass separately against unchanged stock bytes. They
+and the44-reference caller audit are now included in the runner for future runs;
+no second complete regression is claimed. All source checks are offline, and the
+installed diagnostic16 and its staging image remain unchanged.

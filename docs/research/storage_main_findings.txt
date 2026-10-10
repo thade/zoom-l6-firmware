@@ -1,0 +1,95 @@
+Main request retention and storage-only shutdown — 10 October 2026
+================================================================
+
+Scope
+-----
+This is an offline binding, not an installed firmware change. Extra capture
+remains disabled on diagnostic16. No capture update image is produced. Native
+physical completion, memory/cache ownership, admission and startup release are
+still required. In particular, a file API returning does not prove DMA has ended.
+
+Why shutdown changed
+--------------------
+The original UI sender 8006e4b8 can fill the 4096-packet queue, compact it, then
+wait for space while holding mutex 80446810. Original recording STOP 8004ba40
+reaches UI cleanup 80020360 and can wait on that mutex. A control FIFO marker
+behind STOP therefore cannot establish Main-independent retirement.
+
+verify_main_retirement_dependencies.py reproduces that dependency with original
+sender/compactor/STOP/worker instructions and a constructed backlog of distinct
+category-1 packets. Kernel blocking and cross-task progress are models; normal
+production reachability of this backlog is not established. This is an
+architectural counterexample, not a reproduced hardware hang.
+
+The storage fixture now separates closing storage from reclaiming objects:
+  - cancellation closes the extra file under its existing manager pin;
+  - the audio/control gateway closes and admitted short gateway calls leave;
+  - M_STORAGE_STOPPED is terminal and no new optional file preparation can run;
+  - old control callbacks, their transport/router state and all allocations stay
+    owned until reboot. They may finish later; no detach/free/reset is claimed;
+  - uncertain file close stays blocked and never authorizes storage mutation.
+Normal completed-take retirement still needs its control marker. In the storage
+fixture only, marker mutex acquisition and enqueue now use the original kernel
+operations with timeout zero. A known non-enqueue retries after yielding;
+unexpected/contradictory results remain sticky faults. This prevents a previous
+normal-retirement attempt from trapping the manager pin in a blocking enqueue.
+
+verify_storage_stop.py passes 11 groups, including real kernel queue/token
+non-enqueue semantics, queued and entered STOP retention, delayed audio access,
+late and early markers, uncertain sends and invalid kernel results. File/SD
+completion and scheduling remain explicit fixtures. Other profiles retain their
+prior control-fence implementation.
+
+Main binding
+------------
+storage_main_receive calls the untouched original receiver 80020690. Five
+exact-byte-checked BL sites call the wrapper in the transition fixture:
+8002c258, 8002c39c, 8002c3d4, 8002c408 and 8002c440.
+After reception, storage-sensitive requests close/join the optional lease before
+returning to the original dispatcher. The packet remains on Main's existing
+stack; later packets stay in the native FIFO. A one-tick native delay lets the
+independent file worker finish. No replacement queue, timer packet, retry command
+or lower-callee BUSY convention is needed. Once storage closes, stock handler
+code runs once, with its original arguments and caller mode.
+
+Conservative classification:
+  category 0, codes 32..35: card, USB and adjacent power/mode events;
+  category 1, subtype 0, codes 0..5: broader native mode/power operations;
+  category 2, any subtype, codes a2/a3: delayed USB stop/start operations.
+The subtype restriction was removed after executing the native dispatcher,
+which ignores that field. See storage_ingress_findings.txt for the reproduced
+mismatch, five regression groups and the bounded direct-caller ledger.
+The original receiver's coalescing and timer housekeeping remain unchanged.
+Failed optional allocation or binding leaves ordinary reception unchanged.
+An uncertain close retains Main indefinitely rather than mutating storage while
+ownership is unknown. This deliberately has no recovery timeout or readmission.
+
+Remaining limits
+----------------
+verify_storage_main.py passes eight groups: all five encoded Main sites, request
+classification and allocation/bind failure bypass,32 pending-I/O/native-dispatch
+combinations, uncertain close, delayed ordinary callbacks and original receiver
+housekeeping. The full regression now passes869 groups across80 suites. FIFO copies,
+kernel progress, deep UI effects and positive physical completion remain fixtures.
+
+The classifier is a finite recovered ingress set, not a whole-program indirect
+call proof. The first setup loops can also leave via ordinary button events;
+future startup admission must restrict capture to the qualified normal mode,
+after setup, rather than release it in an arbitrary boot mode. Startup remains
+closed/asleep in this fixture.
+
+Selected native file paths already execute with the UI token unavailable in
+the filesystem suites. Full transitive lock ownership, unexercised error paths,
+physical card removal and all native source/IRQ paths still require qualification.
+Removing the control-marker dependency alone does not prove Main-independent
+physical I/O completion. Tests provide positive completion explicitly.
+
+The current transition fixture uses21632 raw /17954 packed capture-code bytes,
+36172 packed DSP bytes and878 spare bytes in the original55004-byte source.
+Heap request remains 9887 bytes, proposed globals 104 bytes and experimental
+worker stack 16384 bytes. These are accounting figures, not physical ownership
+or a measured timing/stack/service budget.
+
+Reports: analysis/main_retirement_dependencies_verification.json,
+analysis/storage_stop_verification.json, analysis/storage_main_verification.json
+and analysis/capture_transition_plan.json. No device was accessed by these tests.

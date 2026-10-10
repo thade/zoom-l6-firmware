@@ -1,0 +1,272 @@
+Passive raw SD IRQ and core-memory observation — 9 October 2026
+=============================================================
+
+Result and purpose
+------------------
+Experiment 10 passes 23 offline groups and is staged/readback verified on the
+identified L6 card. The user completed update/reboot, fresh raw replies confirm
+execution, and stopped startup/automated playback checkpoints pass. Installed
+flash has not been read back. The last detailed ordinary recording showed writes
+returning with DAT0 low and data inhibit/line activity, but transfer-active bits
+clear. That is consistent with trailing card busy, not a demonstrated unfinished
+RAM transfer. This narrow observer captures raw TC/error identity before stock
+masking/acknowledgement and core cache/TCM configuration. It supplies observations,
+not physical-completion or buffer-reuse permission. Extra capture stays disabled.
+
+Original native boundary
+------------------------
+At 8006eab6, R0 identifies the native unit and R1 contains the full INT_STATUS
+snapshot. The hook replaces six bytes (lsls r4,r1,#0x17; and.w r3,r3,r2) with a
+four-byte branch and NOP. The adapter preserves R0..R12/LR and APSR_NZCVQG,
+aligns the stack, calls an integer-only observer, restores state, replays the
+original instructions, then resumes at 8006eabc before the original W1C.
+There are no VFP instructions in compiled probe functions. Differential tests
+preserve FPSCR as well as native posts, GPRs, flags and MMIO writes.
+
+Native behavior is unchanged: TC plus a masked data fault can still post
+software success flag 4, and CC plus TC can still post only command event 2.
+The observer keeps full raw errors separately rather than changing this mapping.
+Tests exercise both unit ingress paths. Actual use of unit 1 on this device
+remains unknown; both examined callbacks use the same controller body.
+
+Snapshot implementation
+-----------------------
+A single compare/exchange claims an epoch without waiting. A busy/nested
+observation increments the omitted counter and immediately returns to stock.
+The observer records interrupt count, unit mask, TC/error counts and independent
+first-TC, latest-TC and latest-error samples. Each retained sample contains:
+unit, raw INT_STATUS, INT_SIGNAL_EN, PRES_STATE, SYS_CTRL, PROT_CTRL, MIX_CTRL,
+DS_ADDR, interrupted task, native unit event handle, CCR, DTCMCR and ITCMCR.
+Reads are sequential, not an atomic controller snapshot. DS_ADDR may have
+advanced; the task pointer is not labeled a transfer owner. A TC with MIX.DMAEN
+counts a sampled DMA-mode TC interrupt, not a proven completed transaction.
+
+Core registers use the architectural layout also present in stock M7 setup:
+CCR=e000ed14, DTCMCR=e000ef94 and ITCMCR=e000ef90. They are read only on
+TC/error ingress and stored; host queries do not read controller/core registers.
+The configuration helps interpret native bounce memory at 2000c4d4. No fitted
+RAM capacity, physical DMA reachability or uncached bus claim follows from an
+MPU address alone. Exact silicon/revision remains unproved.
+
+Fixed protocol
+--------------
+Request: F0 52 00 00 75 kind token F7; reply identifier 74.
+Kinds 1/2/3 return latest TC / first TC / latest error, schema 1, 21 words,
+113 bytes. Kind 4 returns counters and latest stored core settings, schema 2,
+14 words, 78 bytes. Each uint32 is five seven-bit bytes. The existing detail
+73/72 pages and health 7D/7C remain available through the wrapper dispatcher.
+Queries never clear observations, change settings, or grant a join. Odd/changed
+epochs are marked incomplete; host validation rejects incorrect kind, token,
+schema, lengths, delimiters and uint32 encoding. Zero raw sample means absent.
+Every decoded reply explicitly leaves physical_completion_proven and
+transfer_owner_identified false. The CLI only emits these four fixed queries.
+
+Placement and verification
+--------------------------
+src/diagnostics/sd_raw_probe.c, sd_raw_hooks.S and sd_raw.ld implement the
+observer. tools/firmware/build_sd_raw_probe.py prepares the separate image;
+tools/device/l6_sd_raw_probe.py reads its stored pages.
+Image SHA256 d67c6e7fd0b8fbcda61497ebb28805b462c9ebf3a15c38b3a82e48a50043f091.
+ELF SHA256 3c7b8d10971021bb77cfd8f760b7cc9241a6644959330cfd535c87314ef83804.
+Entry 800b2400; 3964 code/state bytes including 636 aligned state bytes.
+Native capacity remains 223104 frames. Unchanged packed DSP consumes 36172
+bytes from the original 55004-byte source span. All eight original scatter
+outputs, original MAIN length and DSP bytes remain verified offline.
+No capture code, new task/allocation, SD command, controller/cache write,
+interrupt masking, retained buffer, reset, recovery or retry is added.
+
+tests/emulation/verify_sd_raw_probe.py passes 23 groups: 13 existing detail
+groups rerun against this exact image and 10 additional raw groups. Reports:
+analysis/sd_raw_probe_verification.json and
+analysis/sd_raw_retained_completion_verification.json.
+The raw IRQ path has 132 bytes of traced software stack; retained native
+SD-caller/observer paths reach 520 bytes. These are fixture measurements,
+not actual IRQ/task high-water or inclusion of physical exception frames.
+Original 09 images rebuild byte-identically. The main capture/cache regression
+separately passes 730 groups across 64 suites; do not add the raw diagnostic's
+23 to that total.
+
+Card staging — verified before physical update
+---------------------------------------------
+The staged image matches the verified SHA256 above. Before/after hashing of all
+128 RECORDER/SOUND_PAD files preserves 3181674312 bytes and all file metadata.
+ZOOM_L6.SYS is byte-identical across staging; previous BIN/settings have local
+backups. UUID 747DF444-BD1D-3800-8117-B4676E46C207 and actual USB parent/card
+geometry were checked. Normal Eject of the freshly identified parent succeeded;
+no force was used. Transfer mode exited and the Editor returned to CONNECTED.
+Original pad counts [5,2,1,0], names and displayed modes/levels are unchanged.
+Fresh detail/health pages still respond: 296692 waits, zero chunk omissions,
+163104 current free and 160664 minimum free heap bytes. This includes the
+transfer/hashing interval; it is not a recording workload or service budget.
+At that staging checkpoint the old detail code was still running. The update
+and diagnostic 10 execution verification below are separate subsequent evidence.
+No installed flash bytes have been read back.
+Private evidence: deployment/10_sd_raw/staging_verification.json,
+pre_staging_audio_hashes.json, post_staging_audio_hashes.json, eject_result.json,
+post_transfer_verification.json and fixed-query logs.
+
+Hardware startup — new protocol execution verified
+--------------------------------------------------
+Following the user's update/reboot report, two independent fixed raw query sets
+agree except for query timestamps: epoch 6048, 3024 interrupts, 1206 TC samples,
+1200 TC samples with MIX.DMAEN set, errors/skipped/TC+error all zero, unit mask 1.
+The six remaining TC samples were not sampled in DMA mode; first-TC is one of
+them. TC count is not presented as a transfer-generation proof. The latest
+sample has raw=2, PRES_STATE=ff888088 (activity mask zero), PROT_CTRL=0b800022,
+MIX_CTRL=80000011, DS_ADDR=2000c4d4 and a valid original unit-0 event handle.
+The absent error sample remains all zero; its zero core fields do not mean
+caches/TCM are disabled.
+All seven retained detail pages agree on 1200 waits (1 direct/1199 bounce read),
+zero omitted waits and zero detections. No write site has been reached.
+Health reports 581 broad reads, zero writes/omissions, maximum 57 ticks and
+163104 current/minimum free heap bytes. The Editor is connected normally with
+original settings and pad names. Files: startup-01.jsonl, startup-02.jsonl,
+startup-detail-01.jsonl, startup-health-01.jsonl and startup_verification.json.
+
+Hardware cache/TCM interpretation
+--------------------------------
+First/latest TC agree: CCR=00070200, DTCMCR=00000041, ITCMCR=00000031.
+Both caches are enabled. DTCM has EN=1, SZ=8 (128 KiB, 20000000..20020000);
+ITCM has EN=1, SZ=6 (32 KiB, 00000000..00008000), with exclusive upper bounds.
+Both 4-KiB native bounce areas fit in enabled DTCM.
+Arm DDI0489F sections 3.3.6 and 5.8.1/5.8.2 define these encodings and CPU
+TCM accesses as uncached regardless of MPU cache attributes. This resolves the
+bounce CPU cache path. The architecture's AHBS interface does not prove the
+SoC's peripheral interconnect or safe transaction joining. Cached SDRAM history/
+staging still need reservation/ownership. These are core-reported sizes, not
+new allocations or a silicon part number.
+
+Automated one-shot backing playback — pass within scope
+-------------------------------------------------------
+The existing fixed-note preflight runs against diagnostic 10 with no transport,
+output-audio, assignment or level command. It records USB input for 18.005333
+seconds (864256 finite frames at 48 kHz) and sends only note 60 on/off on the
+L6 Mixer Control Port. Source correlation is 0.9918602; separated one-second
+windows at source seconds 1/5/10 are 0.9955466/0.9857299/0.9946540. The backing
+is identified, with no host callback status errors. A listening report has not
+been collected for this new image. Pad 1 remains unchanged.
+Two stopped post-playback raw query sets agree except ticks: epoch 10808,
+5404 interrupts, 2369 TC, 2363 DMA-mode TC, zero errors/omissions/TC+error,
+unit mask 1 and unchanged core settings. From startup this adds 2380 IRQs and
+1163 TC/DMA-TC observations. The detail interval adds exactly 1163 bounce-read
+waits with no omitted waits or detections; direct/write counts do not increase.
+The broad observer adds 54 reads, zero writes/omissions, peak 69 ticks.
+Current/minimum heap is unchanged at 163104 bytes, allocations/frees unchanged.
+Fresh fixed pad queries verify counts [5,2,1,0] and all original names.
+This qualifies the exercised read/playback path with this observer. It does
+not test recording writes, substantial live input, every source sample,
+physical completion, generation freshness, stack high-water or extra-worker
+service capacity. The observer itself adds IRQ time; absence of detections is
+not proof that its insertion repaired or qualified original driver timing.
+Evidence: pad-playback-01/, playback-after-01/02.jsonl,
+installed-pad-verification.jsonl, installed_verification.json and evidence hashes.
+
+Ordinary recordings and live write observation — verified within scope
+---------------------------------------------------------------------
+The user stopped the first take and restarted. Saved takes 261009_174837 and
+261009_175159 are 136.905333 and 201.278667 seconds (6571456 and 9661376 frames).
+All fourteen ordinary files pass RIFF/chunk bounds, expected mono/stereo float32
+48-kHz format, complete finite-sample scans and equal lengths within each take.
+The first saved take ends before the first fixed pad trigger; no complete backing
+is identified there. The first USB capture identifies the source, but is not
+evidence of recording it to that earlier take.
+
+The restarted take identifies the full 12.972-second backing at frame 1874224
+(39.046333 seconds). Strong input-3 notes lower raw source/master correlation to
+0.16336. A linear fit of the separate stems leaves source/residual correlation
+0.957239 and 1/5/10-second windows 0.999949/0.964646/0.927878. Maximum absolute
+source-channel correlation across the stems is 0.005146. This is evidence of
+backing plus live input in the master and no strong coherent backing in the
+stems; it is not a proof against every defect or nonlinear leakage.
+The aligned 622656-frame SD/USB backing window agrees in all twelve channels:
+master correlation 1.0 and maximum absolute sample difference <=4.657e-10.
+TRACK05 is all zero and exactly identical; the other channels differ by tiny
+float quantization. This checks one aligned backing window, not all recording
+samples or synchronized physical recording boundaries. USB callback statuses
+are empty. The user's initial listening report was explicitly corrected to
+uncertain; no affirmative listening qualification is claimed for this take.
+
+The restarted USB helper initially fails only when serializing its negative
+raw-correlation result: NumPy's false boolean is not JSON serializable. Audio,
+MIDI and diagnostic logs already exist. The incomplete summary is preserved;
+a separate recovered-summary.json recomputes the result with an explicit Python
+bool, and usb_backing_analysis.json accounts for live input (residual correlation
+0.9999836). The private helper is corrected and both saved positive/negative
+cases serialize without another mixer command. Original executed scripts remain
+archived; a low raw correlation does not imply a missing backing with strong
+live inputs present.
+
+Two repeated stopped raw sets agree except query ticks: epoch 76582, 38291 IRQs,
+15145 TC, 15139 DMA-mode TC, zero raw errors/omissions/TC+error and unit mask 1.
+From the post-playback baseline this adds 32887 IRQs and 12776 TC/DMA-TC.
+The first stopped query timed out. Its log is retained; a fresh retry following
+observation of the connected Editor and subsequent repeated pages succeed.
+The cause of that host/protocol timeout is not established.
+All seven stopped detail pages agree on 15139 waits, zero omitted waits and
+1786 detections. Interval deltas are 26 direct reads, 6378 bounce reads,
+1755 direct writes and 4617 bounce writes. All 1755 direct-write detections and
+31 bounce-write detections have only inhibit/line-active reason categories.
+Retained writes have PRES_STATE=fe88800e (DAT0 low, CDIHB/DLA set, WTA/RTA clear),
+native status zero and flag 4. The raw stopped latest TC is a read, demonstrating
+why live retention was needed. Broad observations add 888 reads/2865 writes,
+omit eight calls and reach 648 ticks; they do not supply complete coverage or
+an extra-worker service budget. Stopped current/minimum heap remains 163104,
+with two paired allocations/frees for the two takes.
+
+Ninety-six fixed latest-TC queries in two approximately 24-second live windows
+are consistent and present. All have sampled DMAEN=1/DTDIR=0. Configuration
+counts (raw / PRES / MIX) are:
+  89: 0000000a / ff888088 / 80000001
+   6: 00000002 / fe88800e / 80000027
+   1: 00000012 / fe88800e / 80000027
+All raw samples contain TC and no masked raw error; no sample has WTA/RTA set.
+Seven already show DAT0 low and data inhibit/line activity at IRQ observation.
+This is consistent with the trailing-card-busy interpretation, not command-linked
+physical completion. Sampled DS_ADDR values include 2000c6d4 and several SDRAM
+addresses: these may have advanced and must not become original submitted spans.
+Both live windows belong to the restarted take. The first precedes its second
+pad trigger; the second starts just after that backing finishes. Cumulative IRQ
+counters cover the concurrent workload, but retained writes are not a per-command
+snapshot of the backing interval. Source, generation, owner, native buffer reuse
+and complete failure joining remain unbound. Core cache/TCM values are unchanged.
+
+The identified card supplies 784170834 bytes of new local evidence (fourteen
+WAVs plus the unchanged pad source), with stream/local hashes matching. All 128
+prior file metadata entries and global settings match staging; previous audio
+byte hashes are not repeated for this read-only inspection. Card inventory and
+settings are unchanged by copying, and the root image still has the verified
+diagnostic-10 hash. Normal Eject of the freshly identified parent succeeds;
+transfer exit restores CONNECTED, original pad counts [5,2,1,0] and names.
+Post-transfer current heap returns to 163104, minimum 160664. Transfer/copy/remount
+adds separate observations (43096 total TC, 43078 DMA-mode TC, raw errors/omissions
+zero; broad omissions 46 total); those are not added to recording measurements.
+Evidence: recording_stopped_verification.json, recording_interval_analysis.json,
+recording-live-01/02/, live_write_classification.json, recording-playback-01/02/,
+recording_evidence_manifest.json, recording_analysis_*.json,
+recording_usb_sd_crosscheck.json and recording_post_transfer_verification.json.
+
+Limits and next bounded step
+----------------------------
+Hook/state execution, native instruction replay and protocol semantics are
+verified with synthetic status/events. Physical interrupt arbitration, bus
+access, cache/TCM enforcement, elapsed overhead and stack headroom are not
+emulated. All known omissions and busy snapshots make coverage incomplete.
+There is no per-command generation arming, prior join, stale drain, source
+exclusion or guard on these snapshots. General polling/no-IRQ paths are not
+exhausted. Passive success cannot establish failure recovery or authorize the
+extra recorder.
+
+Startup/core/read and normal-write observations are now available, including
+backing with substantial live input. Further ordinary success trials cannot
+establish command generations or buffer ownership by themselves. Bind one
+concrete guard beneath payload AND metadata only after prior transfer joining, stale
+source exclusion/drain and direct-read cache ownership are established. Outer
+storage-transition deferral and exact memory-span qualification still precede
+capture-only deployment. Avoid treating normal DAT0 card busy as a reason to
+reset the controller.
+
+Architectural register reference cross-checked 9 October 2026:
+https://raw.githubusercontent.com/ARM-software/CMSIS_5/develop/CMSIS/Core/Include/core_cm7.h
+Arm DDI0489F sections 3.3.6, 5.8.1, 5.8.2 and 5.8.8, cross-checked 9 October 2026:
+https://documentation-service.arm.com/static/5e906dc68259fe2368e2abbe
+This comparison does not identify the fitted chip.

@@ -1,0 +1,114 @@
+Native exFAT capture composition — 6 October 2026
+================================================
+
+Result
+------
+Twenty-two offline groups now exercise the original v1.10 exFAT mount, directory,
+allocation, write, close, seek and reopen/readback instructions. The compiled
+extra-capture lifecycle finishes an exact 13,312-byte take while all seven
+ordinary files remain byte-identical to the disabled-capture baseline. Selected
+cases also execute original SD instructions and application folder setup.
+No mixer/card was accessed and no firmware update image was constructed.
+
+The combined case obtains its 128-slot arena through the original heap
+allocator, runs native application mount and creates the recorder/pad folders
+on an empty exFAT fixture, then completes capture through the original file
+and SD code. Its 77,279-byte arena and separate occupied 65,536-byte allocation
+remain intact. Storage release and successful scheduling are still explicit
+fixture inputs; this does not bind automatic startup or physical completion.
+
+Card model
+----------
+The connected-card metadata saved during the added-code deployment trial reports
+exFAT and a 511,801,819,136-byte volume. The recorded allocation size is 262,144
+bytes. Existing native file tests used FAT32, so their allocation/directory
+evidence alone did not cover this card's format.
+
+The new sector model follows Microsoft's exFAT specification:
+https://learn.microsoft.com/en-us/windows/win32/fileio/exfat-specification
+
+It contains an MBR partition, main/backup boot regions, one FAT, a root allocation
+bitmap and a complete compressed Unicode upcase table. The custom table applies
+ASCII case conversion and identity mappings elsewhere; it is not the actual
+card's table. Fixture folders use checksummed file/stream/name entry sets.
+Unrepresented sectors read as zero. No ready-volume flag, free count, parsed
+geometry, file handle or native allocation result is supplied by the model.
+The original constructor and device/bitmap registration precede native mount.
+
+Two geometries are tested: 65,526 clusters with 16-KiB clusters, and 1,952,360
+clusters with 256-KiB clusters. The larger fixture resembles the observed card
+capacity and uses its reported cluster size; it is not a dump of the card's BPB.
+The exact actual partition/FAT/heap offsets, metadata, fragmentation, directory
+contents and physical timing remain unmeasured. Main/backup boot bytes are
+provided as format inputs; no backup-boot recovery claim is made.
+
+Native behavior checked
+-----------------------
+* Mount discovers the MBR/boot geometry, mandatory root metadata, bitmap and
+  free count in both geometries.
+* A 35,001-byte file spans three 16-KiB clusters. Independent sector inspection
+  checks the entry checksum, uppercase name hash, lengths, allocation bits,
+  contiguous flag and exact bytes. Original SEEK/READ cross a cluster boundary,
+  lowercase lookup finds the same file, and exclusive creation rejects a
+  collision without altering persisted sectors.
+* Interleaved file allocations force a previously contiguous file to use a FAT
+  chain. Native close/reopen and independent bitmap/chain inspection preserve
+  both payloads exactly.
+* A 270,355-byte file crosses a 256-KiB cluster boundary, including a partial
+  final sector, and is closed/reopened/read byte-exactly.
+* Invalid boot signature, cluster shift or revision and missing mandatory
+  bitmap/upcase entries prevent mounted state. Boot/root/early/late bitmap read
+  errors also prevent mounted state; completed synchronous retry succeeds.
+* With current usage metadata, a read-only mount succeeds and capture-file
+  creation fails without further sector mutation. With unknown usage metadata,
+  original SD write protection rejects a mount-time boot update and mount fails.
+* TMP-to-WAV rename preserves checksummed entries, allocation, length, payload
+  and free count through both native file/SD configurations. An existing WAV
+  destination is rejected without overwriting either file. A metadata error
+  propagates, and a barrier error can follow a name already changed on sectors;
+  neither outcome authorizes a retry or pad handoff.
+* Original application setup creates RECORDER, SOUND_PAD and all four PAD
+  folders. A second setup creates no additional folder and changes no sectors.
+* Extra capture completes through both the modeled sector callback and native
+  SD instructions, with an exact WAV header/audio payload and unchanged ordinary
+  files. A mount failure disables only the extra result; close-barrier/readback
+  errors withhold verified eligibility.
+* In the heap-backed native SD composition, an injected payload-write error
+  retains the actual file/transfer frames, file tokens and buffers. Ordinary
+  audio/STOP execute on another fixture stack. No frame or request changes until
+  the MODEL join explicitly permits unwind. This is not a physical join provider.
+
+Conservative failure interpretation
+-----------------------------------
+The examined stock mount does not read the boot-checksum sector and accepts a
+boot checksum mismatch in a negative control. Mount success is therefore not
+a complete exFAT validation certificate.
+
+The same path updates main-boot PercentInUse from unknown to zero before later
+mandatory-root validation. A missing bitmap/upcase entry can return mount error
+after this byte has already changed. Neither a public error nor a clear mounted
+flag proves that card bytes were untouched. The unchanged-card assertions apply
+only to the specifically checked collision/write-protection cases.
+
+Remaining boundary
+-------------------
+These tests cover native exFAT capture behavior, not actual-card compatibility,
+power-loss durability, throughput, cache visibility or physical completion.
+The original card initialization, DMA/register effects, interrupt/event delivery,
+source exclusion and completion permission retain controlled inputs. Extra and
+ordinary audio delivery and ordinary file endpoints also remain fixtures.
+
+Live heap/later-allocation and stack budgets, code/global placement, accepted
+storage generation and transition fencing still need justified device bindings.
+Automatic worker release remains disabled. Native exFAT rename/readback is now
+covered, but the stopped-pad admission fence, checked seal port and automatic
+assignment/settings save remain unbound. No capture firmware is ready to install.
+
+Reproduce
+---------
+python tools/firmware/build_extra_capture.py --heap-fixture
+python tests/emulation/verify_native_exfat.py
+python tools/firmware/verify_redesign.py
+
+Report: analysis/native_exfat_verification.json. The separate heap build and
+test-only SD completion guards remain excluded from normal device profiles.

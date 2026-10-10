@@ -1,0 +1,297 @@
+Passive upper-gap activity diagnostic — 10 October 2026
+=====================================================
+
+Purpose and boundary
+--------------------
+Diagnostic 13 looks for CPU-visible changes in the apparent upper RAM gap. It
+does not reserve the gap, write patterns, test aliases, alter cache/MPU/controller
+settings or enable extra capture. The preferred feature remains an additional
+pre-compressor stereo recording, preserving ordinary MASTER and clean stems.
+If ownership is established, contiguous upper-gap storage could avoid shortening
+the ordinary native rings. This observer cannot establish that ownership.
+
+Exact prepared image
+--------------------
+deployment/13_ram_activity/trial_ram_activity/L6.BIN: 3756544 bytes
+SHA256: 178533646790e4859c486af6b4d43a9a54505ec0a5870369435067a9e2d90157
+src/diagnostics/ram-activity.elf:
+SHA256: 9c8de67b569bf7e287d9fa5d1cf56f866f0ec51f9b2ef79ffdea18183b5dd55b
+Code/state starts at 800b2400 and occupies 7324 bytes. Persistent state remains
+1052 bytes; the added query has no permanent state and adds 512 bytes over 12.
+The original DSP decompresses byte-exactly offline from 36172 packed bytes.
+Original package lengths and the explicit patch whitelist are verified.
+Native capacity remains 223104 frames, as in the installed prior diagnostics.
+No allocation, task, recording worker or completion guard is introduced.
+
+The previous diagnostic 12 builder still yields its byte-identical image:
+d458a67180ded0d8f5c86fada4a9eca1bdf1b5857b9446b1f13b39ed82859120.
+Its reusable compiler/trial entry points now accept an explicit ELF, dispatcher,
+additional sources and retained roots; their defaults preserve previous output.
+
+Bounded protocol
+----------------
+Fixed interval [81f26000,82000000): 892928 bytes, 872 pages of 1024 bytes.
+Request: F0 52 00 00 6F 02 token page_low7 page_high7 F7 (10 bytes).
+Only a fixed page number is accepted, never a host-provided address. The original
+Editor state must be 2 and execution must be in Thread context (IPSR=0).
+Invalid pages or packet/context fields cause no candidate/controller access.
+Other supported diagnostic packets delegate to the prior dispatcher.
+
+Before any gap access require MCR&3 == 0, BR0&fffff03f == 8000001b, and
+SDRAMCR3&1 != 0. These match the already observed active 32-MiB CS0 decode with
+refresh; they do not detect the fitted memory chip's physical density. Denied
+configurations return a reply without gap reads. Read the three configuration
+words again afterward and retain both tick readings from 801f9050.
+
+Each accepted page has two sequential passes of 256 volatile uint32 reads.
+Each pass computes h=2166136261, s=0, then h=(h XOR word)*16777619 and s+=word,
+both modulo 2^32. This is FNV-1a over little-endian words, not bytewise FNV.
+The reply is 103 bytes: F0 52 00 00 6E 02 token, 19 uint32 values encoded as
+five seven-bit bytes apiece, F7. Values are schema=1, range_id=1, page, count,
+page_bytes, address, flags, hash0, sum0, hash1, sum1, ticks0, ticks1, MCR0, BR0,
+refresh0, MCR1, BR1, refresh1.
+Flags: 1 read performed; 2 paired digests agree; 4 configuration words agree;
+8 both configurations accepted. All four are required for a consistent page.
+No retry, cache maintenance or register write is performed on disagreement.
+
+Offline evidence: 53 groups
+---------------------------
+tests/emulation/verify_ram_activity_probe.py
+analysis/ram_activity_probe_verification.json
+
+Eleven new groups verify the exact prepared image, all 872 page boundaries and
+reference digests, exact 512 gap-word and six controller-word reads, seven denied
+configurations with no gap access, changed-memory/configuration cases, invalid
+packets/pages/contexts, strict host decoding and conservative comparison.
+The direct query peaks at 4791 modeled instructions; the parser path at 4798.
+Software stack is 248 bytes for the parser/query path and 280 bytes with the
+original native sender. The latter copies all 103 reply bytes into its native
+ring across wrap before returning; semaphore scheduling is modeled. These are
+software traces, not physical cycle timing, exception-frame or stack-headroom
+measurements. Candidate reads cause only stack/output writes; retained observer
+state stays unchanged in these query traces.
+
+Mock CoreMIDI checks verify page identity after token wrap, 20-ms pacing, cleanup
+and unchanged defaults for older queries. Full/partial/changed/inconsistent and
+duplicate-page comparisons are covered; no result grants memory ownership.
+All 42 prior capacity/command/raw/detail/health groups pass on this exact image.
+The full 774-group capture regression remains separate and was not rerun here;
+production capture logic was not changed for this observer.
+
+Hardware collection and interpretation
+---------------------------------------
+Card staging/readback is verified on the identified L6 microSD volume. Previous
+firmware/settings are backed up; ZOOM_L6.SYS and all 149 recording/pad file
+metadata entries are unchanged. Normal Eject and official Editor transfer exit
+completed. The Editor reconnects; original pad names/counts, MIDI ports and
+all retained diagnostic reply groups pass, with 163104 free heap bytes.
+
+The pre-write full audio scan completed. At the user's request, the post-write
+scan was interrupted during hashing, after the exact firmware file had already
+been staged/readback verified. These recordings are disposable tests; full
+post-write byte preservation is not claimed. Future staging checks firmware
+hash/readback, settings and basic file metadata without routine full audio scans.
+Read selected audio when it answers a specific test question. Private evidence:
+deployment/13_ram_activity/staging_verification.json, safe_eject.json and
+post-transfer-verification.json.
+
+The user completed the physical update and normal reboot. Three new quick-page
+replies (pages 0,436,871) confirm diagnostic-13 execution and have flags15, with
+zero observed tick differences. The retained configuration, command/raw/detail/
+health queries and original pads/MIDI pass. Configuration still agrees with
+diagnostic12. Current/minimum free heap is 163104 bytes. Startup command/raw
+observations have zero conditions/errors/omissions. Installed flash bytes have
+not been read back; diagnostic execution is established through replies.
+
+Idle and automated pad playback — 10 October 2026
+------------------------------------------------
+idle-01.jsonl and idle-02.jsonl each cover all 872 pages in about 21.94 seconds,
+using the default 20-ms pause. Every paired page and controller snapshot agrees;
+all fingerprints agree between sweeps. Each sweep has 861 zero-tick and 11
+one-tick queries. These are coarse timer differences, not precise execution
+duration or measured stack headroom.
+
+The digests are not uniformly blank: 24 distinct hash/sum pairs occur. Pairs on
+653 pages match a zero-filled reference page, 50 match repeated A5 bytes and 148
+match repeated 66 bytes. The 66-compatible run is 81fdb000..82000000. A5-compatible
+pages occur non-contiguously between 81f5e000 and 81f72c00; 21 remaining pages
+have other digests. These are digest matches to synthetic references, not raw
+byte recovery or identified owners. Nonzero bytes could be retained data, and
+zero bytes do not establish free space. No reservation follows from either.
+
+The existing fixed note60/channel1 one-shot test was reused after the official
+Editor confirmed pad1, one-shot, 0dB and channel1. Two input-only USB captures
+last 18.005333 seconds each. The first play covers pages0..435, the second
+436..871. Each half-sweep takes about11.03 seconds after capture second2;
+host/stream timing estimates with a 2048-frame margin place the query windows
+inside the USB-identified 12.972-second backing. No native active flag is read,
+and the union is not a single continuous playback observation.
+
+Full-source correlations are0.98693 and0.99229, with all three separated windows
+above0.975. All USB samples are finite and no host callback error is reported.
+Pad assignment and current/minimum heap remain unchanged at163104 bytes. All
+872 playback page pairs and configurations agree and match idle; 856 queries
+span zero ticks and16 span one tick. No pad settings, levels, recording transport,
+card files or firmware are changed by these checks.
+
+Post-playback command observations have3527 matching program/data-command/wait
+counts, no unmatched or active scope,84 conditions and five omissions. Only the
+last condition is retained: reasonENTRY_RAW4, preprogram/entry raw08, rawCC|TC3,
+one observedTC, native command/wait result0 and flags4. Do not ascribe every
+condition to that last example. The earlier diagnostic11 playback showed the
+same last-condition category. Raw error/omission counts and detail condition/
+omission counts remain zero. These are incomplete command observations, not
+proven physical completion or a demonstrated storage error.
+
+Private evidence: installed_startup_verification.json, idle-comparison.json,
+playback-comparison.json, playback-half-01/, playback-half-02/ and
+after-playback-diagnostics.json under deployment/13_ram_activity. The two USB
+recordings and local source reads remain on the computer; no SD audio scan was
+performed for these playback-only checks.
+
+Ordinary recording and transfer — 10 October 2026
+------------------------------------------------
+The user started a multitrack take, then confirmed stopping with REC. During it,
+two fixed pad1 triggers and disjoint 436-page sweeps covered all872 upper-gap
+pages. Every paired read/configuration agrees and all fingerprints match idle.
+The sweeps take about11 seconds each;801 page queries span zero ticks and71
+span one tick. Broad SD reads/writes advance by58/136 in the first observation
+and60/143 in the second. Free/minimum heap stays163104 during recording. This is
+two sequential windows in one take, not an atomic snapshot of all pages.
+
+The first USB capture identifies the source (full correlation0.99168). The second
+has an exactly zero MASTER pair, while input-channel samples remain nonzero;
+neither capture reports a host callback error. Normal Editor transfer after stop
+finds one new take,261010_024527. Its seven WAV headers each declare7932032 frames
+at48kHz:165.250667 seconds. RIFF sizes match file sizes, and declared payloads fit.
+Only the63,457,166-byte MASTER and4096-byte headers of the seven files were read
+from the SD card. Stem payloads and older audio were not scanned. Existing149
+recording/pad metadata entries are unchanged; no card files were written by our
+inspection. The locally copied MASTER SHA256 is
+d2f4a4e14f4ae215b66b21974529bf342ba37d2fc19a7bea41136a2659d3ef9c.
+
+The first source starts at22.133 seconds in MASTER, with full correlation0.99536
+and separated1/5/10-second windows above0.9999999. Its last nonzero sample is at
+34.955646 seconds; every later sample is zero, including the expected second
+trigger near85.331 seconds. The user confirmed changing a level or mute during
+the take. This is consistent with the silence, but the exact control/time was
+not established. Do not classify it as a demonstrated firmware dropout or claim
+that the second backing was audio-verified. The stop reply did not report
+listening quality. Source matching is not an every-sample or audible-quality test.
+
+The original private second-half gap-result.json contains a true geometric
+timing estimate despite usb_backing_verified=false. Its alignment candidate
+comes from silence, so that estimate is not valid playback evidence. The private
+helper now gates that field on actual backing identification; recording-comparison
+applies the same gate and retains the original evidence. audio-analysis-v2.json
+supersedes the initial exploratory source-search output, omits empty/repeated
+candidates and includes the user's control-change report.
+
+Stopped command/raw/detail pages form consistent checkpoints within each group.
+Command programs/data-commands/waits are9457, with no unmatched/active scope,
+1950 conditions and9 omissions. Raw errors/omissions remain0/0. Detail reports
+878 conditions,0 omissions:862 direct writes and16 bounce writes with combined
+data-inhibit/data-line-active reasons. Broad-call observations omit one call.
+These retain the earlier write-return limitation and do not prove physical
+completion, exact ownership or a storage fault. Counters are cumulative since
+boot, not attributable entirely to either11-second sweep.
+
+A complete sweep after stop matches idle across all872 pages. After normal
+Eject and Editor transfer exit, another complete sweep matches the post-stop
+baseline. This compares before/after one normal transfer; it does not observe
+the interior of transfer mode, transient writes or all transition paths. Original
+pad names/counts are restored and the Editor reconnects. Current free heap is
+163104 bytes; minimum free heap after transfer is160664, a2440-byte transient
+reduction from the recording checkpoint. No extra capture was enabled.
+
+Private evidence: recording-half-01/, recording-half-02/,
+after-recording-diagnostics.json, after-recording-ram.jsonl,
+after-recording-transfer-ram.jsonl, recording-inspection/ and
+recording-comparison.json under deployment/13_ram_activity.
+The following mode checks continue those observations. Stable readings still
+cannot qualify the gap for capture.
+
+Song playback and active effects — 10 October 2026
+------------------------------------------------
+The user started recorded-song playback and later confirmed stopping. A25.002667
+second input-only USB capture includes a22.042878-second complete RAM sweep.
+All872 pages match idle;850 queries span zero ticks and22 span one. Broad SD
+reads advance73 and writes0. USB samples are finite and callbacks report no
+errors, but the MASTER pair is exactly zero while some input channels carry
+signal. This supports user-reported playback with SD read activity; it does not
+identify audible song content or read a native playback cursor. No firmware
+dropout is inferred. The already saved latest take has a long silent tail, but
+actual playback position was not recovered. No card transfer/audio read was
+needed for this check. Private evidence: song-playback-01/.
+
+The Editor was inspected again: MIDI channel1 and EFX TYPE CC117 remain mapped.
+The user identified Room as the selected effect. With transport stopped, the
+first24-second test confirms quiet USB audio reaches both the dry return and
+master, but no Room tail rises above background. Its full RAM sweep is unchanged.
+That test stops before any effect-type change and remains retained in effects-01/;
+it is not counted as an active-effect qualification. The user then confirmed
+enabling the effect send and return on the USB1/2 return/channel5.
+
+effects-02/ reuses the established quiet four-burst fixture, strict five-choice
+CC117 sender and audio-response comparison. Six24-second duplex USB passes run
+Room, Hall, Spring, Delay, Echo and restored Room. Every pass has finite samples,
+successful dry-source correlation, a measurable tail above background, a silent
+dry tail and no reported host stream error. Maximum MASTER peak is0.00536.
+All ten pairwise effect-envelope distances exceed0.336, establishing distinct
+responses with the verified control mapping. Restored Room has envelope
+correlation0.999921 and relative difference0.012585 (about1.26%) from initial Room;
+it is closer to Room than every other measured effect. Restoration is verified
+by returned audio, not solely a successful MIDI send. The user-adjusted send/
+return levels are left as set; only effect type is restored.
+
+Each pass includes a full872-page sweep lasting21.840..22.076 seconds, beginning
+about one second into the24-second fixture. All5232 page pairs/configurations
+agree and all fingerprints match idle. There are5061 zero-tick and171 one-tick
+queries. Host timing places the sweeps within the fixture duration, which includes
+quiet intervals and decay tails; no native engine-active flag is observed and
+not every page is read during a burst. Current/minimum free heap stays163104/
+160664 bytes. Observed SD read/write counters do not advance in any effect pass.
+No pad assignment, routing, level, numeric effect parameter, transport, card-file,
+cache/controller or firmware command is sent by the script. Only the five vetted
+effect-type messages are available; Room restoration is attempted on failure
+after any type change. The Editor remains connected with original visible pads.
+
+Private combined evidence: mode-comparison.json; effects-01/report.json records
+the failed audio precondition and effects-02/report.json records all six passing
+cases and response comparisons. USB audio and logs stay on the computer. No
+full-card or selected-card audio read was performed in these checks.
+
+Next work should trace remaining destination providers and physical/cache aliases,
+not accumulate repetitions of unchanged fingerprints. The bounded USB setup-copy
+follow-up now passes35 offline groups (three added) and excludes one more fixed
+copy path from the gaps; see ram_gap_ownership_findings.txt. It leaves downstream
+configuration pointers, endpoint buffers, DMA and the missing bootloader unresolved.
+The subsequent75-group USB provider audit resolves the selected profile pointer
+and traces complete descriptor construction plus five internal-DTCM pool ranges
+from six worker configurations. Dynamic lengths, endpoint transfers and physical
+aliases remain unresolved; see usb_memory_providers_findings.txt. No further
+hardware query or firmware change was needed for that follow-up.
+No gap reservation, change in native capacity or extra recording is authorized by
+these observations alone.
+
+Start with --quick (pages 0,436,871), then two complete idle snapshots. The
+collector writes fresh JSONL and a separate summary; existing files are never
+overwritten. Use the prior full raw JSONL as --baseline. A partial baseline is
+rejected before querying hardware. Match page plus token, since a full sweep
+wraps the seven-bit token. Default pause is 20 ms between queries; valid host
+interval is 0.01..1 seconds. Check actual tick cost before broader sampling.
+
+Compare complete snapshots during ordinary recording, pad/song playback and
+effects, plus before/after card and USB transitions. The original Editor path
+may be unavailable in some modes: retain partial evidence and do not invent
+coverage or retry through a state change. Changes identify activity and rule
+out unconditional reservation of the affected pages.
+
+Limitations: sequential snapshots are not atomic. Non-cryptographic fingerprints
+can collide or miss transient writes. CPU reads can return cached data and miss
+DMA updates; no unsafe cache maintenance is added to compensate. Native readers
+may use a region without changing bytes. Bootloader/other pools remain unknown.
+Even completely agreeing snapshots cannot prove free space or physical address
+independence. Continue tracing destination providers and aliases before changing
+the history layout. No gap-based capture image has been prepared; this evidence
+alone cannot support one.

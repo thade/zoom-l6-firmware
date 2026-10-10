@@ -1,0 +1,103 @@
+One-generation capture storage gate — 9 October 2026
+===================================================
+
+10 October follow-up: storage_main_findings.txt supersedes the full control-FIFO
+retirement requirement for storage revocation. Optional files/audio access can
+close while all control objects remain owned until reboot. Normal verified-take
+publication still requires its control marker. Figures and counts below describe
+the original gate milestone.
+
+Result
+------
+A separate offline composition now pins each complete manager operation against
+one admitted storage generation. It covers preparing the next TMP as well as
+active recording, finalization and readback. Closing admission is nonblocking;
+joining waits for the manager's existing hook/file fence. After retirement the
+extra recorder remains disabled until reboot. No new command queue, recovery
+policy or pad handoff is added.
+
+This is a software ownership component, not a device storage binding. Actual
+setup observations, outer transition deferral before side effects and lower
+physical completion/cache validity remain unbound. Software joining cannot
+repair an SD driver that has already unwound an active buffer.
+
+Implementation
+--------------
+src/capture/storage_lease.c/.h: one permanent 16-byte gate and one owner pointer.
+src/capture/session_manager.c: conditional pin spans manager_step/resume,
+including every synchronous native file call and cancellation cleanup.
+tests/fixtures/capture_composed_startup.c: bind once before the scheduler starts;
+the registered worker still stays W_WAITING. Binding does not admit or release.
+tools/firmware/build_extra_capture.py --storage-fixture
+tools/firmware/plan_capture_lease.py
+tests/emulation/verify_storage_lease.py
+
+Admission accepts a nonzero generation only with supplied actual mount result 2
+and successful target-directory result 0. These arguments require a trusted
+native setup observer; callers cannot substitute outer setup's apparent success
+or stale volume flags. Invalid/duplicate generations and ISR callers are refused.
+There is no reopen operation or automatic admission after a card/USB transition.
+
+Close revokes new steps immediately and requests extra cancellation. An existing
+step retains the pin throughout its file call; close never parks Main. The caller
+must defer the ENTIRE native transition before its first side effect and continue
+servicing native tasks. A BUSY return at detach alone remains insufficient.
+
+Join can retire a fenced RESET without reading dirty/partly cleared lifecycle
+storage. A STOPPED instance that may have attempted file preparation requires
+positive lifecycle resource release. BLOCKED or an uncertain close cannot join.
+The pin excludes both concurrent manager work and explicit resume. Cancellation
+of the initialized IDLE lifecycle at PREPARE is supported in this profile, so
+canceling before the first file call can positively finish without any I/O.
+Legacy profiles retain their prior lifecycle behavior.
+
+Accounting
+----------
+The storage fixture requests 9887 heap bytes, 32 more than the base composition
+after alignment. Its worker stack remains a separate experimental 16384 bytes
+plus native task metadata. External history stays 540672 bytes / 1024 slots;
+ordinary capacity stays 223104 frames. Prototype retention remains 1.365333s,
+not a measured safe service budget.
+
+The new permanent owner adds four global bytes: [0x80960080,0x809600e8), 104 bytes.
+Raw code is 21012 bytes; packed capture code 17436; packed DSP 36172; original
+source capacity 55004, leaving 1396 bytes spare. These remain proposed placement
+and accounting figures. No installable capture BIN is produced by the planner.
+
+Evidence
+--------
+Fifteen focused groups pass using the actual compiled storage fixture. Original
+scatter/startup/native heap instructions bind it closed. A direct worker release
+cannot bypass storage admission. Cold and partly cleared RESET retire without
+reading dirty Life or opening another TMP. Native exFAT with modeled 256-KiB
+clusters preserves seven ordinary files and verifies the eighth, then closure
+at RESET prevents automatic next-file preparation while retaining the result.
+
+Separate-stack cancellation during create, initial header, payload, final header,
+readback header/audio and write/read close stays nonblocking and leaves the
+retained worker frame unchanged. Join stays busy and worker reentry performs no
+new I/O. Once the fixture supplies a PHYSICALLY JOINED completion, native control
+FIFO progress and the existing audio/file fence permit retirement. Continued
+ordinary audio/control is exercised during the pending payload. Joined write
+failure withholds a take; uncertain close stays BLOCKED without retry or resume.
+
+The consolidated redesign run passes 715 groups across 63 suites, including this
+suite and profile-isolation checks. Reports: analysis/storage_lease_verification.json,
+capture_lease_plan.json and redesign_verification.json. These are offline tests:
+RTOS progress, storage observations and physical completion are model inputs.
+
+Next physical boundary
+----------------------
+The native direct and bounce paths can submit several chunks within one callback.
+In the read bounce helper, 0x8006a1f4 waits, 0x8006a20e copies bounce contents,
+and 0x8006a22a loops to reuse it. The write helper copies new data at 0x8006ada8,
+sets its DMA address at 0x8006adac, waits at 0x8006ae10, then loops at 0x8006ae2e.
+A nominal completion checkpoint only after the outer driver callback returns
+cannot protect these intermediate reuse points. The other two direct-path data
+waits are 0x8006a06a and 0x8006ac6e. Command-error exits also need protection
+before the active caller/buffer frames unwind.
+
+The narrow passive experiment in sd_chunk_observation_findings.txt samples the
+controller immediately around those four DMA waits, preserving original returns.
+It answers the actual mode/activity-at-return question before choosing a physical
+binding. It neither joins a failure nor enables additional capture.

@@ -1,0 +1,435 @@
+Passive SD chunk-completion observation — 9 October 2026
+======================================================
+
+Purpose
+-------
+Observe actual controller mode and activity at the lowest native DMA data-wait
+returns, before bounce-buffer copy/reuse or the next direct chunk. This is a
+specific remaining completion question from the Astra composition review.
+Clean outer file returns and broad tail guards cannot answer it.
+
+Four byte-checked BL sites call an integer-only observer around the unchanged
+native wait at 0x800328c0:
+  0x8006a06a: direct read
+  0x8006a1f4: bounce read, before the copy at 0x8006a20e
+  0x8006ac6e: direct write
+  0x8006ae10: bounce write, before next reuse at 0x8006ada8
+The original per-unit ownership remains in stock code. All five arguments,
+including the stack timeout, returned status and output flags are preserved.
+The observer never supplies completion permission, retains a failed frame,
+resubmits I/O, resets hardware or changes the file/card state.
+
+Observations and interpretation
+------------------------------
+Each sample records caller return site, event/task identity, timeout, native
+status and successful wait flags; PRES_STATE before and after; SYS_CTRL,
+PROT_CTRL, MIX_CTRL, VEND_SPEC2 and sampled DS_ADDR after the wait.
+Sequential reads are not an atomic hardware snapshot. DS_ADDR may already have
+advanced and must not be labeled the originally submitted address.
+
+A first-anomaly sample remains until reboot; the latest sample and cumulative
+wait/site/anomaly/omission counters are also returned. Anomalies include returned
+errors, mixed/missing completion flags, sampled activity/reset and unexpected
+DMA/endian/argument mode. These are candidate-family interpretation checks, not
+hardware-completion proofs or silicon identification. A busy epoch, missed
+observer claim, counter reset/wrap or missing reply invalidates complete interval
+coverage. A quiet sample does not prove cache visibility or card persistence.
+
+Fixed read-only queries are 73/72 kind 1 latest / kind 2 first anomaly. The legacy
+health queries remain available. No general memory/MMIO address endpoint exists.
+Queries copy stored observations; they do not read the controller or modify the
+trace. Main can query while the native wait is pending; its snapshot is marked
+incomplete and the native frame/token remain unchanged in the fixture.
+
+Code, image and limits
+---------------------
+Source: src/diagnostics/sd_completion_probe.c, sd_completion.ld.
+Build: tools/firmware/build_sd_completion_probe.py.
+Verify: tests/emulation/verify_sd_completion_probe.py.
+Host: tools/device/l6_sd_completion_probe.py.
+Private output: deployment/09_sd_completion/trial_sd_completion/L6.BIN.
+SHA-256: e786b5142e25c39731dc1cac41a8326d5843b68615a156fb5d1198df2298901f.
+
+The trial uses 2140 code/state bytes, including 188 bytes of aligned state, inside
+the existing MAIN DSP source span. Original DSP is compressed and expanded with
+the stock decoder; original container length/checksum, eight scatter outputs
+and every DSP byte are preserved offline. The existing startup capacity patch
+keeps 223104 frames, matching installed diagnostic 08; there is no live resize.
+No extra capture/history writes, heap allocation, task, pad mutation, recovery
+or storage ownership grant is included. The software storage gate is NOT linked.
+
+Ten groups pass. Twelve direct/bounce/multi-chunk original SD instruction cases
+reach all four real patched sites and preserve tested payload, native wait ABI,
+MMIO writes, returned status and unit release against their stock baseline.
+Mixed/error/active/reset/mode counterexamples are observed while retaining stock
+behavior. First anomaly persists after an independently modeled good transfer.
+Host malformed replies, read-only query lifetime, legacy health, busy-claim
+omissions and a separate-stack query during a live wait are covered.
+SP traced at observer instructions reaches 504 bytes below the fixture stack
+top, including retained SD callers. The kernel wait is modeled; this is not its
+maximum stack or physical headroom. Actual stack/timing remain unmeasured.
+Native kernel responses, controller activity/DMA and IRQ effects are
+fixtures. No active-transfer reset or deliberate card-error injection is planned.
+
+This diagnostic deliberately does not observe PIO paths, command exits, raw IRQ
+identity/acknowledgement, stale completion or admission. Those remain part of the
+future physical contract. Do not conclude that nominal idle samples alone make
+the capture firmware deployable. The first device workload is ordinary recording
+and existing backing playback, followed by stopped file inspection.
+
+Staging evidence
+----------------
+The exact trial is staged on the previously identified L6 exFAT card, with
+readback matching the verified image. All 114 audio/pad file entries retain
+metadata; all 58 saved audio hashes and the current settings bytes match before
+and after. Previous root firmware/settings are backed up locally. Normal volume
+and whole-disk unmount attempts were dissented by loginwindow, but a freshly
+reidentified normal diskutil Eject succeeded without force or process termination.
+The Editor then exited transfer mode. Fixed pad/count queries confirm the
+original assignments and counts; current installed ring queries confirm normal
+capacity and no active ordinary recorder. A mistaken 7D health query against
+the installed ring/timing diagnostic timed out; its log is retained and is not
+counted as validation. Ring and pad checks use the correct installed protocol.
+
+No guard sweep or physical lifetime qualification was added. Source omissions
+were 64 before transfer and 191 afterward, with no observed overlaps; missing
+arguments remain unknown. Reports and logs are in deployment/09_sd_completion/.
+At that staging checkpoint the mixer still ran diagnostic 08. The user has since
+confirmed the requested physical PLAY/STOP update and normal reboot. Valid new
+73/72 replies confirm diagnostic 09 execution; installed flash has not been read
+back, so this is behavioral installation evidence rather than a flash-byte hash.
+
+Device startup baseline — 9 October 2026
+---------------------------------------
+baseline-01.jsonl and baseline-02.jsonl retain raw request/reply packets and
+decoded values. Both latest/first pages have consistent even epoch 2400 and
+agree on 1200 waits, skipped 0, sites 3 (direct and bounce read), anomalies 16.
+The counters and retained samples remain unchanged between the two query sets;
+query ticks advance. No write site has been reached in this startup interval.
+
+Retained first anomaly:
+  return site       0x8006a1f8 (bounce-read completion before native copy)
+  event             0x80934ac0
+  task              0x80934170 (dynamic handle; named owner unestablished)
+  timeout/status    5000 / 0
+  completion flags  0x00000004
+  before PRES_STATE 0xff88820e (activity mask 0x206)
+  after PRES_STATE  0xff88800e (activity mask 0x006)
+  SYS_CTRL          0x008f020f (reset mask zero)
+  PROT_CTRL         0x0b800022 (simple DMA selection, little endian)
+  MIX_CTRL          0x80000037 (DMA, read, multi-block, auto CMD12)
+  VEND_SPEC2        0x00018006 (DS_ADDR argument override clear)
+  sampled DS_ADDR   0x2000d4d4 (advanced address, not submitted-buffer identity)
+
+The visible anomaly is ONLY data inhibit + data-line active in this retained
+sample. Read-transfer activity has cleared; command inhibit and write-transfer
+activity are clear. Expected mode, flags and reset checks pass. Mask/mode
+arguments are not exported, but the byte-checked native site supplies 0x185/1.
+The latest bounce-read sample has flags 4, status 0 and activity mask zero,
+PRES_STATE 0xff888088 and MIX_CTRL 0x80000011 (single-block DMA read).
+Do not label all 16 detections identical: only the first and latest are retained.
+
+NXP's retained MIMXRT1042.h separately defines CDIHB, DLA, RTA and WTA. Its
+definitions and the SDK driver distinguish data-line inhibit from read-transfer
+activity and enable auto CMD12 in multi-block reads. Therefore a trailing
+auto-stop/busy phase is a plausible hypothesis, NOT a demonstrated duration,
+DMA lifetime fault, or proof of DMA completion. Snapshots are sequential and
+contain no raw IRQ attribution. The exact silicon/revision remains unknown.
+Primary sources checked on 9 October 2026:
+https://raw.githubusercontent.com/nxp-mcuxpresso/mcux-sdk/main/devices/MIMXRT1042/MIMXRT1042.h
+https://raw.githubusercontent.com/nxp-mcuxpresso/mcux-sdk/main/drivers/usdhc/fsl_usdhc.c
+Candidate RT1040/1060 reference-manual URLs did not return readable contents;
+no manual/erratum-specific completion guarantee is inferred.
+
+health-baseline-01.jsonl reports heap current/minimum 163104, 203 allocations,
+one free, unit-1 native calls 580 reads / 0 writes / one omitted broad call,
+last result 0 and maximum 59 ticks. This broader call observer has a different
+scope from the zero-omission chunk observer; its missing call is not called a
+success. Unit 2 has no observed calls. post-update-pads-01.jsonl confirms eight
+fixed read-only pad replies, counts [5,2,1,0] and the original three OD filenames
+with pad 4 empty. No recording/playback/settings command was sent by these probes.
+
+The next workload is one short ordinary recording with pad 1 playback, stopped
+with Record, to observe writes and playback reads. Record counters before/after,
+omissions and the retained first anomaly without clearing boot evidence. A
+cumulative increase cannot identify the cause of later anomalies on its own.
+Inspect the seven ordinary files after stopping. Extra capture remains disabled;
+no physical-completion provider, buffer protection or reset is installed.
+
+Short device recording and retained evidence
+-------------------------------------------
+recording-01.jsonl contains consistent stopped pages: epoch 4394, waits 2197,
+skipped 0, sites 15, anomalies 197. Relative to the startup baseline this adds
+997 waits, zero omitted observations and 181 detections, and reaches both write
+paths as well as the read paths. The first sample's thirteen fields are unchanged;
+the latest read is successful with flags 4 and activity zero. The additional
+anomaly causes/path distribution are unavailable in the initial revision.
+Do not label them DMA errors or as repetitions of the retained startup cause.
+
+health-recording-01.jsonl adds 269 broad reads, 383 writes and one omitted broad
+call. Current/minimum free heap remains 163104, allocations/frees now 204/2,
+latest broad status 0, peak still 59 ticks. The broad observer is incomplete;
+neither latest success nor the chunk omission count supplies that missing call.
+These deltas include intervening native work, not only audio-payload transfers.
+
+The only new take is RECORDER/261009_113512. All seven files have 1405376 frames
+at 48000 Hz / 29.278667 seconds, valid RIFF/chunk lengths and finite float samples.
+The whole take and actual assigned SOUND_PAD/PAD1/OD_261002_181142.WAV are copied
+locally with matching source/readback hashes. All 58 prior saved evidence hashes,
+all prior metadata entries and global settings bytes are unchanged. Copying adds
+no card files or changes. Details are in recording_evidence_manifest.json and
+recording_audio_structure.json.
+
+The master is almost entirely explained by its input stems (99.99999998% of
+sampled energy). The assigned pad source adds negligible explained energy;
+normalized correlation after fitting stems and the local alignment windows are
+weak. No backing start time is established: the best candidate is a noise match.
+Pad playback in the recorded mix remains UNCONFIRMED; do not claim the combined
+recording/playback workload or clean independent backing separation passed.
+No level change or diagnosis was made. The user's listening/pad report is pending.
+recording_audio_analysis.json retains the figures and limits. These file checks
+do not prove the physical completion contract or absence of every audio defect.
+
+Focused detail revision
+-----------------------
+The initial diagnostic is unable to classify detections occurring after its
+retained first anomaly. The separate --detail build addresses this observation
+gap without changing native completion/error handling or introducing a guard.
+It appends four 64-byte site records: wait count, anomaly count, reason union and
+latest anomaly snapshot. All publication uses the existing wait-owner epoch;
+there is no new lock, observer slot, task, allocation, MMIO action or recovery.
+
+Fixed query kinds 1/2 are byte-compatible with the initial schema. Kind 3 replies
+with schema 2 and twenty words: the six common header words, four wait counts,
+four anomaly counts, four reason unions, trailing epoch and tick. Kinds 4..7
+return schema-1 sample pages for the most recent direct-read, bounce-read,
+direct-write and bounce-write anomaly respectively. A zero site means no sample
+has been retained at that path. Queries use stored fields only and are marked
+incomplete when the wait-owner epoch is busy or changes during the copy.
+
+Reason union bits: 1 wait error; 2 missing completion flag on a successful wait;
+4 fault flags; 8 reset-active; 16 unexpected DMA/endian/argument mode; 32 unexpected
+site/arguments/event/task/timeout. Individual PRES_STATE activity mask 0x307 is
+shifted left 8. A union indicates all categories observed since boot; it does
+not count each category, measure a busy duration or establish ordering. Samples
+at different paths can come from different operations; matching global counts
+are needed when comparing stopped query pages. No counters are reset by queries.
+
+The source's ordinary profile still reproduces the initial image SHA-256 and
+passes ten groups. The detail image uses 2780 code/state bytes, 444 aligned
+state bytes and the same 223104-frame capacity, eight original scatter outputs,
+complete original DSP bytes and original container length. Detail SHA-256:
+2ab527c9fc7971a969a37faebaa940dcee09d5c6423da529389e5ee388756cae.
+Private image: deployment/09_sd_completion/detail/trial_sd_completion/L6.BIN.
+Separate verification: analysis/sd_completion_detail_verification.json, 13 groups.
+
+All four native sites retain per-site counts/reason unions and most recent bad
+samples through later good transfers and other-path activity; global first
+anomaly remains unchanged. Twenty-four error/flag/reset/mode contexts validate
+classification against actual reached native wait sites. A stock write-error
+diagnostic additionally enters the bounce-read site with MIX_CTRL 0x10 (DMA
+disabled); that auxiliary mode is included and explicitly classified. Thus these
+are four fixed DATA-WAIT sites, not an unconditional assertion that every reached
+wait belongs to DMA or audio payload. Other PIO paths remain unobserved.
+Malformed summary schema/reasons and mismatched per-site pages are rejected.
+Read-only queries cover appended state; busy snapshots leave native frames and
+the SD token unchanged. Traced SD-caller/observer stack reaches 520 fixture bytes,
+16 more than the original; kernel maximum and physical headroom remain unknown.
+All controller/kernel/audio physical behavior remains modeled in these checks.
+
+Detail staging and safe return to normal operation
+-------------------------------------------------
+The exact detail image is staged with matching readback. The current root
+update and settings have separate backups. All 121 audio/pad metadata entries,
+global settings bytes and 65 saved audio hashes (including the new take) match
+after staging. Normal Eject of the freshly verified disk6 succeeds without
+force, then the Editor exits transfer mode and restores its normal view.
+Eight fixed pad replies verify counts [5,2,1,0] and the original names again.
+At this pre-update checkpoint the initial probe supplies consistent stopped
+73/72 replies; the detail build was not yet installed.
+See detail/staging_verification.json and detail/post_transfer_verification.json.
+
+The card inspection/hash/staging/remount interval adds substantial USB/native
+IO and is kept separate from the short recording. Before the next physical
+update the original probe reports 159371 waits, zero omitted chunk observations,
+910 detections, unchanged first anomaly and a quiet latest sample. Broader SD
+omissions are now 218 (216 more after the recording checkpoint); those calls
+remain unknown. Current free heap returns to 163104, with minimum 160664 during
+transfer. These later figures are not recording-workload or service-budget
+qualification. No additional audio recording/playback or level command was sent.
+
+Detail execution and first startup checkpoint
+--------------------------------------------
+The user subsequently reports completion of the physical update/reboot. All
+seven fixed pages, including the new schema-2 summary and per-site sample pages,
+respond correctly. This confirms execution of the detail code, not a byte-for-
+byte readback of installed flash. detail/startup_baseline_summary.json validates
+the raw replies, epochs, global/per-site totals and original pad names/counts.
+
+All pages agree on epoch 2400, waits 1200, skipped 0, sites 3 and anomalies 13.
+Direct reads: 1 wait, zero detections. Bounce reads: 1199 waits, 13 detections,
+reason union 0x600. Both write paths: zero waits/detections. Thus the only
+observed categories are data inhibit and data-line active; there are no observed
+wait errors, missing/mixed completion flags, reset, mode/argument faults,
+command inhibit or read/write-transfer-active categories. A union does not prove
+every detection had both bits, count each category or measure its duration.
+
+The retained first and latest bounce-read anomaly both returned native success
+and flags 4, with PRES_STATE 0xff88800e/activity 6, MIX_CTRL 0x80000037 (multi-
+block read, automatic CMD12, DMA enabled), PROT_CTRL 0x0b800022 and SYS_CTRL
+0x008f020f/reset 0. Task handles differ: first 0x80934170, latest 0x808f2998;
+their named owners are not inferred. Latest overall sample is a quiet bounce
+read, activity 0, MIX_CTRL 0x80000011 (single-block read with DMA enabled).
+Neither the sequential MMIO samples nor a possible trailing automatic-stop
+busy phase establish DMA buffer ownership or a physical-completion provider.
+
+Health: current/minimum free 163104, allocations/frees 203/1; unit 1 reads 581,
+writes 0, broad omissions 0, latest status 0, maximum duration 57 ticks. Unit 2
+has no observed calls. Eight read-only pad queries retain counts [5,2,1,0] and
+the three original OD filenames, with pad 4 empty. No additional capture is
+enabled. Write/recording observations are still needed on this detail boot.
+
+Backing-playback preflight
+-------------------------
+Before another recording, the official Editor shows CONNECTED, Multi Track,
+MIDI control enabled, channel 1, and pad 1 assigned OD_261002_181142.WAV in
+One-shot mode at 0 dB with MIDI note 60. No setting is changed. Zoom's official
+manual documents note-triggered sound pads on L6 Mixer Control Port:
+https://zoomcorp.com/manuals/l6-en/ . The local evidence copy of this assigned
+source is 622656 frames / 12.972 seconds at 48 kHz stereo, SHA-256
+85267f8e901054cb73ced241c6aa334ed352e734f2be0fc7463f79628a3d7a0b.
+The restricted preflight sends only fixed channel-1 note-on 60 and note-off 60,
+records USB input locally and queries detail/health/assignment before and after.
+It sends no USB audio output, recording transport, gains, routing or assignment.
+This checks the backing route without claiming the previous take contained it.
+
+The playback-only preflight completes successfully. Local USB capture has
+864256 frames / 18.005333 seconds, twelve channels at 48 kHz; all samples are
+finite and the host callback reports no input-buffer status errors. Only two
+MIDI packets are sent: 90 3c 64 and 80 3c 00 on the exact L6 Mixer Control Port.
+Assigned-source normalized correlation in USB master is 0.992291, with three
+separated full-rate one-second windows at 0.997757, 0.985906 and 0.994955.
+The source is therefore independently identified in this USB capture. Its
+candidate start near 1.011667 seconds is approximate host alignment, not a
+hardware latency or recording-boundary measurement. No SD record transport is
+sent, and this does not retroactively validate the prior recorded take.
+
+The stopped before/after pages agree internally. The interval adds 1163 waits,
+all bounce reads, zero omitted chunk observations and zero new detections.
+Total waits 2363, detections 13, sites 3; all write counts remain zero. The first
+sample remains retained. Broader unit-1 reads add 54, writes/skips zero. Current/
+minimum free heap stays 163104, allocations/frees 203/1; assignment unchanged.
+Raw MIDI, USB audio, snapshots, script copy and hashes are preserved privately
+in detail/pad-playback-01/. A host callback status is not an acoustic listening
+report or a physical DMA/cache guarantee. No capture or ownership gate is added.
+
+The next take uses the same fixed trigger after the user starts Record. Live
+detail pages may be changing/busy and are retained as incomplete rather than
+stopped baselines. After the user stops with Record, collect a coherent stopped
+seven-page checkpoint and inspect the seven SD files including identified
+backing in MASTER. Keep this recording interval separate from later USB/card
+inspection, and do not infer that a successful USB stream alone validates SD.
+
+Detail recording with verified backing
+-------------------------------------
+The user starts Record, the restricted script triggers the same pad once, and
+the user subsequently stops with Record. The 18.005-second input-only USB
+capture is finite with no host input-buffer status errors, identifies the
+backing at correlation 0.992265 and sends only the fixed note-on/off pair.
+The user reports "Backing audible; no audio problems". Live before/after
+diagnostic pages are retained: the pre-trigger summary is busy/incomplete, so
+it is not used as the stopped recording baseline.
+
+Seven stopped pages agree on epoch 14518, waits 7259, skipped 0, sites 15 and
+detections 961. Relative to the playback-only stopped checkpoint, this adds
+4896 waits, zero omitted chunk observations and 948 detections:
+  direct read: 14 new waits, zero new detections;
+  bounce read: 1513 new waits, zero new detections;
+  direct write: 934 new waits, 934 detections;
+  bounce write: 2435 new waits, 14 detections.
+The only observed reason categories remain data inhibit and data-line active
+(union 0x600). No wait-error, missing/fault flag, reset, mode/argument fault,
+command-inhibit or read/write-transfer-active category is recorded. This union
+does not count categories individually or establish every detection's exact
+combination/duration. The first startup anomaly is unchanged; latest overall
+is quiet. The latest retained direct/bounce write anomalies return success and
+flags 4, PRES_STATE 0xfe88800e/activity 6, MIX_CTRL 0x80000027 (multi-block DMA
+write with automatic CMD12), reset 0 and the same expected little-endian mode.
+
+Health current/minimum free is 163104, allocations/frees 204/2. Broader unit-1
+observations add 396 reads, 1504 writes and one omitted call; latest status 0,
+maximum duration 77 ticks. This interval includes intervening native work and
+the user-started recording, not solely audio-payload transfers. The missing
+broad call remains unknown. See detail/recording-playback-01/stopped_summary.json
+for validated raw replies and sums; the later transfer interval is excluded.
+
+The only new folder is RECORDER/261009_133601. All seven files have 8601408
+frames at 48 kHz / 179.196 seconds, valid RIFF/chunk sizes, float32 samples,
+and every sample passes finite checks. The assigned 12.972-second one-shot
+backing is independently identified in MASTER near 25.243667 seconds: whole-
+source full-rate correlation 0.999999871; separated one-second windows at
+0.999999409, 0.999999912 and 0.999999870. USB-to-SD correlation without precise
+USB sub-stride realignment is 0.992273. This confirms the assigned backing in
+both streams; it is not synchronous-boundary or every-defect certification.
+
+Input stems in this take are mostly ADC noise; TRACK05 is entirely zero.
+Maximum absolute backing correlation in the corresponding input-stem window
+is 0.007463, with no identifiable backing. Thus the observed backing is absent
+from the input stems, but this take does not exercise a substantial live musical
+layer. Source matching does not establish an absolute leakage/no-dropout limit.
+The pad plays once for 12.972 seconds within a 179.196-second recording; do not
+claim full-song simultaneous backing or added-capture performance. The extra
+recorder remains disabled. File structure and matching are saved separately in
+recording_audio_structure.json and recording_audio_analysis.json.
+
+Read-only copying preserves all 65 prior evidence hashes, 121 prior metadata
+entries, and global settings bytes. Eight copied files total 417856112 bytes,
+with matching card/local hashes. The freshly verified L6 card is normally
+ejected without force, the Editor exits transfer mode, and eight fixed pad
+replies verify counts [5,2,1,0] and original assignments again. The normal Editor
+view and seven detail replies are confirmed; no physical update is performed.
+
+The inspection/hash/copy/remount interval adds 92481 waits, zero omitted chunk
+observations and 482 detections, still only union 0x600. Broad unit-1 adds 90954
+reads, 737 writes and 171 omitted calls. Those missed calls are unclassified.
+Current free returns to 163104; minimum becomes 160664 during transfer. These
+are transfer workload figures, not recording peak/service-budget evidence.
+Retained transfer write event/task identities differ from the recording sample;
+do not merge them into one named owner. Raw logs, copies, script and final hashes
+are in detail/recording-playback-01/, with post_transfer_verification.json.
+
+Meaning of the write-side activity (candidate interpretation)
+-----------------------------------------------------------
+The candidate RT1042 header defines DLSL at bits 24..31; NXP's USDHC API maps
+Data0LineLevel to bit 24. Thus the retained write's 0xfe88800e has DATA0 low,
+while the retained read's 0xff88800e has DATA0 high. Both have read/write-
+transfer-active bits clear. The observed write pattern is consistent with a
+trailing card-programming/busy phase after host data transfer.
+Primary definitions:
+https://raw.githubusercontent.com/nxp-mcuxpresso/mcux-sdk/main/devices/MIMXRT1042/MIMXRT1042.h
+https://mcuxpresso.nxp.com/api_doc/dev/816/group__usdhc.html
+
+NXP documents SD_WriteBlocks returning while the card is still busy, with a
+separate SD_PollingCardStatusBusy operation for card readiness. Its USDHC data
+interrupt handler prioritizes data/DMA errors over completion and optionally
+invalidates the received buffer's cache before completion callback. These are
+candidate-driver design evidence, not a claim that Zoom uses this exact driver
+version or that the installed processor/cache contract has been identified:
+https://mcuxpresso.nxp.com/api_doc/dev/3151/a00063.html
+https://raw.githubusercontent.com/nxp-mcuxpresso/mcux-sdk/main/drivers/usdhc/fsl_usdhc.c
+
+Therefore do not label every data-inhibit/line-active observation as a DMA
+buffer-lifetime failure, nor clear the physical-completion gate from these
+successes. Next resolve raw completion/error identity before stock IRQ
+acknowledgement, and the exact DMA/cache handoff for candidate buffers. The
+existing fixed wait sample cannot recover errors discarded by the native IRQ
+mapping or prove stale-event exclusion. Native storage transitions and owned
+memory still require binding before enabling the extra recorder. No new broad
+guard-only trial is justified solely by this expected-busy candidate pattern.
+
+Follow-up: sd_cache_contract_findings.txt decodes the original MPU and native
+cache-maintenance sequences for the proposed spans. Fifteen offline groups
+add a post-read invalidation experiment under live native frames, including a
+per-command raw latch and original pre-command buffer-start snapshot. It still
+models physical completion/cache effects and does not alter this diagnostic,
+produce a capture image or supply the missing physical-completion provider.

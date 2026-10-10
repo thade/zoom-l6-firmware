@@ -1,0 +1,169 @@
+Native MPU and SD cache handoff — 9 October 2026
+================================================
+
+Result
+------
+The stock memory configuration and exercised SD cache paths are now traced.
+The proposed heap staging, history tails, code and globals share one cached
+normal-memory region. A small opt-in OFFLINE completion experiment invalidates
+owned direct-read cache lines after modeled completion, inside the native SD
+stack/token. Fifteen groups pass. This resolves the stock software map and
+the required cache sequence; physical completion and memory ownership remain
+unbound. There is no new device image, installation or mixer interaction.
+
+Continuous combined-startup follow-up — 10 October
+-------------------------------------------------
+Three new groups execute one instruction path from original reset/scatter,
+through the new LZ4 expansions, original8001b320 cache/MPU setup, first compiled
+capture instruction and dormant worker registration. Both cache-disabled and
+cache-enabled entry fixtures load the entire combined code before original cache
+maintenance and first capture entry800b6cfc. All13 MPU regions are programmed;
+native heap registration succeeds and the worker remains waiting, with all SD
+permissions zero. A malformed size stops before cache setup or capture entry.
+
+Python does not bridge these stages by expanding the payload or invoking their
+bodies separately during this run. Cache geometry (two sets/two ways), remaining
+board hardware and task creation/scheduling are still fixtures; maintenance
+register writes execute without physical cache effects. This closes the software
+ordering question, not code/global ownership, instruction visibility on the
+physical candidate, stack headroom or permission to release capture.
+Code: tests/emulation/verify_capture_boot_cache.py.
+Report: analysis/capture_boot_cache_verification.json.
+
+Stock memory setup
+------------------
+Board initialization at 80067a60 calls 8001b320 at 80067a62. Executing that
+original routine records thirteen RBAR/RASR pairs, disables the MPU before
+programming them, then writes MPU_CTRL=5 (enable plus privileged background).
+It maintains/disables any enabled caches before changing the map, invalidates
+before re-enabling, and ends with CCR.I-cache and D-cache enable bits set.
+Cache geometry is explicitly supplied by the fixture, not measured hardware.
+
+The highest covering region for all proposed SDRAM spans is region 10:
+  RBAR 8000001a; RASR 03030031
+  base 80000000, size 02000000 (32 MiB), exclusive end 82000000
+  TEX=0, C=1, B=1, S=0, AP=3, XN=0, no disabled subregions
+  ARM interpretation: normal, non-shareable, write-back/no write-allocate;
+  full read/write permission and executable.
+Region 1 covers the wider same-base interval with different attributes, but
+region 10 takes precedence. Decode the SIZE exponent carefully: 0x31 encodes
+32 MiB, not 64 MiB. This is an MPU span, not proof of fitted SDRAM capacity.
+
+Covered proposals include code 800b6b00, globals 80960080, native heap
+[808e2fe0,8095ffd8), ordinary ring 81429800 and the eight history tails ending
+at 81b7c800. Their permission/cache attributes do not establish reservation,
+alias exclusion, later reconfiguration or bootloader ownership.
+
+The native per-unit bounce address 2000c4d4 lies in region 5. Its MPU attributes
+also have C/B set. The candidate M7 DTCM bus interpretation still depends on
+the installed TCM configuration and physical mapping; do not infer uncached
+bus reachability merely from the address or the absence of maintenance calls.
+
+Subsequent diagnostic-10 hardware readings resolve the CPU bounce cache
+question. See sd_raw_observation_findings.txt; peripheral joining and the
+cached SDRAM proposals still require their own qualification.
+
+Original native SD paths
+------------------------
+Direct reads at 80069f52..80069fa2 issue DSB, 32-byte-stepped writes to
+SCB.DCCIMVAC (e000ef70, clean plus invalidate to point of coherency), DSB, ISB
+BEFORE DS_ADDR programming and command submission. This is not invalidate-only.
+The exercised direct read has no further SCB line maintenance after its data
+wait or before return to the registered caller.
+
+Direct writes at 8006ab5a..8006abaa similarly use SCB.DCCMVAC (e000ef68,
+clean to point of coherency) before submission, with DSB/DSB/ISB. The owned
+write source must remain unchanged until physical host transfer completion.
+
+The tests execute the original command engine and complete data/final-status
+waits for a 4-KiB direct read and write. Each covers all 128 lines before
+DS_ADDR. One-block and word/byte-offset cases use the native bounce area and
+CPU copies; the tested nine-block unaligned requests split into eight plus
+one block. Those paths issue no SCB line maintenance. These are observed
+software sequences with synthetic waits, not bus/cache behavior on hardware.
+
+Why the read completion step matters
+-----------------------------------
+Pre-transfer clean/invalidate does not by itself guarantee that a cacheable
+DMA destination cannot acquire a stale line while the peripheral is writing.
+NXP's SDK optionally invalidates the received buffer on successful data
+completion, and Arm supplies a separate invalidate-by-address primitive.
+The opt-in experiment adds that post-read step. A controlled negative case
+models an intervening stale CPU refill: the original path returns old bytes;
+the compiled completion helper makes independently supplied DMA bytes visible
+before the driver unwinds. This is a model counterexample and an integration
+requirement, not a reproduced stock-firmware or mixer defect.
+
+Implementation and constraints
+------------------------------
+tests/fixtures/sd_cache_probe.c contains the small leaf helper. It rejects
+zero address/size, partial or unaligned cache lines and wrapping ranges before
+any MMIO. It issues DSB, invalidate-only DCIMVAC for every owned 32-byte line,
+then DSB/ISB. Cleaning at this point could write old CPU data over newer DMA
+bytes, so the post-read operation is deliberately invalidate-only.
+
+sd_transfer_probe.c selects it only through the new sdp_cache_read_port.
+Zero preserves earlier experiments. It is included only in handoff-test and
+the separate capture-I/O fixture; all normal and composed profiles exclude
+every sdp_ symbol, including this helper/port. The installed passive diagnostic
+does not contain it. No capture-device binding was added.
+
+The follow-up in sd_chunk_guard_findings.txt adds an opt-in completion hold before
+this cache helper and before intermediate bounce copy/refill, inside each native
+data wait. It preserves the original span even when DS_ADDR advances. Sixteen
+additional groups pass, including composed cache ordering. Physical joining and
+exclusive cache-line ownership remain separate unimplemented device contracts.
+
+For the exercised 512-byte block-read opcodes 22/23, the experiment snapshots
+the programmed DMA start/count BEFORE calling the stock command engine and
+resets a per-command raw IRQ latch. It does not derive the start address from
+a possibly advanced completion-time DS_ADDR. A modeled advancing-address case
+still invalidates the original owned buffer. An old operation-wide TC plus a
+new software success flag cannot satisfy this read's raw latch. The raw IRQ
+hook captures it before the stock acknowledgement; errors remain sticky in
+the enclosing transfer and reject the read. Timeouts and hidden TC+error cases
+never enter successful read maintenance. Writes and exact per-unit bounce
+addresses skip the helper.
+An unresolved read fault retains the native stack and SD unit, performs no
+successful cache publication, and unwinds only after explicit modeled join.
+
+Prior physical transaction/IRQ joining, stale hardware/software-event draining,
+IRQ/post exclusion and exclusive line ownership are STILL fixture preconditions.
+A per-command software latch does not establish those facts. Invalidation
+cannot stop DMA, establish TC freshness, make an uncertain error return safe,
+or establish card persistence. This deliberately has no reset/retry/remount
+framework. Unsupported read command formats must remain outside its scope.
+
+Next finite binding
+-------------------
+Keep writes and bounce behavior on their native paths. Bind one concrete
+completion guard beneath extra payload AND metadata while native frames/token
+are retained: serialize/drain before arming each actual chunk, latch raw status
+before acknowledgement, reject mixed/missing/error completion, and invalidate
+the original owned direct-read destination only after successful physical join.
+Retain ownership on uncertainty; do not classify DAT0 card busy as a RAM-DMA
+fault or use it to justify a speculative controller reset. Check the actual
+TCM/bounce contract, outer transition deferral and exact memory/source ownership
+before enabling capture. The current ordinary hardware trial remains useful
+evidence about trailing card busy, not the missing completion provider.
+
+Verification / primary references
+---------------------------------
+tests/emulation/verify_sd_cache_contract.py: fifteen offline groups.
+analysis/sd_cache_contract_verification.json and sd_cache_contract_disassembly.txt.
+All firmware bytes are pinned to stock v1.10 SHA-256
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb.
+No physical MPU enforcement, cache speculation, DMA, NVIC arbitration or elapsed
+device timing is modeled. Compiled helper execution and stale-line effects are
+separate; modeled effects are explicitly identified in the test/report.
+
+Arm Cortex-M7 Devices Generic User Guide, MPU access-permission attributes:
+https://support.arm.com/documentation/dui0646/b/BIHIIJDC
+ARM CMSIS SCB definitions (DCCIMVAC, DCCMVAC, DCIMVAC):
+https://raw.githubusercontent.com/ARM-software/CMSIS_5/develop/CMSIS/Core/Include/core_cm7.h
+ARM CMSIS cache line/DSB/ISB primitives:
+https://raw.githubusercontent.com/ARM-software/CMSIS_5/develop/CMSIS/Core/Include/cachel1_armv7.h
+NXP USDHC_TransferHandleData success/error priority and optional received-buffer
+invalidation (candidate-family comparison, not a claim Zoom uses this SDK):
+https://raw.githubusercontent.com/nxp-mcuxpresso/mcux-sdk/main/drivers/usdhc/fsl_usdhc.c
+Sources cross-checked 9 October 2026. Exact installed silicon/revision is unproved.

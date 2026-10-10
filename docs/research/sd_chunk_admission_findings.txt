@@ -1,0 +1,132 @@
+Native SD admission and nominal host completion — 9 October 2026
+==============================================================
+
+Result
+------
+The offline guard now runs BEFORE the first native bounce fill/cache effects
+and before EACH of the four traced DS_ADDR stores. It uses recovered native
+status clearing, event flags, binary-token consumption and IRQ110 pending drain.
+A compiled nominal host-completion predicate can replace the per-chunk MODEL
+JOINED callback, subject to an explicitly supplied source/ownership lease.
+
+This does not supply that lease or establish physical bus completion. The outer
+USB/card gate, initial old-work joining, actual IRQ/task-source exclusion and
+exclusive original spans/cache lines remain unbound. A negative control still
+accepts a late prior-origin TC when the MODEL source provider lies. All new code
+is opt-in and test-only; the installed diagnostic11 and normal profiles exclude
+it. No mixer/card operation, staging, installation, commit or push occurred.
+
+Why two admission boundaries are necessary
+------------------------------------------
+The stock command engine clears hardware status AFTER DS_ADDR is stored. A
+per-command raw latch therefore cannot repair stale status at the earlier store.
+Also, native write bounce fill8006ada8 precedes its address store8006adac.
+Protecting only that store cannot protect the FIRST fill against earlier physical
+work. The registered read/write callback now admits before entering native
+transfer code, with the parent SD unit token already held. Subsequent fills/copies
+remain behind the prior chunk's retained completion checkpoint.
+
+tests/fixtures/sd_admission_probe.c/.h add one24-byte record and one disabled
+sdp_chunk_admit_port. Entry carries address/site zero; per-chunk calls carry the
+original address and exact site. All accepted source callbacks must return1 and
+retain exclusion through address programming and chunk completion, not just
+attest a momentary quiet snapshot. A pending provider holds the original frames
+and token. There is no new task, queue, allocation, reset, retry or event recreation.
+Admission without a chunk-completion checkpoint is closed before native effects.
+
+tests/fixtures/sd_transfer_probe_hooks.S supplies inline adapters at80069fec,
+8006a180,8006abf0 and8006adac. They preserve integer registers/APSR, align C calls
+for both original word-aligned stack variants and replay every displaced
+instruction. Direct write takes ORIGINAL R4 from the saved frame. Helpers are
+checked integer-only. Nearby veneers in the test exist only in emulator RAM;
+they are not approved device placements or a new firmware image.
+
+Native admission candidate
+--------------------------
+sdp_native_admit requires traced unit0, unchanged nonzero submitting task/event,
+privileged Thread context with no existing interrupt/critical mask, simple DMA,
+little-endian mode and no shared auto-CMD23 argument mode. Unsupported IRQ111
+enable/active/pending state is refused: it has a second wrapper into the same
+controller body and its actual device ownership remains unresolved.
+
+Before clearing, prior command/data/host activity must be absent, DAT0 high,
+clock stable and controller reset clear. Busy/reset/clock conditions hold entry;
+existing raw errors are retained as faults. Only after the external QUIET lease
+is accepted are controller signals disabled and old CC/TC/data status cleared.
+Readback and barriers precede sdp_event_drain. That recovered helper clears native
+flags, consumes at most the binary token, drains IRQ110 pending and checks enable,
+priority, event identity and schema. Identity/mode/activity/status are rechecked.
+An unsuccessful drain latches a fault and retains the caller; no speculative
+reset or retry of a partially drained event is attempted.
+
+Command entry must consume the matching prepared address/task marker. A missing
+inline hook is rejected there, but its unpatched address store has ALREADY run;
+that negative test detects an incomplete installation rather than protecting the
+missing store. All four inline hooks and the initial callback boundary are needed.
+
+Nominal host-completion candidate
+---------------------------------
+sdp_native_chunk_join requires the accepted, consumed admission marker, exact
+original span/task/event, this chunk's raw TC, no raw/current error, unchanged
+supported mode, clear host RTA/WTA and reset, and no second IRQ source. The native
+wait still rejects missing/mixed success and errors before entering this predicate;
+its enclosing guard rechecks identity, sticky errors and activity afterward.
+DAT0/CDIHB/DLA trailing card busy is separate: it can coexist with a completed
+host-RAM chunk, but admission waits for it before starting new work.
+
+This predicate uses compiled register/state checks instead of a MODEL chunk-join
+reply. Source exclusion and actual memory-bus semantics remain prerequisites.
+Existing retained-stack error joining is unchanged and still modeled; this adds
+no physical fault recovery or card-persistence guarantee. The composed capture
+fixture also retains its separate enclosing operation-finish MODEL.
+
+Verification
+------------
+Sixteen new groups pass in tests/emulation/verify_sd_chunk_admission.py. They cover
+24 native direct/bounce read/write combinations across two stack alignments,
+original payload/command/wait/register preservation, first-entry and split-chunk
+holds, stale status/flags/token/pending drain, prior busy/reset/clock conditions,
+unsupported modes/sources, changing provider-return context and failed drains.
+The compiled host predicate is exercised with valid and invalid spans/status.
+
+The unchanged capture core executes native admission and host checks for initial
+header, audio, final header and readback; cancellation during pending source
+admission retains the same file/worker frames in four IO phases. Logical file
+bytes and sector routing remain models. These tests do not establish real exFAT
+translation, interrupt arbitration, DMA, cache behaviour, elapsed timing or stack
+headroom. A separate composition runs original FAT/mirror/directory and file
+sector translation with the same guard; these are real filesystem instructions
+over modeled card sectors/DMA, not real-card or exFAT qualification. The
+deliberately false source lease remains an explicit counterexample.
+
+Reports: analysis/sd_chunk_admission_verification.json and
+analysis/redesign_verification.json. Build isolation rejects all sdp_ symbols
+in normal/composed profiles. The full runner passed761 groups across66 suites.
+The admission suite then passed16 groups, adding one native FAT metadata group
+against unchanged compiled fixtures. The consolidated report refreshes that
+suite and records762 groups/66 suites, explicitly retaining this run history.
+
+Next binding
+------------
+Bind the outer card/USB transition gate BEFORE its first registration/controller
+side effects, and pin a valid mounted generation/event plus all old sources at
+initial admission. Resolve or exclude IRQ111 and the software notification path;
+the SD mutex and IRQ110 mask alone do not exclude those producers. The source
+lease must remain held through each native address store, nominal/error joining
+and cache publication. A late old TC is indistinguishable once such a lease is
+violated. Exact memory ownership, startup release and measured worker service/
+stack/tap qualification still precede one capture-only TMP hardware candidate.
+
+Primary cross-checks (read9 October2026)
+---------------------------------------
+NXP SDK distinguishes INT_STATUS.TC data completion from DINT DMA interrupt;
+its blocking DMA path checks data/DMA errors, while its interrupt path uses TC
+for data completion and optional receive-cache invalidation. This supports the
+candidate's error-first TC predicate, not request identity or L6 silicon/bus
+proof. Public RT1042 definitions agree with the observed register layout.
+https://raw.githubusercontent.com/nxp-mcuxpresso/mcux-sdk/main/drivers/usdhc/fsl_usdhc.h
+https://raw.githubusercontent.com/nxp-mcuxpresso/mcux-sdk/main/drivers/usdhc/fsl_usdhc.c
+https://raw.githubusercontent.com/nxp-mcuxpresso/mcux-sdk/main/devices/MIMXRT1042/MIMXRT1042.h
+The full RT1040 manual URL and earlier RT1060 manual mirror did not open through
+the web reader in this follow-up. Prior manual constraints remain in
+sd_controller_setup_findings.txt; no newly verified exact-part/revision claim.

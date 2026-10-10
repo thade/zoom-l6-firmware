@@ -1,0 +1,94 @@
+Original effect memory providers — 10 October 2026
+=================================================
+
+Five focused groups execute the original Hall, Room, Spring, Delay and Echo
+initializers, parameter setters, copy helpers and audio processors. No read or
+write reaches either candidate SDRAM gap, the proposed code gap, or any of the
+twelve shortened recording-ring tails in these runs. This bounds these executed
+providers; it does not make an unused-looking physical region owned or free.
+
+Concrete providers
+------------------
+Original 80040b90 supplies the context at 801f8cc0:
+  coefficient storage 2000bb14
+  working state       2000c18c
+  delay memory        80bb9400 .. 80c74c00 (768,000 bytes)
+Original 80036cf0 copies these into the context reached by the effects dispatcher.
+Its +12 points to the three-word descriptor at 801f8cc8, not directly to the
+delay-memory base. Native 8001dc10 registers the generic copy callbacks and
+other math/control helpers. Small-data and initialized DTCM scatter outputs are
+expanded by the original decompressor, including the 48-kHz coefficient tables.
+
+Table 801f5bfc selects five processors:
+  Hall   2022b8d1, parameter limits 100/100
+  Room   2022ad41, parameter limits 100/100
+  Spring 2022c4a9, parameter limits 100/100
+  Delay  80024051, parameter limits 1999/100
+  Echo   2022aa09, parameter limits 1999/100
+
+Each parameter is swept independently over its full inclusive range, giving
+4,808 setter calls. This is not every pair of values. The generic-copy source
+is always within the current native stack frame. Observed destination/size pairs:
+  Hall   2000bba0/20, 2000bc24/20, 2000bc7c/12
+  Room   2000bb98/20
+  Spring 2000bd08/20, 2000bd1c/20, 2000bd30/20
+  Delay and Echo make no calls to those two generic copy helpers in this sweep.
+The actual helper bodies execute; they are not replaced by Python copies.
+
+Initialization correction
+-------------------------
+Selection schedules a delayed enable callback through 80034a48 and related
+helpers. Merely selecting an engine and processing samples left its return
+muted in the initial fixture. The corrected fixture executes original timer
+worker 80026260, supplying one modeled semaphore wake per step, until its real
+callbacks complete: 305/305/265/57/65 steps respectively. Counter, callback and
+parameter code remain original. These counts are NOT measured milliseconds.
+Original synchronous update modes avoid inventing a concurrent audio thread;
+they qualify destination arithmetic rather than deferred-update scheduling.
+
+The shared cold-initialization fixture also no longer stubs 80001674. Inspection
+identified that routine as integer division, not a clock provider. The examined
+48-kHz cold call divides zero by 48,000, so original execution preserves the
+examined initializer outputs. Subsequent arithmetic now runs normally as well.
+
+Audio and scope
+---------------
+Each engine processes 2,048 blocks (131,072 frames) at final maximum parameters
+through original dispatcher 8000e380, supplied with a mono impulse. All outputs
+are finite and each engine produces a nonzero response. All five complete their
+bounded histories without accessing the watched proposed memory intervals.
+The earlier tap_processing suite separately checks original return routing,
+master gain/dynamics and clean-input isolation; these are not a single complete
+device simulation or a timing benchmark.
+
+Kernel locks, wake timing, cold hardware state and input samples are fixtures.
+ARM MAX allows the original double-precision instructions; it does not identify
+the physical CPU. There is no ADC/USB/DMA/cache/physical-alias model, arbitrary
+history-state proof, extra capture writer, device access or deployment artifact.
+An unchanged observed interval does not establish absence of other consumers.
+
+Reproduce: tests/emulation/verify_effect_memory_providers.py, with the pinned
+research dependencies and tools/firmware plus tests/emulation on PYTHONPATH.
+Report: analysis/effect_memory_providers_verification.json (private/regenerable).
+
+Deferred-copy follow-up
+-----------------------
+Three additional groups run Hall, Room and Spring's full independent parameter
+ranges with the original deferred mode setter8004ea40, instead of synchronous
+copy mode. Original providers populate staging80445164/804451f0 and request
+slots80445308/80445310; original consumers80023e98/80023f30 perform every copy
+and clear the slots. Python only schedules the consumer at the first waiting
+poll, saving/restoring CPU state and using a separate simulated stack. It does
+not copy coefficients or supply completion-slot writes.
+
+Every consumed payload matches its producer's bytes and leaves both slots idle.
+Copy input/destination digests and the following131072-frame engine responses
+match the synchronous runs exactly. The same forbidden-range monitors cover
+reads/writes to code/global gaps and all twelve ring tails. Delay/Echo do not
+use these two generic helpers in the existing full-range provider sweep.
+This closes the modeled destination-to-consumer path for these three providers;
+competing producers, actual scheduler ordering, caches and physical aliases are
+not proved. No firmware implementation or hardware configuration is changed.
+
+Code: tests/emulation/verify_effect_deferred_providers.py.
+Report: analysis/effect_deferred_providers_verification.json.

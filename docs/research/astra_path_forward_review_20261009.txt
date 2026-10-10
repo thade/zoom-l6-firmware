@@ -1,0 +1,413 @@
+Astra independent path-forward review — 9 October 2026
+=====================================================
+Requested reviewer: gpt-6-astra, very high reasoning effort.
+Scope: current working tree, including untracked implementation and fixtures.
+
+Verdict and the user's memory question
+-------------------------------------
+KEEP the additional pre-compressor stereo recording as the preferred design.
+It is technically plausible within the available memory; there is no demonstrated
+RAM-capacity impossibility that warrants abandoning it. Its deployment is still
+conditional on a finite ownership, integration/packing and service qualification.
+The difficult remaining work is chiefly native control/SD integration, not storing
+a whole song in RAM. Automatic pad assignment does not require a second song-sized
+buffer. Respect the user's preference for this source if qualification succeeds.
+
+I found NO verified new corrective implementation defect in the inspected code
+within its documented offline contracts. The lease, segmented history and retained
+SD checkpoints are coherent as scoped. This is not approval to enable capture:
+important external contracts remain deliberately unbound, and normal/composed
+builds do not contain the SD fixtures. The installed passive diagnostic 11 has
+neither an added capture stream nor its worker. No capture update BIN exists.
+
+There is one new, concrete integration finding: existing delayed USB events a2/a3
+are consumed without their USB handlers in the alternate Main loop. They cannot
+serve as a general retry/wakeup channel unchanged. Details and fresh verification
+are below. This is a constraint on the next binding, not a defect in the current
+unbound transition executor.
+
+Evidence and review actions
+---------------------------
+Read current capture/lifecycle/exchange/history/arena/manager/control/bridge/worker,
+lease/transition source; SD admission/chunk/cache/event helpers and assembly;
+build/planning/profile isolation; relevant emulation source; optional handoff/path
+code; architecture/progress/gates and prior Astra reports; original disassembly.
+The parent independently checked the existing full result: 774 groups, 67 suites,
+one complete execution; newest report fixture/source hashes match current files.
+I did not rerun that expensive runner or claim a new full run.
+
+I ran four focused read-only offline cases against original Main/category-2
+dispatch using the existing Dispatch harness. I also inspected existing ELF
+segment sizes and layout constants without rebuilding. Only this report is added.
+No implementation/test edits, build, device/app/MIDI/audio/SD access, firmware
+staging, installation, commit or push occurred. No further agents were launched.
+
+Feasibility accounting
+----------------------
+Current capture-only-transitions footprint, before the missing physical bindings:
+
+  Resource                         Increment / tradeoff
+  Eight history tails              540,672 bytes; 1,024 slots; 65,536 frames
+  Extra stereo retention           1.365333 seconds at 48 kHz
+  Native ordinary retention        223,104 frames = 4.648 s, versus stock 5 s
+  Heap arena request               9,887 bytes, including 4-KiB staging/readback
+  Experimental worker stack        16,384 bytes, plus native task/allocator costs
+  Arena + worker allocator charge  Approximately 26.5 KB under prior accounting
+  Proposed permanent globals       104 bytes
+  Added executable destination     21,208 raw code bytes
+  Packed capture / DSP             17,620 / 36,172 bytes; 1,212 source bytes spare
+
+History is reclaimed from the native recording allocation by shortening its
+capacity; it is NOT a 540-KB request against the observed 163,104-byte free heap.
+The prototype reduces native retention by 0.352 s (7.04%). Favorable prior native
+allocator accounting would leave approximately 136.6 KB of aggregate free heap
+after the new arena/task/stack, before later stock allocations or missing binding
+state. This is an estimate, not measured candidate headroom or contiguous capacity.
+Tail ownership, code/global placement and cache behavior remain separate questions.
+
+The extra stream writes 48,000 * 2 * 4 = 384,000 B/s: 23.04 MB/minute, or 115.2 MB
+for five minutes, excluding the small header. Native twelve-lane recording writes
+2.304 MB/s; the extra stream adds 16.7%, making 2.688 MB/s. One stereo backing read
+adds roughly another 0.384 MB/s before filesystem/command overhead. A full 4-KiB
+extra batch means 93.75 public writes per second. This average rate is plausible,
+but is not a measured throughput or latency guarantee for this card/scheduler.
+
+The important budget is oldest selected sample age PLUS the gap until its next
+successful copy, not the duration of one observed public call. Repeated stalls
+and catch-up matter. A 481-ms held interval, or a different 648/962-tick aggregate
+observation, is not the added worker's maximum blackout. With 1.365 s of history
+there is useful room to test; there is no justification to shrink/enlarge it or
+raise priority again before measuring the actual worker.
+
+Assignment is comparatively small. Existing ELF constants give BackingHandoff
+1,684 bytes and BackingNative 136 bytes. Existing native prefetch scratch is reused
+under exclusion; it is not a new whole-song allocation. These are component sizes,
+not the final integrated handoff allocation. The current normal handoff ELF adds
+3,648 raw code bytes over normal capture-only, but those are different profiles
+from the minimal packed candidate: do not extrapolate a final packed fit. Handoff
+can remain a later stopped-state milestone, after capture-only TMP qualification.
+
+Sources: /Users/thade/src/zoom_l6_fw/tests/fixtures/capture_composed_startup.c:6;
+/Users/thade/src/zoom_l6_fw/src/capture/native_arena.c:22;
+/Users/thade/src/zoom_l6_fw/src/capture/capture.h:7;
+/Users/thade/src/zoom_l6_fw/tools/firmware/plan_capture_transitions.py:8;
+/Users/thade/src/zoom_l6_fw/analysis/storage_transitions_verification.json:8;
+/Users/thade/src/zoom_l6_fw/src/capture/backing_handoff.c:4;
+/Users/thade/src/zoom_l6_fw/src/capture/backing_native.c:13 and :73.
+
+What appears correct within the offline scope
+--------------------------------------------
+* History metadata is validated/copied; one mapping covers stage/claim/release
+  and both retirement scans. History payload is not needlessly cleared at reset.
+  Manager span checks include full external spans and the descriptor itself.
+* Heap controls are permanently retained. Startup failure does not free live
+  objects or retry allocation; successful registration leaves W_WAITING. Direct
+  worker release cannot bypass the storage fixture's manager gate.
+* The lease pin covers the whole manager step, including native I/O, cancellation
+  and automatic next-TMP preparation. Close is nonblocking. Join cannot overtake
+  that pin; RESET retirement does not inspect dirty Life storage; STOPPED requires
+  positive resource release when a file may have been attempted. BLOCKED and an
+  uncertain close do not retire. Retirement until reboot is the right minimal
+  first-trial policy; automatic remount/recovery would expand the proof surface.
+* The transition executor validates before revoking, tries close/join once and
+  separates its status from the original body's return. It does not silently
+  equate apparent mount success with readiness. It adds no request queue/state.
+* Initial SD admission precedes the first bounce fill/cache effect, not just
+  DS_ADDR. Four per-chunk checkpoints retain native frames before read copy,
+  write refill or unwind. Raw TC/error observations are per chunk; mixed flags
+  and visible late ownership/error changes cannot be overridden by a positive
+  provider. Post-read invalidation is after the modeled join and uses the saved
+  original span, not an advancing completion-time DMA address.
+
+Relevant exact source: /Users/thade/src/zoom_l6_fw/src/capture/history_storage.c:11;
+/Users/thade/src/zoom_l6_fw/src/capture/exchange.h:17;
+/Users/thade/src/zoom_l6_fw/src/capture/session_manager.c:36, :130 and :187;
+/Users/thade/src/zoom_l6_fw/src/capture/storage_lease.c:48 and :71;
+/Users/thade/src/zoom_l6_fw/src/capture/storage_transition.c:10;
+/Users/thade/src/zoom_l6_fw/tests/fixtures/sd_admission_probe.c:83;
+/Users/thade/src/zoom_l6_fw/tests/fixtures/sd_transfer_probe.c:85 and :145;
+/Users/thade/src/zoom_l6_fw/tests/fixtures/sd_transfer_probe_hooks.S:103.
+
+Prioritized findings: deployment constraints, not new corrective bugs
+-------------------------------------------------------------------
+P1 — Whole native requests still have no safe deferral binding.
+
+/Users/thade/src/zoom_l6_fw/src/capture/storage_transition.h:5 and
+/Users/thade/src/zoom_l6_fw/tests/emulation/verify_storage_transitions.py:149
+explicitly leave retention/retry to a test caller. A transition while an extra
+write is pending must defer the original request before ANY preceding effects,
+then execute its continuation exactly once. Replacing only 80009b18/8000c288 with
+BUSY consumes the original packet and still runs later cleanup. The negative
+control at verify_storage_transitions.py:202 correctly demonstrates this in both
+Main loops. The stateless executor does not repair that caller behavior.
+
+New verification: packets {2,4,a2,0,0} and {2,4,a3,0,0} respectively reach
+8000a178 and 8000aae8 through NORMAL=8002c43e. Through ALTERNATE=8002c406 both
+packets are removed but neither parent runs. The four assertions passed in this
+review; they are separate from the 774 groups. Lower USB effects were hooked at
+those parent entries; receive/category routing were original instructions.
+Original evidence: /Users/thade/src/zoom_l6_fw/analysis/main_linear_disassembly.txt:59909
+and :60468 (8002c960 restricts alternate category-2 handling to 4b..53).
+
+The timer setters 80020cc0/80020d08 overwrite one 12-byte slot. Service 8004ae90
+scans eighteen slots, clears/executes each due callback and does not release
+mutex 80446870 until AFTER callback return. The a2/a3 callbacks send through
+80020ca0 -> 8006e4b8, whose UI send can block. This is static evidence of a lock
+dependency and overwrite semantics, not a measured timer scheduling guarantee.
+Do not repurpose these channels as generic retry slots. Source lines :43215,
+:43238 and :105837 of that same disassembly contain the relevant instructions.
+
+P1 — The nominal predicate remains conditional on real source and span ownership.
+
+/Users/thade/src/zoom_l6_fw/tests/fixtures/sd_admission_probe.c:49 calls explicit
+MODEL QUIET; :104 is a nominal predicate under that contract. A late old physical
+completion is not tagged by a software generation. A lying QUIET provider still
+passes at /Users/thade/src/zoom_l6_fw/tests/emulation/verify_sd_chunk_admission.py:229.
+The test labels that limit correctly. Current raw/detail/command observations
+support normal-mode characterization; they do not make this premise true.
+If enabled without it, an early native return could reuse staging or close a
+file while a controller still owns its memory. The lease cannot repair that.
+
+The required guard must cover ordinary preceding unit-0 transfers as well as
+extra payload/metadata/readback; protecting only the extra worker leaves a hole
+at its first admission. Error join and whole-operation final status remain open
+even with the compiled chunk predicate. Keep indefinite ownership on unresolved
+faults rather than inventing an error return, reset, close retry or automatic
+remount. Such retention can stall shared native storage; do not promise that
+every failure affects only the optional file.
+
+P2 — The integrated candidate's size and service margin are not yet established.
+
+/Users/thade/src/zoom_l6_fw/tools/firmware/build_extra_capture.py:65 and :75
+keep the SD and lease/transition work in different builds. The 1,212 packed-byte
+remainder excludes the necessary source/SD binding, Main adapter and observations.
+The existing packing check is good; integrate the minimum real code soon so it
+can reject overflow. Do not assume the entire research SD/recovery fixture belongs
+in the device candidate, or assume that fitting each fixture separately implies
+a combined fit. Retain only selected-mode admission, raw observation, per-chunk
+success checks, a retained-fault path and required cache maintenance.
+
+/Users/thade/src/zoom_l6_fw/src/capture/native_worker.c:101 and :106 bound steps
+and deliberately sleep; they do not bound elapsed blackout. The repeated-stall
+case at /Users/thade/src/zoom_l6_fw/tests/emulation/verify_capture_composed.py:175
+deliberately supplies catch-up service. It verifies protocol behavior under that
+schedule, not actual priority, stack, interrupts or throughput. This is correctly
+documented, and it calls for one measured candidate trial rather than more
+optimistic schedule fixtures.
+
+Simplicity and the smallest coherent next milestone
+---------------------------------------------------
+The stateless executor is useful as a small ordering test seam (196 raw bytes
+added in the current report). Keep the tests, but do not turn its five-operation
+enum into a second dispatcher. Once the real whole-request boundary is known,
+the device adapter may simply preflight close/join and resume the original whole
+handler. It need not call this executor if doing so duplicates native routing.
+
+The next milestone should be ONE native request-retirement slice, with a concrete
+source-exclusion map and an early combined size check. Its acceptance is an actual
+received transition retained before effects, cancellation progressed, and the
+original whole operation resumed once. Do not create another API whose hardest
+input is merely called READY, QUIET or JOINED by Python.
+
+First answer one finite dependency question: can capture-only cancellation and
+its existing fence finish without Main processing another UI packet, and without
+any producer that might be blocked holding the UI mutex? Trace exactly:
+  manager cancellation -> Life close -> native filesystem/SD return;
+  outstanding control entries/callbacks -> RecPlayCtl marker -> hook detach.
+RecPlayCtl is task slot 80446dc0, queue slot 801f8f38, producer mutex 80446894;
+its original dispatch is 80034bc8. The UI queue/mutex are different (801f8f28 /
+80446810). /Users/thade/src/zoom_l6_fw/src/capture/control_transport.c:197 and :219
+show the actual drain dependency. Include held producers, queued ordinary STOP,
+file completion, queue saturation and the relevant close/error paths.
+
+The old private-pad-FIFO negative control proves that parking Main prevents a
+reload notification from dispatching. It does NOT alone prove that capture-only
+cancellation needs that notification. Conversely, separate queue identities do
+not prove independence. Resolve this narrow graph before designing a new queue.
+
+Minimal retention/ordering/backpressure/wakeup design, conditional on that audit:
+* If retirement is independent, retain the current complete 20-byte packet and
+  its original dispatch mode/continuation; leave later packets in the native FIFO.
+  Close once and yield through a bounded task delay/check, with no UI mutex or
+  filesystem token held by Main. Resume the original handler only on retirement.
+  There is no second queue, packet re-enqueue, duplicate execution or borrowed
+  a2/a3 channel. The FIFO's existing reducer/backpressure remains in charge.
+  This is a possible simplification, NOT permission to park Main today: prove
+  the dependency, full-queue case and fault behavior before selecting it.
+* If a concrete Main completion is required, do not let arbitrary later controls
+  run around a saved transition. Identify precisely that completion and preserve
+  all conflicting packets in the stock queue/order. Any narrow completion-service
+  mechanism must retain native reducer visibility and prevent repeated receive
+  timer effects; a one-slot transition record alone does not solve this. If this
+  cannot be done narrowly, reduce the admitted first-trial modes and explicitly
+  exclude their ingress rather than build a general replacement dispatcher.
+* No last-request-wins overwrite or false acceptance at saturation. No timeout
+  authorizes unjoined storage mutation. A retry indication must be level/state
+  based or otherwise demonstrably reliable when the queue is full. A missing
+  completion must leave the original request owned, with a visible failed trial.
+
+Inspect both receive/dispatch pairs 8002c408/8002c440, receiver 80020690 and its
+timer/reducer effects, physical handlers 8002c9d8/8002d090 (32/33), category-2
+8002c510/8002c960, category-1 8002d568, and broader parent 8000ab08 BEFORE its
+audio/control effects. Include 8000a178/8000aae8 and Main startup call 8002c48c.
+Decode switch targets; the twenty direct references are useful ingress seeds,
+not an exhaustive indirect proof. Pre-admission startup can remain stock if
+the extra worker is demonstrably closed throughout it.
+
+Ranked work after that slice, with finite acceptance
+--------------------------------------------------
+1. Close concrete SD source ownership in the admitted normal mode.
+   Anchor at original dispatcher 80068378's unit token, registered callbacks
+   80068db0/80068e40, four address stores 80069fec/8006a180/8006abf0/8006adac,
+   four data waits 8006a06a/8006a1f4/8006ac6e/8006ae10, command 8006a348 and
+   raw handler 8006ea98. Account for software notifier 80068508 and its parent
+   80036c98, especially USB-task 80045d46 and detach 80062292. Guarding the post
+   alone is too late because detach already clears registration. Refuse or
+   explicitly exclude IRQ111; do not assume the unit lock excludes it.
+
+   Establish a trustworthy initial idle/source boundary, then an inductive rule:
+   every supported submission owns the exact event/span, drains old signals
+   before arming, and cannot release/reuse until successful physical host joining
+   or positively joined error. Keep unsupported/uncertain paths retained. Separate
+   trailing card busy, host-memory completion and filesystem validity. Don't
+   require a general card-reset/recovery engine for this first trial.
+
+2. Finish a finite memory/cache ledger and combine the minimal candidate.
+   For each of eight tails, code span, globals and staging: native initialization,
+   descriptor/cache bounds, direct/computed accesses, aliases and transitions
+   need a supported bound or an enforced exclusion in the admitted mode. Follow
+   the existing eight-entry ledger at
+   /Users/thade/src/zoom_l6_fw/docs/research/segmented_history_findings.txt:64,
+   particularly computed-copy setup 8001dc10 and destinations 80445308/80445310.
+   No requirement to prove every pointer in every unsupported mode; no permission
+   inferred from intact guards or omitted historical observations either.
+
+   CPU-only history need not be made DMA memory: it is copied to the aligned
+   staging span. Check exact staging/metadata/read destinations and exclusive
+   cache lines, including native bounce behavior. Bind clean-before-write and
+   post-read invalidate where required, after joining. Cache maintenance is not
+   completion. Confirm code publication/startup cache ordering and real task/IRQ
+   stack ownership. Recompute packed fit and all permanent state together now.
+
+3. Admit/release from actual native setup, then conduct one bounded candidate trial.
+   Use actual mount result 2 plus successful target-directory access under the
+   protected generation, not outer setup return/flags. Keep failure closed.
+   Before a candidate can be installed, the chosen ownership and completion paths
+   and encoded adapters must be concrete and pass their targeted offline checks.
+   Hardware/user prerequisites are a manual update/reboot and normal recording
+   controls; no opening the mixer or routine stock swapping is needed by this plan.
+
+   First verify closed startup and allocation/task/IRQ stack headroom, then a
+   short capture, then a whole-song backing-plus-live take and a second take.
+   Use Record consistently for Stop. Keep the extra file TMP and pads unchanged.
+   Measure successful-copy gaps, oldest needed age/minimum remaining retention,
+   backlog and recovery, loss/faults, native monotonic progress (not modulo-only
+   backlog), heap minimum, worker and affected native/IRQ stack high-water.
+   Include start/admission delay and continued audio after Stop. Verify eight
+   exact ranges, finite samples, clean stems and preserved ordinary MASTER.
+   A useful trial needs no lost samples, positive stack/heap margin, and recovery
+   reserve under repeated observed stalls; a single average or peak is inadequate.
+   It need not establish a universal latency bound for all SD cards.
+
+4. Qualify signal and only then add the one-pad, no-copy handoff.
+   Exercise actual intervening effects returns and active master compression,
+   with distinct backing/live markers, verifying that the selected tap includes
+   the intended mix and excludes late gain/dynamics. The earlier tap test omits
+   these paths: /Users/thade/src/zoom_l6_fw/tests/emulation/verify_uncompressed_tap.py:96
+   and :128. This is signal qualification, not a restart of the deferred level
+   investigation. After reliable capture, seal the completed TMP, insert/assign
+   pad 1, verify load/settings and release at a stopped, joined boundary. Reuse
+   the same file; no audio copy is needed for this preferred path.
+
+The decision gate is finite: keep this geometry if the minimal integrated code
+fits an owned placement and the trial shows useful service/stack margin. If the
+required bindings cannot fit without an invasive new framework, the tails cannot
+be safely excluded in the needed mode, or measured service repeatedly exhausts
+1.365 s without safe sustained catch-up, reconsider MASTER. Do not keep adding
+isolated fixtures or speculative buffer/priority changes indefinitely. A small
+measured correction is reasonable; an unbounded redesign is a pivot trigger.
+
+MASTER fallback, if that gate fails
+----------------------------------
+Reusing the existing processed MASTER can genuinely eliminate the extra capture
+history, ring shortening, continuous added worker/staging stream, tap hooks,
+384-KB/s extra writes and live-capture lifetime gates. Remove those components
+from a fallback build; merely feeding MASTER into the same extra recorder would
+keep the expensive parts and miss the simplification. Native multitrack recording
+still preserves six clean input files and ordinary MASTER. Simply switching to
+stock REC+pad mode is unsuitable: its native mask selects only master lanes.
+
+Preserve MASTER in its take folder. There are two honest fallback variants:
+
+A. Direct reference: pad 1 plays the finalized RECORDER/.../MASTER.WAV in place.
+   This avoids payload copying and extra on-card audio. It is not supported by
+   the current assignment adapter: basename lookup and resolved path must match
+   the pad catalogue exactly at
+   /Users/thade/src/zoom_l6_fw/src/overdub/stock_pad_adapter.c:43.
+   The current handoff also deliberately accepts only OD_*.TMP under PADn
+   (/Users/thade/src/zoom_l6_fw/src/capture/backing_handoff.c:39).
+   Native loader 800092a0 accepts a path, which is a concrete lead, not evidence
+   of complete catalogue/settings/reboot support. A bounded fallback investigation
+   must test exact path load, re-trigger, settings save/reload, reboot/remount,
+   next take, and source deletion/missing file. Do not assume a FAT/exFAT hard
+   link or add a second directory entry pointing to the same cluster chain.
+
+B. Post-record copy: leave the native master intact and copy it once to a unique
+   PAD1 file using a small stopped-state buffer, verify, then assign. This is the
+   more conventional path-compatible fallback and needs no real-time history.
+   A five-minute float32 stereo take is 115.2 MB, so copying reads and writes
+   230.4 MB total, with additional verification reads if used. Delay depends on
+   measured card throughput; no instant handoff is promised. It uses more card
+   storage and relaxes the user's no-copy goal, so is a fallback choice to discuss,
+   not a silent implementation change. Moving or redirecting MASTER would remove
+   its expected take-folder file and is not an authorized substitute.
+
+Either variant still needs exact finalized native-file identity (including Work
+to final path and split handling), old-pad read/playback quiescence, checked new
+prefetch/settings/file operations, physical completion/cache ownership, and USB/
+card exclusion through those new stopped-state operations. The scope can be much
+narrower than protecting a new live recorder throughout a take. Reusing trusted
+native capture does not require re-proving all unmodified recorder internals,
+but its Stop button or a busy flag alone cannot authorize the new handoff.
+
+MASTER also bakes late master gain/dynamics into every generation. Replaying and
+recording it can apply that processing repeatedly, changing older layers relative
+to new input and accumulating nonlinear compression. Bypassed/neutral processing
+can reduce that concern but changes the user's operating choices; this review
+does not reopen deferred levels. The preferred pre-compressor capture avoids
+that repeated late-master processing while retaining processed MASTER separately.
+Neither approach eliminates pad gain/effects that occur before the selected tap.
+
+Given the latest user preference, do not pivot now just to shorten development.
+The fallback is materially simpler on real-time resources, but automatic reliable
+pad reuse still requires work, and preserving MASTER plus no-copy is not a free
+stock feature. Keep the preferred path through the finite qualification above.
+
+What 774 passing groups establish — and what they do not
+-------------------------------------------------------
+They provide substantial evidence for compiled protocol behavior under selected
+interleavings, exact sample/range handling, retained ownership on modeled pending
+I/O, original byte-patch continuation/ABI behavior, native filesystem translation,
+packing/startup arithmetic and build-profile isolation. Negative controls are
+valuable evidence against specific unsafe shortcuts. More passing groups are not
+equivalent to additional physical evidence.
+
+They do not establish peripheral bus completion, late-source exclusion, physical
+cache/NVIC arbitration, fitted memory/alias ownership, complete ingress coverage,
+actual scheduling/latency/preemption/stack margin or full effects/dynamics at the
+tap. Several compositions are layered fixtures, not one interrupt-driven boot and
+concurrent whole device. In native-extra-file suites the ordinary seven files
+retain an independent logical backend, explicitly stated at
+/Users/thade/src/zoom_l6_fw/tests/emulation/verify_capture_native_files.py:1.
+Byte-identical ordinary files there are valuable functional regression evidence,
+not a shared physical-card contention test with eight native streams.
+
+The latest ordinary hardware take and USB agreement are strong baseline evidence
+for stock multitrack/backing behavior under passive diagnostic 11. No extra worker,
+history writes or eighth stream ran in that test; observed error-free operation
+and partially omitted command observations cannot qualify the absent workload.
+
+Review result: no new corrective code defect verified; one new native retry-route
+limitation verified; keep pre-compressor capture as the preferred feasible design,
+with a concrete native retirement/source binding and integrated footprint check
+leading to one measured capture-only trial. Automatic pad handoff follows that.

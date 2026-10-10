@@ -1,0 +1,101 @@
+Concrete initial Main / USB-worker witness — 10 October 2026
+===========================================================
+
+Implemented, offline only
+-------------------------
+The separate boot-witness build now observes the real first Main card setup,
+the native successful directory branch, and the actual USB mailbox request,
+worker consumption and acknowledgement. The first ordinary Main receive is
+the final logical readiness boundary. No wait loop, retry, private packet queue,
+semaphore replacement or physical READY callback is introduced.
+
+The initial card wrapper requires the current task to be native Main, scheduler
+active, argument zero and original boot-mode getter zero. It brackets the native
+09a40 call, observes 09ab4 only within that first call, and requires native return
+zero. Missing-card outer success does not count without the directory witness.
+An unsuccessful or special boot leaves the witness permanently revoked.
+
+The first Main USB call at2c344 accepts profiles0..2 and requested mode0. The
+request hook at3b87a checks Main identity, an initially empty mailbox and the
+expected audio-only command20/80/200. It retains the exact argument before the
+native store. The worker hook at45d5e sees that same command/argument and local
+SD-active R7 zero before the native load-and-clear. At46cc4 it requires that
+consumption and an empty mailbox, with R7 still zero, before the original ACK.
+Returning from the outer USB call without this matching worker progress revokes
+the witness. A stale ACK therefore cannot authorize capture, and late completion
+cannot revive it. There is no attempt to repair the native handshake.
+
+Empty worker polls do not acknowledge anything. Any other nonzero command,
+changed argument, prior SD-active history, duplicate request or out-of-order
+observation revokes the one-boot witness. Existing Main card/USB/power transition
+classes revoke it before handler execution. Readiness is never restored until
+the next real boot clears the state. USB setup failure can still qualify SD-
+inactive history, as native ACK also occurs on that failure; this is deliberately
+not a claim of successful USB audio setup.
+
+The new build also checks this witness inside storage_lease_admit. It is a
+necessary condition, not sufficient permission: no production admission caller
+or worker release is connected, and all four physical SD ports remain zero.
+The state is12 bytes. The combined build contains28,548 code bytes and284 global
+bytes, leaving1,325 packed bytes in the existing source envelope. The original
+combined and source-reuse fixture variants remain separate.
+
+Verification
+------------
+verify_storage_boot.py passes9 groups. Native FAT32/exFAT setup and directory
+instructions execute; missing card, read-only failure and special modes reject.
+Requester and USB worker use the same emulator memory with separately saved
+task contexts and stacks. All three profiles run with successful and failed USB
+setup. Stale ACK, changed command/argument, prior SD mode, repeat request, the
+four early Main receive sites and Main transition classes reject. Inline hook
+replay matches original GPRs, flags, stack and mailbox effects at both stack
+alignments. Lease admission rejects all incomplete states; positive physical
+prerequisites remain explicit test fixtures. The worker remains asleep.
+
+The filesystem and USB tests are separate bounded harnesses. Kernel calls,
+task scheduling, peripheral setup and physical cache/controller behavior are
+modeled. This is not a whole-device boot, exhaustive indirect-call proof, reset
+completion guarantee, or physical source/cache ownership contract.
+
+Next device milestone
+---------------------
+Experiment17 loads the full payload and registers its dormant worker, with
+original DSP/recording/SD paths unhooked. Its fixed query reports actual startup,
+witness, worker, lease, heap and publication state. This checks the larger code
+publication and native allocation/task path before any extra recording traffic.
+No physical source permission is inferred from a successful query. See
+experiments/17-dormant-boot/README.md and the private prepared-image manifest.
+
+Remaining work requiring evidence
+--------------------------------
+The actual cold boot must confirm the witness order and the new full-payload /
+worker footprint. Then the concrete initial reset/enumeration and competing
+source exclusion must be joined to physical SD/cache/buffer ownership before
+enabling the four ports and releasing capture. History/service margin, loaded
+worker stack/timing and automatic pad publication are still later milestones.
+Another unchanged passive playback trace cannot substitute for those contracts.
+
+Original v1.10 SHA256:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
+Private reports: analysis/storage_boot_verification.json,
+analysis/capture_boot_plan.json and analysis/boot_probe_verification.json.
+
+Native allocation follow-up
+--------------------------
+Four further groups now execute the original80076c60 task creator with the
+compiled cold registration, original allocator/free, list initialization and
+initial-frame builder8006e080. One actual native baseline task seeds the RTOS
+lists; scheduler suspend/resume endpoints remain modeled. Requests are9887,
+16384 and148 bytes. Their actual heap blocks are9896,16400 and160 bytes:
+26456 additional bytes in total. The16-KiB stack initially has a saved-frame
+extent of76 bytes at its top; untouched initialization bytes are not a runtime
+stack high-water or interrupt reserve measurement.
+
+Actual heap exhaustion before the stack allocation leaves the arena owned and
+the worker failed. Exhaustion at task-object allocation executes the original
+stack free, again retaining only the arena and leaving no task handle. Neither
+case retries registration. Arena exhaustion skips task creation entirely.
+Native registration makes no history or file access in these tests. This closes
+the exact software allocation-cost/cleanup question, not physical headroom under
+complete board startup, interrupts or loaded recording service. Private report:
+analysis/native_worker_allocation_verification.json.

@@ -1,0 +1,178 @@
+CAPTURE ALIGNMENT AND FLOATING-POINT CORRECTIONS
+7 October 2026
+
+Status
+The two P2 performance findings in astra_performance_buffer_review.txt are
+corrected in the offline capture builds. The one-ring, one-worker architecture
+and 4-KiB staging/readback reuse are unchanged. No capture image is installable,
+staged or deployed. The mixer now runs capture-disabled experiment 06, with
+reservation UNTRIED after reboot and the same timing observers.
+
+Latest hardware result and budget gate
+The experiment 06 reserved take establishes capacity for the exact 93,848-byte
+arena/worker allowance, leaving 69,256 bytes throughout sampled recording.
+Its Channel 1 file has an unresolved extra five seconds. The same-image control
+without reservation has seven finite, aligned 177.147-second files, exact
+backing repeat periods and no audible problems reported. Thirteen live sets
+and the final snapshots show UNTRIED status and 163,104 current/minimum free
+bytes before transfer, with no observed measured-call errors. There are no
+SD skips and 93 unmeasured public calls. SD read/write peaks are 60/460 ticks;
+public file peaks are 380/460. Host bounds put 460 ticks at 459.949-460.071 ms.
+The peak SD write requests 1,024 sectors (512 KiB); the peak public write also
+requests 512 KiB. This is ordinary workload call timing, including scheduling
+and lock waits, not a measured added-worker blackout or physical completion.
+
+This observation supersedes the earlier nominal margin below. A 128-slot
+history retains 170.667 ms; 256 retain 341.333 ms, both shorter than 460 ms.
+Compiled native_arena_bytes rejects 345 slots because slot counts must be powers
+of two. The next supported size, 512, retains 682.667 ms and requests 280,031
+bytes. With the experimental stack/task, normal native charges total 296,600,
+exceeding the observed 163,104 free bytes by 133,496. Even the arena alone does
+not fit. The compiled sizing function was executed offline; no larger device
+allocation was attempted. One observed pause does not establish that 512 would
+be sufficient once initial history age, repeated stalls and catch-up are counted.
+
+Keep one ring and one serialized worker where practical, but revise the owned
+memory/storage/service approach before selecting a continuous-recording budget.
+128 slots may support a controlled capacity/overflow experiment; they are not
+justified as the final full-song recorder. Do not reduce the free floor or claim
+the unaudited RAM gap to make the arithmetic fit. Actual
+worker stack/occupancy/catch-up, source/cache exclusion, storage transition
+authorization and physical completion remain gates. Earlier recordings are
+preserved and original pads restored; the earlier length discrepancy remains
+open despite not recurring in this one comparison. The user recalls stopping
+that take with Play/Stop rather than Record and has deprioritized further stop
+diagnostics. Original recording-state requests share the same stop callback;
+the button observation is a hypothesis, not a proven cause. Use Record as the
+consistent stop action in subsequent trials. Buffering/storage is the priority.
+
+Follow-up: astra_storage_strategy_review_20261007.txt audits the outer public
+WRITE lock, distinguishes held-time from elapsed-call timing, and recommends
+an attributed capture-disabled probe before selecting the service budget.
+It ranks a minimal native-writer composition and audited stock-ring repartition
+as later offline investigations. Both are proposals, not new device bindings.
+
+Earlier experiment 05 observations
+The separate capture-disabled experiment 05 timing image was staged/read-back
+verified on 7 October, safely unmounted and returned from transfer mode with
+unchanged pad/MIDI replies. The user-reported update/reboot and seven valid
+diagnostic replies confirm execution. Initial idle observations report the same
+163,104-byte free/minimum heap, no errors/skips, and a 59-tick public read maximum;
+the clock is bounded at 999.38–1,000.19 Hz. A subsequent 20.04-second take has
+seven valid, aligned float WAVs and no audible issues reported. Its counters
+show no errors, public read/write peaks 82/112 ticks, nine unmeasured public
+calls and unchanged free/minimum heap. A subsequent 187.263-second take has seven
+finite, aligned WAVs, two backing repeats with exact source-length periods and
+no audible problems reported. No observed errors or increased cumulative peaks
+were recorded; 105 additional public calls went unmeasured. Current free heap is
+163,104 bytes; the cumulative minimum of 160,664 already predates this longer
+take. No live host samples were collected, so no recording time series is
+available. Pad 1's original setup is restored. Untouched stock is staged/read-back
+verified with settings and saved audio preserved; safe unmount, transfer exit and
+normal editor/pad/MIDI checks passed. The user chose to retain the running timing
+firmware and defer stock installation; routine restoration is not a gate.
+Extra capture throughput, occupancy/catch-up and stack reserve remain unmeasured.
+
+Against the cumulative 160,664-byte minimum, the same experimental allocation
+charges leave 66,816 bytes for 128 slots and exceed that aggregate by 768 bytes
+for 256. This minimum includes earlier activity and is not proof of simultaneous
+recording/capture reserve, a contiguous block or later stock/task stack headroom.
+At that stage, 128 slots were a conditional measurement candidate. The latest
+460 ms observation above prevents selecting them for continuous capture.
+
+Aligned payload, unchanged memory budget
+Capture now places hash/range metadata in its 32-byte prefix, with a 32-byte
+aligned sample member. Its compiled size remains 4,160 bytes. The manager rejects
+a staging address that is not 32-byte aligned before closing gateways or using
+the descriptor. Both the heap arena and fixed placement proposals supply such
+addresses. Capture pointers in standalone research APIs must obey the type's
+32-byte alignment contract.
+
+The original SD driver's full eight-sector read/write path emits one direct
+eight-sector submission at offset 0. The old offset 24 is retained as a negative
+control and emits one bounce sector, six direct sectors, then one bounce sector.
+A heap-owned, 128-slot worker composition now uses the original folder setup,
+native exFAT and SD instructions with 256-KiB clusters. Three actual 4-KiB worker
+writes use direct eight-sector DMA addresses; finalized/read-back extra bytes
+and the seven ordinary files remain exact. DMA effects and completion are
+fixtures. Partial sectors and fragmented files can still require other splits.
+This does not prove physical throughput or safe completion.
+
+Explicit hardware scaling and exact FP semantics
+The selected compiler CPU feature is cortex_m7+fp_armv8d16sp. Zig 0.13's prior
+CPU model silently disabled FP registers despite -mfpu/-mfloat-abi flags. All
+nine capture variants now contain two VMUL.F32 instructions in the scaling loop,
+with no __aeabi_fmul/__mulsf3 helper. No fast-math or lossy conversion is used.
+
+The worker saves FPSCR, sets round-to-nearest, enables gradual underflow and
+disables default-NaN handling, then restores the complete previous FPSCR. Memory
+clobbers keep sample loads/stores within this scope; an early-clobber constraint
+keeps the saved value distinct from the zero input. The emitted order is checked.
+This makes scaling independent of a caller's rounding, flush-to-zero, default-NaN
+or exception-flag settings. FP registers follow the ordinary C ABI; inserted
+mid-function adapters already preserve every s0-s31 register and FPSCR.
+
+An independent integer binary32 oracle checks 7,168 input bit patterns in eight
+FPSCR configurations: every exponent, signed zero, underflow/ties, infinities,
+signaling/quiet NaN payloads and deterministic random words. Outputs, caller
+FPSCR and callee-saved FP registers match exactly. An additional local comparison
+against the saved pre-change ELF found no differences for 3,014 patterns in four
+FPSCR configurations. The old ELF is a private temporary artifact, SHA256:
+553f3d20ea84e11fd34be9c2dd0b6bedab4beadcebb97f93423d18a325859dda
+
+Matched instruction-count observations for a 64-frame stereo block:
+  input bits      previous software    corrected hardware
+  00000000                   3,879                   615
+  00000001                   7,975                   615
+  4e800000                   6,567                   615
+These include the function call/return fixture. Earlier review counts excluded
+two harness instructions. Counts are not cycles, wall time or CPU utilization;
+the hardware's subnormal latency and cache/scheduling effects are unmeasured.
+
+Stock context evidence
+The original PendSV entry is 80034340, referenced in the original vector table.
+It checks EXC_RETURN bit 4, saves s16-s31 at 80034352 for an extended frame,
+stores the saved stack through the current TCB pointer at 808e291c, and restores
+s16-s31 at 8003438e for an incoming extended frame. Four offline combinations
+of incoming/outgoing basic/extended frames execute this native software body
+and verify saved bytes, restored registers, EXC_RETURN and PSP. The hardware
+exception-frame bytes are deliberately left untouched in this test.
+
+Scheduler startup calls 80073eb0 at 8007627a to enable CP10/CP11 through CPACR,
+then sets bits 31/30 at FPCCR (e000ef34) before entering the kernel. This is
+static stock evidence for FP enablement and automatic/lazy state preservation;
+it is not a measured exception-entry/return, nested IRQ or preemption test for
+our worker. Those physical paths and their stack reserve remain deployment gates.
+
+Packing and budget
+The offline packed-source proposals still fit the original MAIN length:
+  capture placement: 659 bytes spare
+  startup fixture:   509 bytes spare
+  full hooks:        474 bytes spare
+  minimal hooks:   3,259 bytes spare
+All size/stock-startup-output gates must be rerun after code changes.
+
+The heap arithmetic from the Astra review is unchanged: 128 slots plus the
+experimental 16-KiB worker/task leave 69,256 bytes against the observed aggregate
+163,104-byte free heap; 256 leave only 1,672. Neither is a selected safe budget.
+Largest free block, later stock reserve, stack high-water, full worker blackouts,
+initial history age and catch-up remain unmeasured. Keep 128 only for bounded
+capacity/overflow measurement, retain fail-closed optional overflow behavior,
+and resolve the latest budget gate above before full-song capture.
+
+Timing observer scope
+Experiments 05 and 06 are separate capture-disabled trials. The observer separates SD read/write
+peaks and histogram bins, records sticky first errors and peak request identity,
+counts busy versus missed-claim observations separately, and wraps complete
+public file read/write calls so their maxima include native lock waits and
+scheduling. Its larger constant state is loaded inside the proven small DSP
+source-tail route; it makes no allocation, task, file or SD request of its own.
+Timing alone cannot establish contiguous reserve, extra-capture load, stack
+headroom or physical completion. Experiment 06 adds a separate fixed reservation
+capacity test; it does not add the recorder whose service still needs measurement.
+
+Reproduce
+python tools/firmware/verify_redesign.py
+python tests/emulation/verify_capture_performance.py
+Report: analysis/capture_performance_verification.json
+Original review: docs/research/astra_performance_buffer_review.txt

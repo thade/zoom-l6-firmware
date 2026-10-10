@@ -1,0 +1,185 @@
+Physical RAM capacity and fixed configuration query — 10 October 2026
+====================================================================
+
+Conclusion
+----------
+Live hardware now confirms one enabled 32-MiB SDRAM decode window, with a 16-bit
+bus, nine column bits, four banks and refresh enabled. All three queries and
+their paired register snapshots agree. This strengthens the 32-MiB physical
+capacity hypothesis, but does not detect the fitted chip's density or prove
+unused RAM. The application also configures a 32-MiB MPU region and places ordinary
+storage through exclusive address 81f26000, 32,661,504 bytes (31.1484375 MiB)
+above 80000000. That is software intent plus evidence of working ordinary
+recording, not a controlled physical address-independence test. Larger fitted
+chips can be partially mapped, and configured windows can exceed physical RAM.
+
+The leading binary matches, RT1041/RT1042, have 512 KiB of internal FlexRAM,
+shared between ITCM, DTCM and OCRAM. RT1043/RT1046 have an additional 512 KiB
+OCRAM; the exact derivative remains unconfirmed. NXP's current family page says
+"up to" 1 MB, so use the individual ordering table rather than assign that total
+to the L6. The large recording buffers necessarily require external memory under
+this candidate-family interpretation.
+
+Independent precedent, not L6 chip identification: NXP's RT1040 evaluation board
+uses Winbond W9825G6KH, a 256-Mbit (32-MiB), 16-bit SDRAM. Winbond confirms its
+density/interface. No readable L6 RAM marking or service schematic was recovered
+in the public searches. There is no basis to claim Zoom uses this particular RAM.
+
+Existing hardware evidence independently reports DTCMCR=41 (128 KiB enabled)
+and ITCMCR=31 (32 KiB enabled), from diagnostic 10. Those describe the active
+core TCM mappings, not total internal RAM or spare capacity; see
+sd_raw_observation_findings.txt. GPR16/17 and the new query can add configuration
+evidence, but GPR17 is selected only when GPR16 bit2 is set. Neither a CPUID nor
+the shared candidate DIGPROG value identifies an exact RT104x part.
+
+Bounded static follow-up
+------------------------
+Local report: analysis/physical_ram_capacity_audit.json, untouched v1.10 hash
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb.
+The package boot descriptor length is zero; the installed bootloader is absent.
+The application's reset entry and scatter run in external RAM, so usable memory
+must already exist before those instructions execute. Controller initialization
+probably predates this application, but its location is not recovered here.
+
+The scan expands every initialized scatter region, scans raw byte-aligned words
+for SEMC register addresses 402f0000..402f013f, and attempts a Thumb decode at
+each halfword with bounded same-register MOVW/MOVT pairs within 32 subsequent
+bytes. It visits 806,664 candidate starts and 8,211 MOVW candidates. Eighteen
+raw words fall in the range, all at unaligned offsets; no bounded MOVW/MOVT pair
+does. None is treated as a recovered controller configuration. Alignment alone
+does not disqualify an indirect pointer. Other constructions, pointer arithmetic,
+mixed code/data, aliases and the missing bootloader remain outside this scan.
+
+The original apparent scatter gap remains 2,462,600 bytes at
+[80960078,80bb9400). If external RAM is 32 MiB, another 892,928 bytes lie between
+the last scatter destination and 82000000. Neither gap is reserved or approved
+for use. Physical capacity and complete ownership must precede moving capture
+history there. This investigation does not select or change the history layout.
+
+Reproduce the bounded scan and selected-header comparison:
+  python tools/firmware/audit_physical_ram.py
+
+Smallest live evidence: passive configuration query
+---------------------------------------------------
+Experiment 12 passes 42 offline groups: seven new query
+groups and 35 retained command/raw/detail/health groups against its exact image.
+It is now installed after the user's update/reboot; fixed replies verify its
+execution. The three actual memory-controller queries all agree, including both
+snapshots per query. Installed flash bytes have not been read back.
+The previous experiment-11 image rebuilds byte-identically.
+
+The identified card's exact BIN readback matches, and all 149 recording/pad
+files (4,566,329,838 bytes), metadata and ZOOM_L6.SYS remain unchanged. Previous
+update/settings copies are backed up locally. Normal Eject and official Editor
+transfer exit completed; original assignments/counts, normal MIDI ports and
+prior diagnostic replies pass, with 163,104 bytes free heap. Local evidence:
+deployment/12_memory_capacity/staging_verification.json and
+post-transfer-verification.json. After update/reboot, the retained diagnostic
+snapshots are consistent and original pad names/counts and MIDI ports still pass.
+Current/minimum free heap is 163,104 bytes; raw error observations are zero.
+The command journal reports one anomaly, so successful startup does not establish
+a complete clean storage trace or resolve the earlier completion/source gates.
+The computer-side width decoder was corrected to the documented one-bit PS
+mask, ignoring reserved bit 1. All 42 offline groups pass after the correction,
+including both widths with that reserved bit set/clear; firmware bytes remain
+unchanged.
+
+Measured controller/core configuration (three identical queries):
+  SEMC MCR       1fff0004       enabled, not reset
+  SEMC IOCR      00000000
+  SDRAM BR0      8000001b       valid, MS13, 32 MiB at 80000000
+  SDRAM BR1..3   00000000       disabled
+  SDRAMCR0       00000f37       PS bit0=1, COL=3, BANK2=0: 16-bit,9 columns,4 banks
+  SDRAMCR1       00556a22
+  SDRAMCR2       0009090a
+  SDRAMCR3       0d0c0a01       refresh enabled
+  GPR16          00000003       bit2 clear: fuse selection, not GPR17 selection
+  GPR17          5555ea95       recorded only; not used as the active full bank map
+  DTCMCR         00000041       enabled,128 KiB configured
+  ITCMCR         00000031       enabled,32 KiB configured
+  CPUID          411fc271
+  DIGPROG        006c0001       shared-family ID evidence, no exact part claim
+
+Private hardware evidence: deployment/12_memory_capacity/startup-memory.jsonl,
+installed_startup_verification.json and capacity_interpretation.json. No RAM
+pattern, register write, allocation or extra capture was used. The internal
+figures are configured core mappings, not a total/internal free-memory census.
+
+Request F0 52 00 00 6F 01 token F7, response 6E/01, schema1, 18 uint32 words,
+98 bytes. Only this fixed page is accepted; the host cannot supply an address.
+The original connected Editor session and Thread context are required. The probe
+reads exactly sixteen documented registers twice, marking disagreement without
+retry: SEMC MCR/IOCR, SDRAM BR0..3, SDRAMCR0..3, IOMUXC_GPR GPR16/17,
+SCB DTCMCR/ITCMCR/CPUID and USB_ANALOG DIGPROG. All earlier diagnostic queries
+remain available. The new handler writes only its stack and uses the existing
+MIDI sender; no register write, memory pattern, new persistent state, allocation,
+worker, file operation or capture is introduced.
+
+Fourteen selected base addresses/masks/shifts agree in official RT1041, RT1042
+and RT1062 headers; local comparison is memory_capacity_header_comparison.json.
+NXP BR.MS code13 encodes a 32-MiB decode window; code12/14 encode 16/64 MiB.
+BR.VLD, MCR enable/reset bits and SDRAM refresh enable distinguish inactive
+configuration. SDRAMCR0 gives 8/16-bit width, columns and 2/4 banks. The SDK takes
+the desired size as input when writing BR: it does not autodetect installed
+density. Consequently the host always leaves physical_capacity_confirmed and
+unused_memory_proven false. Two equal snapshots are consistency evidence only.
+
+Image: deployment/12_memory_capacity/trial_memory_capacity/L6.BIN
+SHA256: d458a67180ded0d8f5c86fada4a9eca1bdf1b5857b9446b1f13b39ed82859120
+ELF: src/diagnostics/memory-capacity.elf
+Code/state: 6,812 bytes at 800b2400, including the unchanged 1,052 state bytes.
+This is 288 bytes above experiment11. DSP remains 36,172 packed bytes with its
+original exact decoded content; all stock package lengths remain unchanged.
+Native capacity remains the already-installed diagnostic11's 223104 frames.
+The new query traces 432 software stack bytes including the parser adapter,
+excluding the native sender/physical exception frames. Real stack headroom and
+timing are not measured. The complete extra recorder is still disabled.
+
+Reproduce locally:
+  python tools/firmware/build_memory_capacity_probe.py
+  python tools/firmware/build_sd_command_fixture.py
+  python tests/emulation/verify_memory_capacity_probe.py
+
+After exact-image staging, the user must perform the tested physical update and
+normal reboot before these queries can run. Then, with the official Editor
+connected, collect three fixed snapshots using:
+  python tools/device/l6_memory_capacity_probe.py --output <new-log.jsonl>
+The collector issues no pad, recording, transfer, level or settings commands.
+Old firmware does not expose this new page; sending it cannot supply the missing
+controller values. A timeout is not a capacity result.
+
+How far that gets us
+--------------------
+A consistent 32-MiB enabled SDRAM window, compatible width/geometry and existing
+ordinary recording provide stronger non-invasive evidence for usable mapped
+capacity. They still cannot distinguish a 32-MiB chip from a larger chip mapped
+as 32 MiB, identify a manufacturer, prove arbitrary high addresses distinct, or
+make an apparent gap safe to reserve. Definitive fitted density needs a readable
+part/BOM or a controlled address-independence test with independently owned,
+quiescent locations and correct cache handling. Do not write patterns into
+unowned running memory or treat identical reads as an alias proof.
+
+Next after the read is an ownership census of the two apparent gaps and remaining
+internal RAM. If suitable owned memory exists, keep the ordinary five-second
+buffers. No conclusion yet establishes that their shortening is necessary.
+
+The first derived-address ownership follow-up now passes 32 focused offline
+groups and bounds three concrete nearby consumers. Its two new gap constants
+are verified character-table entries, not recovered live pointers. Neither
+gap is reserved. See ram_gap_ownership_findings.txt for exact scope, capacity
+arithmetic and the proposed passive activity check; no device change was made.
+
+Primary sources checked 10 October 2026
+---------------------------------------
+NXP consumer datasheet Rev5, individual ordering table and memory interfaces:
+https://www.nxp.com/docs/en/data-sheet/IMXRT1040CEC.pdf
+NXP RT1040 evaluation-board memory, not the L6:
+https://www.nxp.com/design/design-center/development-boards-and-designs/MIMXRT1040-EVK
+Winbond density/interface, example compatible part only:
+https://www.winbond.com/hq/new-online-purchasing-guide/index.html?__locale=zh_CN&pLine=%2Fproduct%2Fcustomized-memory-solution%2Fddr-sdr%2F&pNo=W9825G6KH-6A
+NXP RT1042 peripheral registers and fields:
+https://raw.githubusercontent.com/nxp-mcuxpresso/mcux-sdk/main/devices/MIMXRT1042/MIMXRT1042.h
+NXP SEMC_ConfigureSDRAM, BR size is configuration input:
+https://raw.githubusercontent.com/nxp-mcuxpresso/mcux-sdk/main/drivers/semc/fsl_semc.c
+Arm core-register layout:
+https://raw.githubusercontent.com/ARM-software/CMSIS_5/develop/CMSIS/Core/Include/core_cm7.h

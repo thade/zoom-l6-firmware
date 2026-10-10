@@ -1,0 +1,173 @@
+Astra review: composed capture and the next hardware milestone
+9 October 2026
+Requested review: gpt-6-astra, xhigh effort.
+
+Verdict
+-------
+Accept the composed OFFLINE milestone. I found no verified regression defect
+requiring a corrective implementation change before the next offline milestone.
+The source and the reported tests support its deliberately narrow claim:
+packed startup/hooks, permanent heap-owned controls, external segmented history,
+and a registered worker that remains asleep until explicitly authorized.
+They do not establish a deployable recorder.
+
+The review inspected implementation, fixture inheritance, patch/packing plans,
+existing reports and stock disassembly. I did not run tests/builds, access the
+mixer, construct/stage firmware, or change implementation. The parent reports
+698 passing groups across 62 suites before the final test-only addition, then
+all 12 composed groups passing with the additional exact eight-file exFAT case
+using modeled 256-KiB clusters. Production source and ELF hashes are unchanged.
+This is 699 distinct groups across those 62 suites, not a second full-run claim.
+
+Why the composition is sound as scoped
+-------------------------------------
+tests/fixtures/capture_composed_startup.c:18-37 makes initializer failure sticky,
+attempts allocation once after the stock idle-creation checkpoint, and never
+calls release. native_arena.c:46-61 copies the external descriptor into permanent
+storage; native_worker.c:46-51 copies WorkerConfig before task creation. Failure
+retains the allocation, and W_WAITING short-circuits manager/history access in
+native_worker.c:87 and :111. Registration does not touch sample payloads.
+
+history_storage.c:11-37 validates segment geometry; exchange.h:17-19 provides
+one mapping used by production, consumption and both retirement scans. Manager
+overlap checks include external metadata and the full declared regions. Reset
+clears control objects rather than bulk-clearing history. The separate worker
+and aligned 4-KiB staging remain appropriate.
+
+The composed plan byte-checks the shortened-capacity instruction, retains all
+hook roots, preserves stock MAIN length and checks the 100-byte globals span.
+The reviewed report records 19,928 raw code bytes, 16,553 packed code bytes,
+2,279 source bytes spare, a 9,855-byte arena request and 664 traced added boot
+stack bytes. Worker stack/task allocations and real scheduling are not included
+in the fixture's free-heap result. The report says this correctly.
+
+Prioritized prerequisites, not newly discovered composition defects
+------------------------------------------------------------------
+1. Before device capture: bind storage ownership at the actual boundaries.
+
+   native_worker.h:35-40 requires storage authorization; native_worker.c:53-70
+   checks caller identity/state, not readiness. capture.c:72-76 trusts native
+   WRITE's return before hashing/reusing staging. lifecycle.c:40-48 and :141-159
+   can close/reopen after a returned error or nominal completion. These are
+   sound only once lower transfer completion is a real contract.
+
+   Concrete failure: an accepted extra write remains physically active while
+   native error return permits CLOSE, or an outer USB/card transition clears
+   volume metadata during that retained write. Existing negative controls
+   demonstrate both modeled failure mechanisms. Merely calling release after
+   mount, or returning BUSY from raw detach, does not fix them.
+
+   Bind the native callback/transfer convergence beneath payload AND metadata,
+   with task/transfer identity and completion/error evidence retained before
+   native buffer frames unwind. Cover nominal completion too. Gate outer
+   transitions before their first effects; do not park Main waiting for work
+   that may require it. The recovery fixture's MODEL callbacks at
+   tests/fixtures/sd_transfer_probe.c:50-61 and :118-125 are not that binding.
+
+2. Before device capture: establish the exact admitted-mode memory contract.
+
+   placement.ld:10-25 and capture_composed_startup.c:26-31 still propose code,
+   globals and eight history tails. Arithmetic disjointness and intact guards
+   do not authorize those spans. A live reset of native capacities/cursors, a
+   computed effects destination, or an unaccounted alias can invalidate them.
+   The useful finite checklist is already in segmented_history_findings.txt:64.
+
+   Resolve each item for the supported recording/pad mode using a bound or an
+   enforced exclusion; decode the stock MPU/cache setup and native maintenance
+   path for these exact addresses. Do not require an impossible proof about
+   every hypothetical pointer in every unsupported mode. The 64 historical
+   omitted source observations cannot be reconstructed from missing arguments;
+   close coverage through static bounds or complete observations/enforcement
+   during the admitted interval. Repeating broad guard sweeps is insufficient.
+
+3. During the first candidate trial: measure service and stack under real load.
+
+   native_worker.c:101-115 limits calls per pass and always sleeps; it does not
+   bound elapsed time. verify_capture_composed.py:175-177 omits host polls while
+   audio advances, then deliberately supplies catch-up. This proves ownership
+   under that schedule, not the real priority, SD stalls or sleep budget.
+
+   Keep 1024 slots as the prototype. Record successful-copy gaps, oldest needed
+   sample age/minimum remaining retention, peak backlog, loss and recovery,
+   ordinary recorder progress, stack high-water and heap minimum. Include the
+   age accumulated before/through admission and continued audio after Stop.
+   Use monotonic progress for ordinary overrun detection; ring_probe.c:92-107
+   explicitly cannot see whole laps. Do not tune buffer size, batch size or
+   priority again until these measurements identify a problem. A short trial
+   can obtain this evidence; an a priori universal SD-latency guarantee is not
+   required to begin a controlled trial once memory and I/O lifetime are safe.
+
+4. Before calling the result a useful overdub capture: qualify the signal tap.
+
+   placement_hooks.S:4-8 taps 0x202269f8. Existing gain tests omit active dynamics
+   and effects returns (verify_uncompressed_tap.py:89-96 and :128-132). A correct
+   eighth WAV could still contain the wrong mix. Exercise the actual intervening
+   DSP with a live-input marker, a distinct backing-pad marker, an effects tail
+   and active master compression. Verify effects inclusion and master-gain/
+   dynamics separation without reopening the deferred general level study.
+
+Static startup FP question resolved
+----------------------------------
+Do not flag the startup adapters as necessarily executing before FPU enablement.
+Although the scheduler enables CP10/11 at 0x8007627a, it is not the first enable.
+Stock bytes give vector [0x80001004]=0x80001415. Reset calls the literal target
+[0x800014b8]=0x8003a8b1 from 0x80001494; 0x8003a8c0..0x8003a8c6 reads CPACR at
+0xe000ed88, ORs 0x00f00000 and writes it back. Reset then branches through
+[0x800014bc]=0x80001401; scatter eventually reaches 0x80067a61 and the added
+startup hooks. Evidence: analysis/main_linear_disassembly.txt:9-55 and
+:80869-80875, checked against those stock literal words. No new execution proof
+is claimed. Physical lazy stacking/preemption and stack reserve still need the
+candidate trial, but this ordering concern does not justify another diagnostic.
+
+Smallest finite next coding milestone
+------------------------------------
+Implement one capture-only storage adapter in the composed candidate:
+
+* One admitted storage generation, checked against successful native setup and
+  target-directory access; release the waiting worker once those checks hold.
+* Close admission before USB/card/reinitialization effects, cancel/join existing
+  extra work and hooks, and prevent a stale generation from resuming. Cover
+  automatic manager rearm too: session_manager.c:126-150 otherwise prepares and
+  opens the next TMP after a successful take.
+* A real completion/error checkpoint inside the live native transfer frames.
+  Initially support ordinary success and safely joined failure. On unjoined
+  uncertainty, retain ownership and mark the trial failed; do not add speculative
+  reset/retry/remount recovery. Shared filesystem progress may stop in that case,
+  so do not promise that every physical fault affects only the eighth file.
+* Compact observations from item 3, a visible ready/verified/fault indication,
+  and the fixed-memory/placement checks. Recompute packing after composition.
+
+For the first trial, remaining disabled after a storage transition until reboot
+is sufficient. Full automatic reauthorization, arbitrary hot-removal recovery,
+and pad assignment are later product work. Avoid a new command queue or general
+handoff state machine. If a native completion fact cannot yet be established,
+identify that exact register/source/cache question and answer it with one narrow
+observation; do not produce another broad guard-only firmware by default.
+
+Acceptance is finite: release only after admitted setup; transition attempts
+during create/write/finalize/readback cannot mutate storage prematurely; stale
+generation, mixed/stale completion, nominal completion while active, and errors
+cannot unwind/reuse unjoined buffers. Preserve exact range/loss/rearm tests and
+the seven ordinary-file baseline. The parent has now reused ExfatFoldersSd for
+one passing composed case with modeled 256-KiB clusters, closing the small
+format-composition gap identified during review. It is not a measured card BPB
+or another filesystem research project.
+
+Then use one candidate installation: closed startup checks, a short controlled
+capture, and a whole-song recording with backing playback after the short pass
+succeeds. Use Record to stop, wait for verified completion, inspect eight file
+ranges/content and the recorded service/stack observations, then repeat once to
+check retention/rearm. Check the signal expectations above in this candidate.
+Keep the extra file as TMP and original pad assignments intact. Do not claim
+universal reliability from one card or one whole-song take.
+
+Simplicity
+----------
+The current architecture is the simplest supported option that preserves all
+seven requested native files and adds this distinct tap: one bounded history,
+one worker, one aligned staging buffer and one additional file. Reusing MASTER
+would drop a user requirement; adding work to the native writer is not justified
+by the delayed shared-staging counterexample. Copying/rotating files or enabling
+pad publication now adds no value to the first capture trial. Stop expanding
+modeled recovery, keep first-trial restrictions explicit, and get to this bounded
+device experiment once the concrete bindings above are ready.

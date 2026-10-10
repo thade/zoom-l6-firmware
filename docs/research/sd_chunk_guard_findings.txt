@@ -1,0 +1,100 @@
+Per-chunk SD buffer lifetime checkpoint — 9 October 2026
+======================================================
+
+Result and scope
+----------------
+The opt-in offline SD guard now checks each native block-data completion BEFORE
+returning from its data wait. The earlier whole-operation finish checkpoint is
+retained for the enclosing operation, including final status; it is too late by
+itself to prevent intermediate bounce copies/refills and lower-frame unwinding.
+This milestone implements that earlier checkpoint, not a physical join provider.
+All normal capture profiles and the installed diagnostic11 exclude this code.
+The subsequent sd_chunk_admission_findings.txt adds initial/pre-address admission
+and a compiled nominal predicate under a still-modeled source lease. It retains
+the chunk checkpoint described here; physical source/ownership remains unbound.
+
+Implementation
+--------------
+tests/fixtures/sd_transfer_probe.c uses one 32-byte SdChunkProbe record and a
+disabled-by-default sdp_chunk_finish_port. No worker, queue, heap allocation,
+reset, retry or card reinitialization is added. Only the existing retained-stack
+error path and delay primitive are used. tests/fixtures/sd_chunk_probe.h states
+the separate physical/source and exclusive-span preconditions.
+
+Known block opcodes22/23/32/33 latch the original programmed DS_ADDR, count*512,
+current task and a newly cleared raw IRQ latch before entering the original
+command engine. This snapshot is AFTER the native address store; it cannot
+supply the missing source-exclusion/drain contract BEFORE that store. Diagnostic11
+has separately verified the corresponding before-store address/context hooks.
+
+The supported scope is unit0, DMA flag1, a nonzero 16-bit count, nonwrapping
+span and either a span inside the registered caller buffer or the exact native
+2000c4d4 bounce area with at most4096 bytes. Only block commands and their
+non-data CMD13 status are admitted. Unsupported auxiliary/PIO formats are held
+as errors before command submission, reading no more than their opcode byte.
+The existing explicitly authorized retained-error stop is handled separately.
+
+The exact four native data-wait returns are8006a06e/8006a1f8/8006ac72/8006ae14.
+Their event, mask and task must match before delegating to the native wait.
+After the original IRQ/event predicate, timeout, raw errors and mixed/missing
+success flags retain the failing stack through the existing error join. Even
+nominal success requires this chunk's raw TC and the positive chunk provider.
+An earlier chunk's operation-wide TC cannot satisfy the newly cleared latch.
+
+Only exact provider result1 can finish a chunk. Zero, negative or other values
+retain the data-wait frame, unit token and original span. Visible host RTA/WTA
+bits or controller reset also prevent completion; task/event identity, raw errors
+and host/reset state are rechecked after the provider returns. DAT0/CDIHB/DLA
+trailing card busy is kept separate from host memory-access completion. No
+claim that quiet register bits alone establish physical joining is made.
+
+Successful direct-read cache invalidation, when separately selected, follows
+the chunk checkpoint and uses the ORIGINAL address, even if DS_ADDR has advanced.
+The cache helper still requires exclusive complete lines. Writes and native
+bounce buffers retain their original cache path. Card write acceptance and
+persistence are separate from releasing host RAM and the enclosing final status.
+
+Verification
+------------
+tests/emulation/verify_sd_chunk_guard.py executes compiled guard code together
+with original registered read/write, command, IRQ and event-wait instructions.
+It covers direct/bounce reads and writes, split nine-block transfers, pending
+completion at both chunks, advanced addresses, missing fresh raw TC, hidden
+errors, timeouts, mixed flags, host activity/reset, trailing busy, changed owner/
+event, malformed DMA/count/span and unsupported auxiliary opcode at a mapped
+page boundary. Cache ordering and capture header/payload/finalize/readback
+retention and cancellation are composed with the existing native IO fixture.
+
+The sector router and logical file bytes in that composition remain models.
+It does not recover real exFAT sector translation or establish physical transfer
+semantics. A deliberately false provider accepts a late previous-origin TC;
+this negative control keeps the missing physical-source guarantee explicit.
+The new suite is part of tools/firmware/verify_redesign.py; build isolation checks
+require both new symbols in handoff-test and reject all sdp_ symbols in normal
+profiles. Final results and pinned fixture hashes are recorded in
+analysis/sd_chunk_guard_verification.json and analysis/redesign_verification.json.
+
+The initial checkpoint run passed all16 groups in this suite and746 groups
+across65 suites in the full redesign regression. Its guard fixture SHA256 was
+7f48ded759e8c7e36646fcc3a44876a6b6f308a681ff15fa6c421ff3f503cd0d.
+Subsequent fixture builds are pinned in the current reports above.
+Build-profile isolation passes; these counts exclude the separate passive
+diagnostic suites. The installed diagnostic11 image remains unchanged.
+
+Next concrete binding
+---------------------
+Supply a device-specific source/exclusion contract before EACH new native address
+store, including the initial cold interval and later chunks. It must exclude old
+controller/DMA work, join IRQ/task posts, preserve the event and buffer lifetime,
+and drain hardware/software completion before arming. Then bind nominal and
+error completion inside these now-tested native frames. A software sequence,
+mutex, raw TC or quiet snapshot alone is insufficient. Do not port the MODEL
+callback to a constant-success device function.
+
+The remaining native USB/card transition gate and exact memory/cache ownership
+must hold across this admitted interval. Unresolved transfer completion retains
+ownership rather than unwinding or attempting speculative reset/retry. Shared
+filesystem progress can stop; safe recovery of every physical fault is not a
+claim of this first capture-only milestone. Startup release and measured worker
+stack/service remain before an additional TMP recorder, then pad assignment.
+No mixer/card operation, firmware installation, commit or push occurs here.

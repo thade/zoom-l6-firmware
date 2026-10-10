@@ -1,6 +1,15 @@
 L6 HISTORY FLAGS, STOP BOUNDARIES AND MEMORY BUDGET
 3 October 2026
 
+Hardware follow-up, 7 October 2026
+Experiment 06 produced a valid Channel 1 file exactly one 240,000-frame ring
+longer than the master and other stems. A new original-instruction test shows
+the limit conversion below adds one ring when a coherent consumed/read pair
+has already advanced past the saved stop. This is a candidate explanation,
+not a demonstrated hardware scheduling order or attribution to reservation.
+See docs/research/stop_cursor_lap_findings.txt. The earlier boundary tests and
+their in-flight-producer/preemption limitations below remain applicable.
+
 Scope and result
 Further offline investigation of the additional pre-master stereo pad file,
 preserving all ordinary input files and the processed MASTER. Seven new test

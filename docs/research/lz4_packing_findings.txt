@@ -1,0 +1,102 @@
+Alternative startup packing — 10 October 2026
+=============================================
+
+Initial offline result
+----------------------
+An isolated LZ4 experiment leaves 6,244 bytes spare in the original 55,004-byte
+DSP source envelope. The default transition build still uses Zoom's decoder and
+leaves 870 bytes. No device build selects this alternative; no update image was
+created, staged or installed. This closes a code-space option, not the remaining
+capture ownership, completion or startup-admission gates.
+
+Measured composition of the current capture-only-transitions.elf:
+  New integer-only decoder and fail-stop wrapper       512 bytes
+  Patched original DSP, LZ4 block                   31,616 bytes
+  Capture code, LZ4 block                           16,624 bytes
+  Two compressed-size prefixes                          8 bytes
+  Spare, including current alignment accounting     6,244 bytes
+
+The corresponding default packed blocks use 36,172 and 17,962 bytes. The new
+format saves 5,894 bytes on those blocks; its decoder/prefixes/alignment consume
+520 bytes, giving 5,374 additional spare bytes. Adding later guard or pad code
+will change compression: their final fit is not established by this budget.
+
+Design and tradeoff
+------------------
+tools/firmware/plan_capture_lz4.py writes only a JSON plan. A compiled fixture in
+tests/fixtures/scatter_lz4.c is placed at the start of the existing loaded DSP
+source span, followed by two independently compressed blocks. Existing scatter
+table padding holds the two additional records. MAIN's length and descriptors,
+all original scatter destinations/lengths, and the intended capture destinations
+remain unchanged. The only intended DSP differences are the existing two hooks.
+No extra heap or persistent state is introduced by the decoder. It uses ordinary
+startup stack; its physical stack/cache/execution behavior is not yet measured.
+
+The cost is 512 bytes of new early-startup code in place of Zoom's decoder for
+these two records. The old path remains the simpler qualified default. Keep this
+alternative isolated until the minimum complete capture binding demonstrates
+that its additional space is needed, then qualify that exact combined image.
+
+The decoder checks source/destination wrap and overlap, input/output lengths,
+literal extensions, offsets, match extensions and terminal format conditions.
+It performs bounded byte copies, including overlapping matches. A malformed
+block may write a valid prefix within its destination. The wrapper therefore
+halts before Main on any error: the original scatter caller ignores return
+status, so returning an error alone would expose partially initialized code.
+This is a retained-fault strategy, not bootloader recovery or authenticated code.
+
+Evidence
+--------
+verify_lz4_packing.py passes six groups. The compiled ARM decoder is compared
+with independent host lz4 4.4.5 on actual DSP/capture blocks and deterministic
+boundary streams, truncations and mutations. Read/write bounds and guards are
+checked. The actual original entry/scatter loop initializes every original
+region exactly, except the intended DSP hooks, plus exact capture code and zero
+globals. The loaded compressed source remains unchanged. A bad size prefix stops
+at the failure loop before Main and before exposing patched DSP code.
+
+Reports (private, regenerable): analysis/capture_lz4_plan.json and
+analysis/lz4_packing_verification.json. Build with build_lz4_loader_fixture.py;
+the planner rebuilds the small helper as needed. Dependencies are pinned in
+requirements-research.txt. This is a bounded corpus, not exhaustive fuzzing or
+a complete CPU/cache/physical timing model. Hardware qualification is separate.
+
+Format reference (no borrowed decoder implementation):
+https://github.com/lz4/lz4/blob/dev/doc/lz4_Block_format.md
+
+Combined fit and hardware follow-up
+----------------------------------
+The subsequent capture/Main/retained-SD fixture, including block-gap rejection
+and startup PIO retention, exceeds stock packing by3,524 bytes. Its LZ4 plan
+leaves2,168 bytes spare,
+including the same512-byte loader;
+missing source bindings still make this a non-deployable offline artifact.
+
+Diagnostic15 isolates the new decoder from extra capture and new memory ranges.
+It expands the unchanged original55,004-byte DSP to20220000, with source800a9608
+and helper800a9408 in the existing MAIN-loaded envelope. Exact-image tests pass
+71 groups, including all66 expanded-startup diagnostic checks. It is now staged,
+updated and execution-verified by the new fixed scatter-record query. Original
+pads/MIDI/health pass, with163104 free heap bytes. An18.005333-second USB capture
+identifies ordinary pad1 playback with0.992265 whole-source correlation and no
+host callback errors. A preceding check failed during a substantial gain change;
+that result remains preserved. No extra recording is enabled.
+The user subsequently confirms changing the volume for comfort.
+
+This closes the isolated physical loader/ordinary-playback trial, not execution
+from candidate capture destinations or the final combined firmware. Precise boot
+timing, stack headroom and exhaustive cache/alias coverage remain unmeasured.
+See experiments/15-loader/README.md and deployment/15_loader/hardware-summary.json.
+
+Consumed-source follow-up
+-------------------------
+The explicit source-reuse experiment expands DSP first, then places code and
+globals over consumed input inside the original MAIN envelope. Its552-byte
+wrapper and alignment leave2,054 packed bytes spare for the current27,248-byte
+combined code. Ten separate groups pass, including original continuous startup
+and relocated storage guards. This avoids unconfirmed code/global gaps; history
+and physical source/storage ownership remain open. Diagnostic16 now executes its
+tiny code-publication marker on hardware and passes automated ordinary pad
+playback. This qualifies eight bytes of code and16 zero bytes, not the complete
+capture payload. The default512-byte helper remains byte-identical to diagnostic15.
+See capture_source_reuse_findings.txt.

@@ -1,0 +1,83 @@
+Consumed DSP source reuse — 10 October 2026
+==========================================
+
+Outcome
+-------
+An explicit alternate layout fits the current combined capture/Main/retained-SD
+code and globals inside the already-loaded original DSP source. It avoids the
+separate proposed code destination at800b6b00 and globals at80960080. This is a
+simpler ownership argument, not complete proof of ownership or a deployable
+capture image. The history-ring, heap, physical storage and release gates remain.
+
+The existing source envelope is800a9408..800b6ae4. On boot, the original scatter
+loop runs these records in order:
+  1. Expand the patched original DSP to its original20220000 destination.
+  2. Expand new code over the now-consumed DSP input.
+  3. Zero new globals in the same consumed input.
+  4. Continue the three original zero records.
+The live decoder and unread second compressed block are never overwritten.
+
+Exact current offline layout
+----------------------------
+  Live decoder                 800a9408..800a9630      552 bytes
+  Code destination             800a9688..800b00f8    27248 bytes
+  Globals destination          800b0a00..800b0b10      272 bytes
+  Compressed DSP input         800a9688..800b120c
+  Unread compressed code       800b120c..800b62de
+  Remaining source budget                            2054 bytes
+The code/globals fit below the unread code block. The default512-byte helper
+remains byte-identical to the hardware-qualified diagnostic15. The reuse wrapper accepts
+only the exact DSP destination/length or the explicit new code start, checks
+that code stops before globals and its own unread input, and halts on error.
+The separate linker/planner must be explicitly selected; normal builds do not
+silently change layout. JSON planning does not produce a capture update image.
+
+Evidence and limits
+-------------------
+verify_capture_source_reuse.py passes10 groups against the relocated ELF. It
+executes original reset/scatter, exact outputs, malformed/overlap rejection,
+continuous cache/MPU setup and dormant worker registration for both initial cache
+states, exact extra TMP plus ordinary files under modeled release, native SD
+retained-fault guards and startup PIO guards at their relocated addresses.
+All four physical SD ports remain zero; installing those hooks would hold
+ordinary IO. No extra capture is enabled and no device has run this full payload.
+Cache effects, scheduling, IRQ/card timing and source ownership remain modeled.
+
+audit_capture_source_lifetime.py supplements the prior immediate/raw reference
+audit with192-byte/48-instruction derived-address windows. It finds591 leads:
+589 decode the stored DSP at its source rather than its linked destination;
+two decode the compressed DTCM input800a9208..800a93ec as Thumb instructions.
+There are no unresolved leads within that bounded classification and no
+additional direct scatter consumer. The original zero record's source is ignored.
+This does not rule out computed pointers, indirect execution/reads, scatter
+reentry, DMA, physical aliases or bootloader behavior. Previous diagnostics have
+already exercised reuse of parts of the same source, providing bounded hardware
+support rather than a global absence proof.
+
+Isolated physical publication result
+------------------------------------
+Diagnostic16 isolates publication of an eight-byte integer marker at800a9688
+and16 zero bytes at800b0a00 after the unchanged original DSP expands. A fixed
+read-only query executes the marker and reports its value, zero-region OR,
+CCR and fixed scatter records. All prior passive diagnostics remain. This tests
+the new decoder/order/overwritten-input execution path without adding capture,
+storage guards, allocation, a worker, native capacity changes or new SD traffic.
+It cannot qualify all27KB of capture, all272 globals or later source lifetimes.
+The user installed this exact73-check diagnostic. The new query executes0x4c36,
+reports zero-region OR0 and expected records, with both caches enabled. Retained
+health/startup/MIDI and original pads pass. Automated18.005333-second pad playback
+matches at0.999027 with no host callback errors,1,163 data waits and no new detail
+conditions or omissions. Heap remains163104 bytes and settings are unchanged.
+This closes the tiny publication experiment; full-payload ownership/publication,
+history and physical storage/source release still require qualification.
+See experiments/16-source-reuse/README.md and its private hardware-summary.json.
+
+Reproduce locally
+-----------------
+  python tools/firmware/build_extra_capture.py --source-reuse-fixture
+  python tools/firmware/plan_capture_source_reuse.py
+  python tests/emulation/verify_capture_source_reuse.py
+  python tools/firmware/audit_capture_source_lifetime.py
+
+Private reports: analysis/capture_source_reuse_plan.json,
+capture_source_reuse_verification.json and capture_source_lifetime_audit.json.

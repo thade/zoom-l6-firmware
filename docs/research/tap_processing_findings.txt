@@ -1,0 +1,40 @@
+Original effects return and active master processing — 10 October 2026
+====================================================================
+
+Seven focused groups pass in tests/emulation/verify_tap_processing.py. Original
+effect-return mixing and active master dynamics support the intended source:
+the stereo tap at202269f8 includes effects but precedes master gain/dynamics.
+The initialized original master body also retains a48-frame delay at48kHz with
+the compressor control off. That is1ms in this DSP body, not total device latency.
+Future hardware sample comparisons must allow this difference.
+
+Executed original code
+----------------------
+The stock48000-Hz audio initializer80011920 and record reset8000ad48 initialize
+the coefficient tables/state. The original ramp pool800103d8, producer80010398,
+worker80010228 and retirement80010150 execute; gain targets are not substituted
+for sample ramps. The compressor setter8000d4a0 executes for both control states.
+The effects-return body20220000 and full master body202263e0 execute, observing
+the pre-processing mix at202269f8 and downstream mix at202280e0.
+
+Checks cover exact stereo addition at four return levels, an actual queued
+return-gain ramp, active dynamics and its level-dependent downstream response,
+a master-gain ramp with effects/dynamics active, a silent master with a nonzero
+tap, and stereo impulses that establish the48-frame stock delay. Seeded clean
+input buffers remain byte-identical. The active-dynamics comparison changes
+ordinary output while every tapped block remains identical to its reference.
+
+Limits
+------
+Dry input and the effect engine's returned samples are synthetic. The original
+return callback routing, scaling and mixing run; the five effect algorithms do
+not. Kernel mutexes, queue progress and delays are fixtures. ARM MAX permits the
+stock double-precision instructions; it does not identify the processor or prove
+FP preemption/stack behavior. This is signal-routing evidence, not an acoustic
+compressor characterization, full input-renderer/capture composition, elapsed
+timing or on-device validation. Neither extra capture nor pad handoff is enabled.
+
+Report: analysis/tap_processing_verification.json. This focused suite is separate
+from the793-group/69-suite full regression completed earlier in this turn.
+Firmware SHA256:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb

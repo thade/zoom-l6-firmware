@@ -1,0 +1,127 @@
+CHANNEL 1 LENGTH DISCREPANCY AND NATIVE STOP ARITHMETIC
+7 October 2026
+
+Observed hardware result
+Experiment 06 holds three unused allocations for an exact 93,848-byte charge.
+During a normal multitrack recording with looping Glory Box and input 3,
+14 live query sets show held status and 69,256 current/reported minimum free
+bytes. Final retained timing counters are consistent with no observed errors;
+one SD call and 79 public file calls went unmeasured. The user reports no
+audible problems. No worker, added audio tap or extra recording is enabled.
+
+The seven copied files pass source/copy hashes, RIFF/data/format validation and
+finite-sample checks. MASTER and five channel files contain 8,191,488 frames
+(170.656 seconds). TRACK01 contains 8,431,488 frames (175.656 seconds): exactly
+240,000 extra frames, five seconds at 48 kHz. Its region beyond the master's
+duration contains nonzero low-level noise, not zero padding. Bitwise comparison
+of Channel 1 samples separated by 240,000 frames finds no repeated pairs.
+File length alone does not locate when the additional samples were acquired.
+The original files are preserved; no truncation, repair or audio edit is made.
+
+Common-duration analysis finds backing starts at frames 31,600, 3,459,039 and
+6,886,478. Both periods equal the source's 3,427,439 frames, with zero-frame
+error; eight separated alignment windows agree. Both 0.2-second join models
+explain more than 99.999999% of the master energy. The global backing-plus-stems
+model explains 99.997451%; the final 0.656-second window explains 99.556191%
+with an unresolved residual. Input 3's maximum absolute backing correlation is
+0.001113744. These observations support the backing timing and independent
+input 3 content; they do not resolve Channel 1 alignment or prove absence of
+all dropouts/leakage. Level investigation remains deferred.
+
+Native arithmetic reproduction
+The existing record-boundary audit identifies a 240,000-frame source ring and
+native final-limit conversion at 0x800382a8. For each enabled stream it uses:
+  consumed_frames + ((saved_stop_cursor - read_cursor) modulo capacity)
+The earlier audit explicitly excludes arbitrary instruction-level preemption
+and an in-flight producer fence. A modulo cursor does not identify its lap.
+
+tests/emulation/verify_stop_cursor_lap.py executes the original conversion using
+coherent synthetic cursor/count pairs. With the consumer 64 frames before or
+exactly at the saved stop, the limit is 8,191,488. With stream 0's consumer
+64 frames beyond it, its limit is 8,431,488 while other enabled streams retain
+8,191,488. The one native-instruction group passes and reproduces the observed
+excess exactly. Evidence: analysis/stop_cursor_lap_verification.json.
+
+This demonstrates a mechanism capable of adding one ring if that state occurs.
+It does not demonstrate the scheduling order on the device, an actual producer
+crossing the saved stop, or causation by the held memory or diagnostic hooks.
+No recorder-stop patch is justified or implemented from this evidence alone.
+
+Button observation and priority (later user clarification)
+The user recalls using Play/Stop for the affected take rather than Record.
+The physical stop button was not recorded in the earlier test logs. This is a
+specific hypothesis for later comparison, not a measured cause or proof of a
+deliberate five-second tail. The user considers it a low-priority issue.
+
+A bounded offline observation executes the original record-toggle 0x80034f40,
+play-toggle 0x80034e58 and stop-request 0x80034d18 under recording state 1.
+All three queue the same RecStop callback 0x8004ba41 with argument zero.
+Under playback state 2, play/stop requests instead queue PlayStop 0x8004b911,
+while the record toggle queues nothing. Static callback inspection also shows
+both named stop callbacks save the endpoint using 0x80002460/0x80006918 and
+enter the same backend 0x8000b698. The ordinary RecStop target is -1; PlayStop
+passes -1 directly. There is no demonstrated separate five-second-stop policy.
+Admission/mutex/queue effects are fixtures, and full physical-button ingress
+and scheduling remain unobserved. Evidence: analysis/stop_request_paths_observation.json.
+
+Defer further stop diagnostics and proceed first with the memory/storage budget.
+Use the Record button as the consistent stop action for subsequent recording
+trials and note the button used. The discrepancy stays open as a follow-up;
+it does not block buffering development or independently justify a stock patch.
+
+Same-image unreserved comparison
+After the user-reported normal reboot, exact status replies verify UNTRIED with
+all reservation fields zero and 163,104 current/minimum free bytes. Original
+pad/MIDI controls pass. The same Glory Box file is selected on pad 1 in Loop
+mode at 0 dB with a fresh baseline. No firmware update or reservation command
+is used; the collector sends read-only kind 1 and timing queries.
+
+The take 261007_174914 has seven valid, finite, hash-verified WAVs, all containing
+8,503,040 frames (177.147 seconds). Channel 1's excess does not recur. Both
+backing repeats have exact 3,427,439-frame periods, and eight separated alignment
+windows agree. The global backing-plus-stems model explains 99.998360% of master
+energy; both join models explain more than 99.999999%. The user reports no
+audible problems. This is one useful control, not evidence of a causal link to
+reservation or a stop fix. No stock firmware comparison was performed.
+
+Thirteen live sets span 180.072 seconds, retaining UNTRIED and 163,104 current/
+reported minimum free bytes. All sampled operation epochs and final snapshots
+are consistent; no measured-call errors are observed. No SD calls and 93 public
+calls went unmeasured. SD peaks are 60/460 ticks and public peaks 380/460 at
+approximately 1 ms per tick. These stock workload timings do not measure an
+added worker or establish physical SD completion. The new write observation
+also invalidates the earlier nominal short-history margin; see
+capture_performance_findings.txt for the memory/storage gate.
+
+Deferred isolation step
+Add bounded observation of saved stop and each enabled stream's consumed/read/
+limit state at audited boundaries, using a separately verified diagnostic build.
+Polling the state long after stop cannot establish the interleaving that caused
+the extra ring. Observer placement and overhead must preserve ordinary code and
+recording; this is a diagnostic proposal, not a stop patch. It is deferred at
+the user's request. Include both button choices in later final workflow
+validation. The synthetic arithmetic reproduction alone does not justify
+changing the native recorder.
+
+Reserved-take preservation (earlier interval)
+All 30 earlier evidence hashes and earlier audio metadata remain unchanged;
+only the expected pad-settings metadata changed during backing preparation.
+The new seven files total 394,157,794 bytes and retain verified local copies.
+Card root firmware and global settings remain unchanged. Safe unmount and
+transfer exit passed; the original pad assignments, One-shot mode and 0-dB
+level are restored, and the normal Editor/MIDI controls pass. The reservation
+remained held with 69,256 current free bytes. Reported minimum became 66,816
+only after the transfer/remount/restoration interval; the recording's retained
+minimum was 69,256. Both exceed the experimental 65,536-byte floor. Installed
+flash bytes, recovery, worker scheduling and physical SD completion are still
+unproven. The memory-capacity observation is positive; the recording-length
+discrepancy remains open.
+
+Comparison preservation and current state
+All 37 earlier evidence hashes and prior audio metadata remain unchanged, apart
+from expected pad-settings metadata. The seven new files total 408,152,290 bytes
+and have verified local copies. Global settings/card-root image are unchanged.
+Safe unmount, transfer exit, original pad assignments, One-shot mode and 0-dB
+level are verified. Normal Editor/MIDI and seven timing queries pass. Status
+remains UNTRIED, current free heap is 163,104 and minimum is 160,664 only after
+the transfer/remount/restoration interval. No extra worker/capture is enabled.

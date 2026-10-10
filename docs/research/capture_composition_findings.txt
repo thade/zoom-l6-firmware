@@ -1,0 +1,123 @@
+Minimal capture composition — 9 October 2026
+===========================================
+
+Result
+------
+The previously separate minimal startup/hooks and external-history heap arena
+now compose in one offline ELF. Cold startup observes the original initializer
+result, attempts one allocation after stock idle-task creation, and registers
+one optional worker. Success leaves W_WAITING, with audio/control hooks closed.
+Allocation or task-creation failure preserves the stock startup continuation;
+there is no retry, live free, storage release, file work or pad mutation.
+
+The old contiguous, heap, segmented and fixed-address startup fixtures remain
+separate. The composed fixture removes the old multi-megabyte guessed control/
+history arena: only its permanent globals remain at a proposed gap address.
+This is an offline integration milestone, not an installable firmware image.
+
+Implementation and accounting
+-----------------------------
+Build: tools/firmware/build_extra_capture.py --composed-fixture
+Startup: tests/fixtures/capture_composed_startup.c
+Plan: tools/firmware/plan_capture_composed.py
+Verification: tests/emulation/verify_capture_composed.py
+
+The factory uses the original native allocator for all small runtime objects,
+copies the eight-span metadata into that permanent allocation and retains the
+allocation until reboot even if registration fails. Its local startup metadata
+and WorkerConfig may disappear before the worker starts. There is no sample
+clearing or access to external history during startup.
+
+  Heap requested payload:         9855 bytes (allocator headers additional)
+  Experimental worker stack:     16384 bytes / 4096 words
+  Native task creation metadata:   148 bytes (not allocated by task fixtures)
+  External history:             540672 bytes / 1024 slots / 65536 frames
+  Prototype history duration:     1.365333 seconds at 48 kHz
+  Ordinary capacity:            223104 frames / 4.648 seconds
+
+The MAIN proposal includes the same byte-gated startup capacity instruction
+used in diagnostic 08. Existing native setup supplies both descriptors and both
+cached capacities; the recorder does not repair or resize those live values.
+The exact first eight tails remain listed in segmented_history_findings.txt.
+The other four tails are not consumed. No tail ownership is inferred from this
+build or from intact hardware guards alone.
+
+  Code destination:       0x800b6b00 (still a physical ownership proposal)
+  Raw composed code:      19928 bytes
+  Packed composed code:   16553 bytes
+  Packed DSP:             36172 bytes
+  Existing MAIN source:   55004 bytes
+  Remaining packed space:  2279 bytes
+  Global proposal:        [0x80960080,0x809600e4), 100 bytes
+
+The composed global proposal adds four bytes for the permanent arena pointer.
+The prior profiles retain their original 96-byte limit. A fixture-only absolute
+linker symbol selects the new bound; the linker rejects a larger global region.
+Original scatter helpers zero the exact global span and expand both compressed
+streams. All eight original scatter regions and MAIN/container lengths remain
+in the proposal. This planner writes JSON only: no BIN, checksum, staging or
+device operation. Recheck packing after every composed code change.
+
+Offline evidence
+----------------
+Twelve new groups pass, exercising the compiled composed ELF, not the separate
+heap or segmented research ELF:
+
+* Every planned MAIN/DSP adapter survives minimal linking. The unused contiguous
+  arena allocator and legacy pad/reload/SD recovery overlay do not survive.
+* The complete original scatter entry expands the composed code and patched DSP
+  and zeros 100 globals, preserving all original region contents and guards.
+* The later original boot/scheduler path creates native queues and the optional
+  arena using original allocator instructions. Task/mutex creation and IRQs are
+  modeled; therefore the reported free heap is not physical device headroom.
+* Registration copies descriptors/configuration and leaves the worker asleep
+  without reading its manager or external history after the boot stack is erased.
+  Startup cannot reach the public file APIs. The new globals' guards remain intact.
+* Optional allocation failure (injected allocator return) and negative, zero or
+  missing-handle task results stay closed and cannot retry. Failed stock task/
+  mutex initialization or idle creation never allocates the optional runtime.
+* Complete encoded control and DSP jumps preserve their stock continuations.
+* Native FolderTree, FolderTreeSd and ExfatFoldersSd compositions produce one
+  exact extra TMP and preserve all seven ordinary file ranges/payloads against
+  a baseline. The exFAT case has 256-KiB clusters; this is a virtual geometry,
+  not the measured on-card BPB. Astra recommended this final coverage case.
+* A 2400-block take crosses multiple history wraps with repeated 400-block
+  logical worker blackouts, continued audio after stop, successful catch-up and
+  rearm. The same heap allocation preserves the preceding verified TMP.
+* A 1100-block blackout loses required history, yields no eligible extra take,
+  and preserves all seven ordinary files in the modeled storage backend.
+
+Startup and recording are still distinct controlled harness phases: the full
+scatter/boot tests do not run a whole interrupt-driven device boot, and the
+recording harness explicitly authorizes worker release. The composed source
+has no release caller. Native controller completion, scheduling, middle DSP,
+task stack allocation and physical cache/DMA remain modeled or omitted.
+Extra-file failure isolation in a synchronous backend does not prove ordinary
+filesystem progress when a physical transfer retains shared resources.
+
+Way forward
+-----------
+The composition prerequisite is closed offline; storage/device bindings remain
+the next milestone. Do not turn mount status or Main-task identity into readiness.
+Implement the smallest concrete storage admission/generation and transition
+exclusion binding, with a physically justified completion/error join inside
+live native frames. The first candidate can admit one storage generation per
+boot and remain disabled after a transition until reboot; automatic recovery
+is later work. The lease must also cover automatic manager rearm and the next
+TMP creation. Qualify exact code/global and history alias/cache ownership.
+Then fold copy-gap/history-age/loss/ordinary-progress and stack observations into
+the minimal candidate, recomputing packing and heap margins. Verify effects and
+master-dynamics separation at the extra tap. A short controlled hardware capture
+and whole-song trial follow those bindings; pad publication follows capture.
+
+Reports: analysis/capture_composed_plan.json and capture_composed_verification.json.
+The full runner passed 698 groups across 62 suites before the final exFAT case;
+the affected composed suite passes all twelve groups afterward. The initial
+exFAT folder assertion was placed after worker readiness had already allocated
+the TMP; checking initial free-cluster geometry before release fixes that test
+ordering error. No production code or compiled ELF changed in the follow-up.
+No new firmware was transferred or installed in this milestone.
+
+Astra's requested xhigh review accepts this scoped milestone with no newly
+verified corrective code defect. Its saved advice and static early-reset FPU
+ordering evidence are in astra_capture_composition_review_20261009.txt.

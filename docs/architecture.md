@@ -18,9 +18,40 @@ Live inputs ──────────────────────�
                     next overdub pass
 ```
 
-This is the target routing. The tap is a candidate before late master dynamics;
-active compression and effects-return behaviour still need independent checks.
+This is the target routing. Original effects-return mixing, gain ramps and active
+master dynamics now have [focused offline checks](research/tap_processing_findings.txt):
+the tap includes the returned effects and precedes master gain/dynamics. A separate
+[provider audit](research/effect_memory_providers_findings.txt) executes all five
+original effect engines and bounds their tested memory accesses. Combined effects
+and extra capture still need hardware qualification.
 Neither additional capture nor automatic pad handoff has run on the device.
+
+Initial storage readiness now has a concrete, one-boot software witness: the
+first normal Main card setup must reach its successful directory branch, and
+the first audio-only USB request must be consumed and acknowledged by the native
+worker before normal Main reception. Unexpected ordering, stale acknowledgements
+or later storage transitions revoke it until reboot. This adds no queue or retry
+loop and is only a necessary condition for lease admission; physical SD/cache
+permission and capture release remain unbound. See
+[startup evidence](research/storage_boot_findings.txt).
+The [prepared dormant trial](../experiments/17-dormant-boot/README.md) loads the
+full payload and registers a sleeping worker without connecting recording or SD
+hooks. Diagnostic16 remains installed while that larger trial awaits hardware.
+
+The [passive upper-gap diagnostic](research/ram_activity_probe_findings.txt)
+completed its hardware checks after manual update. Two full idle sweeps and disjoint
+halves across two verified pad plays have matching fingerprints. Two windows
+during a 165.251-second multitrack take cover the entire gap with the same result;
+full sweeps after stop and normal card transfer also agree. The first recording
+backing is identified in USB and saved MASTER audio. The second is unconfirmed
+after a user-reported level/mute change. Full sweeps during user-reported song
+playback and all five audio-verified effects also agree; the song's USB master
+is silent, so its audio is unverified. Room restoration is audio-verified.
+The diagnostic adds one
+bounded query with no permanent state, reads fixed 1-KiB pages twice and retains
+all earlier diagnostic behavior. It does not change capture placement or claim
+ownership of apparently spare memory. Stable fingerprints are insufficient to
+exclude read-only users, DMA activity or physical/cache aliases.
 
 ## Current design
 
@@ -32,6 +63,230 @@ gone; short first/last blocks retain their exact lengths.
 Readback reuses stopped, drained staging, saving a separate 4-KiB buffer. Rearming
 initializes history-slot ownership and overwrites samples before publication;
 it does not bulk-clear old history payloads.
+
+The actual staging payload and its containing allocation require 32-byte
+alignment for the native sector driver. Reordered metadata gives an aligned
+payload without increasing the 4,160-byte state. Sample scaling uses explicit
+single-precision hardware instructions under a saved/restored FPSCR scope, so
+rounding and underflow match the previous conversion independently of stock
+task settings. Compiler, exact-sample, native-transfer and software context
+evidence are in the [performance corrections](research/capture_performance_findings.txt).
+Physical FP preemption/stack behavior remains a deployment gate.
+
+Hardware storage measurements require a revised memory layout: the current
+128-slot heap history holds 170.667 ms, while a shared filesystem held interval
+reached about 481 ms. The [native storage audit](research/native_storage_layout_findings.txt)
+checks fixed lane-tail layouts that could retain 0.683 or 1.365 seconds of extra
+history while keeping 4.824 or 4.648 seconds for ordinary recording. These are
+unselected offline proposals. The [initialization/mode audit](research/native_ring_modes_findings.txt)
+finds that one existing startup size instruction feeds both native descriptors
+and both cached capacities. Full original initializers, known audio callbacks
+and recorded-song refills preserve the tested shortened bounds. Live resizing
+is excluded: even coherent sizes can leave an invalid producer cursor. Physical
+ownership, remaining aliases/mode transitions and ordinary backlog still need
+qualification. The [segmented-history implementation](research/segmented_history_findings.txt)
+now supports the 1024-slot geometry offline, while retaining contiguous storage.
+One validated region description covers preparation, producer/consumer indexing,
+manager overlap checks, handover and both retirement scans. Small runtime objects
+come from the native heap; the eight external history spans are separate. This
+prototype retains 1.365 seconds, which is not yet a measured safe service budget.
+
+The [minimal composition](research/capture_composition_findings.txt) now combines
+encoded startup/audio/control hooks with heap-owned controls and segmented
+history in one offline build. Cold registration leaves the worker asleep; no
+storage release is wired. It requests 9,855 heap bytes plus a separate experimental
+16-KiB task stack and native task metadata. The packed proposal has 2,279 bytes
+spare and 100 proposed global bytes; executable/global ownership and storage
+admission/transition/completion bindings still precede device deployment.
+
+The separate [storage-gated composition](research/storage_lease_findings.txt)
+now pins each manager operation, including automatic next-TMP creation, against
+one admitted generation. Closing admission requests cancellation and remains
+closed until reboot. Storage-only shutdown closes the extra file and audio
+gateway while retaining all control objects for ordinary callbacks to finish
+later. It does not authorize memory reclamation. Lower physical completion/cache
+validity remains a prerequisite; the pin cannot repair premature driver unwinding.
+
+The separate [native transition executor](research/storage_transition_executor_findings.txt)
+closes/joins that lease without waiting, then runs the unchanged selected USB/card
+body on Main only after retirement. Its separate
+[Main binding](research/storage_main_findings.txt) now wraps five original receive
+calls in the offline transition fixture. The current request remains on Main's
+stack while optional file cleanup completes; later packets stay in the native
+FIFO. No private queue or synthetic retry event is added. An uncertain close
+keeps the request held. Original handlers continue once storage closes, and old
+ordinary callbacks retain their memory until reboot. The fixture leaves 870
+packed bytes spare, with a 9,887-byte arena and 104 proposed global bytes.
+Exhaustive ingress/lock dependencies, physical source/cache ownership, trusted
+normal-mode admission and startup release remain open. Startup still leaves the
+worker asleep and no capture update image is produced.
+The [cold-start audit](research/native_startup_boundary_findings.txt) identifies
+the native successful mount/folder branch and distinguishes ordinary boot from
+setup modes that later reach the same Main loop. That logical witness cannot
+replace the missing physical storage admission.
+The [SD cold-start audit](research/sd_cold_start_findings.txt) also executes the
+native reset/setup and enumeration chain. Two small FIFO reads bypass the
+block-DMA scope; source qualification must cover these before ordinary and
+extra-file traffic. Passive diagnostic14 records the first reset/enumeration
+without supplying admission or changing the driver's decisions.
+An isolated [LZ4 packing experiment](research/lz4_packing_findings.txt) leaves
+6,244 bytes spare with a 512-byte decoder. Original startup and malformed-input
+checks pass offline. Default/device builds retain Zoom's decoder; the alternative
+needs exact combined-fit and physical startup qualification before selection.
+
+The [focused SD diagnostic](research/sd_chunk_observation_findings.txt) observes
+controller state at four native chunk waits before buffer copy/reuse. It keeps
+the extra recorder disabled and preserves the current ordinary capacity. Its
+observations will guide that lower completion binding; quiet snapshots alone
+cannot establish it. The installed diagnostic's startup baseline records 1,200
+waits with no omitted chunk observations and 16 detections. The first retained
+successful read has data-line activity/inhibit remaining but read-transfer
+activity clear. This narrows the physical question without proving DMA is still
+using a buffer; no physical join is bound.
+The short ordinary take subsequently reaches all four sites with 997 new waits
+and 181 detections, no omitted chunk observations and seven valid aligned files.
+Concurrent pad audio was unconfirmed in that first take. A separate detail profile retains per-site
+counts/reason unions/latest bad samples to classify the new detections; it
+changes no native completion or storage policy. That detail profile now runs on
+hardware. A later 179.196-second take has seven valid, finite, aligned files and
+the one-shot backing is identified in MASTER, with no backing detected in mostly
+quiet input stems and no audible problems reported. Its recording interval adds
+4,896 waits with zero omitted chunk observations. The 934 direct-write and 14
+bounce-write detections contain only data-inhibit/line-active reason categories;
+retained write samples show DAT0 low with transfer-active bits clear. Candidate
+NXP driver documentation allows card busy after a write returns, so those bits
+alone are not a DMA-lifetime certificate or a reason to treat every write as a
+failure. Raw completion/error identity and exact cache ownership remain unbound.
+Transfer/hash/remount observations are kept separate from recording evidence.
+
+The [native cache audit](research/sd_cache_contract_findings.txt) decodes stock
+MPU region 10 as 32 MiB of cached normal memory covering the proposed staging,
+history, code and globals. Original direct reads clean/invalidate before DMA;
+the exercised paths have no post-read invalidation. An opt-in offline helper
+invalidates only the original owned read lines after modeled completion, inside
+native frames. It snapshots the start before command launch and requires this
+command's raw TC, rejecting an earlier TC plus a software success event. Fifteen
+groups verify the ordering and explicitly modeled stale-line case. It supplies
+neither physical join nor memory reservation and is excluded from all normal
+and composed builds; the installed passive diagnostic is unchanged.
+
+The [passive memory query](research/physical_ram_capacity_findings.txt) now
+independently reports one enabled 32-MiB SDRAM decode window on hardware, with a
+16-bit bus and refresh enabled; three paired snapshots agree. Internal core
+TCM mappings are 128 KiB data and 32 KiB instruction memory. Fuse selection means
+the recorded GPR17 is not treated as an active full bank map. These observations
+strengthen capacity evidence without reserving either apparent external gap,
+detecting physical chip density or changing the proposed history layout. Full
+ownership remains a requirement before choosing an alternative to ring tails.
+
+The [derived-address ownership audit](research/ram_gap_ownership_findings.txt)
+bounds the adjacent free table, USB setup object and native queue allocation
+in 35 offline groups. Its two new gap constants are character-table data;
+no confirmed consumer inside either gap was recovered. The upper 872-KiB gap
+could hold the current 1024-slot history contiguously using the existing API,
+avoiding native ring shortening, but remains unreserved. Static absence and
+unchanged passive fingerprints cannot establish complete ownership or
+physical alias safety. Current device and offline placement remain unchanged.
+
+The [USB provider follow-up](research/usb_memory_providers_findings.txt) adds
+75 focused checks of original profile selection, complete descriptor construction
+and six worker-generated pool configurations. Their five supplied buffer ranges
+lie in internal DTCM, outside the external candidate gaps. Original installation
+and audio-state pointer consumption execute; subsequent dynamic length arithmetic,
+endpoints and physical aliasing remain unresolved. Neither gap is reserved.
+
+A separate [raw IRQ diagnostic](research/sd_raw_observation_findings.txt) now
+runs on the device. It stores full status before native
+acknowledgement, including errors lost by the original event mapping, plus the
+active cache/TCM configuration. Twenty-three offline groups preserve native IRQ
+behavior and the existing detailed wait protocol. It adds no completion guard,
+cache change or capture permission. Exact staging/readback and settings/audio
+preservation are verified. After update/reboot, fresh protocol replies confirm
+execution; startup and automated pad playback pass with no observed raw errors
+or omissions. The bounce CPU cache question is resolved; cached SDRAM staging/
+history and concrete completion/ownership binding remain unfinished. Two ordinary
+takes now have valid aligned WAVs; the restarted take includes backing and strong
+live input, with its backing window agreeing with USB master/stems. The recording
+interval adds 12776 native waits/DMA-mode TC samples, zero raw/detail omissions
+and zero raw errors. Ninety-six stored live write-mode TC snapshots have no
+error flags, but lack a command generation or owner. Detailed write snapshots
+retain trailing inhibit/line activity; broad call observations omit eight calls
+and peak at 648 ticks. Actual worker headroom remains unmeasured. These
+observations do not enable capture; one concrete guard beneath audio and metadata
+IO still needs completion/generation and exclusive cache-line ownership.
+
+The [command/buffer journal](research/sd_command_observation_findings.txt) is a
+separate, locally verified passive diagnostic. Four before-address adapters and
+the native command entry retain original buffer spans, submitting context and
+temporally associated raw/wait observations. Its 35 offline groups preserve
+tested native behavior; a late prior-origin TC can still appear clean. Software
+association therefore supplies context for the next binding, without granting
+physical completion, source exclusion, cache ownership or capture admission.
+Its exact image is staged/readback verified, preserving all 142 audio/pad files
+and settings. Normal Eject, transfer exit and original pad/MIDI/heap checks pass.
+New replies after user-reported update/reboot verify execution. Startup and
+automated one-shot playback identify original bounce spans/task context; live
+queries fall inside the backing window. Three command observations are omitted
+across boot/playback, so coverage is partial despite zero raw/detail errors.
+The ordinary backing/live-input recording check now passes: seven valid aligned
+files over 262.787 seconds, identified master backing, no strong coherent backing
+in the stems and agreement across all twelve USB channels for the full captured
+18.005-second interval. The stopped interval adds 1366 direct and 3514 bounce
+writes, with zero raw errors or raw/detail omissions. Five more command
+observations are omitted; complete coverage is not claimed. Original settings,
+pads and prior audio metadata are preserved, and normal operation is restored.
+These observations inform the write-side binding; they grant no capture or
+completion permission. Physical source exclusion before address programming,
+nominal/error completion and exclusive buffer/cache ownership remain next.
+
+The [per-chunk SD checkpoint](research/sd_chunk_guard_findings.txt) now holds each
+native block-data wait before bounce copy/refill or driver-frame unwinding. One
+32-byte record retains the original span, submitting task and fresh raw latch;
+only exact positive modeled completion releases it. Sixteen offline groups cover
+direct/bounce reads and writes, split chunks, pending completion, errors, identity
+changes and cache ordering, including capture metadata/payload/readback. The
+enclosing operation checkpoint remains for final status. No new task, allocation,
+reset or retry is added. Both checkpoints remain test-only: old physical sources
+must be excluded before each address store, and actual nominal/error joining and
+exclusive cache-line ownership are not supplied by these callbacks. The full
+regression results pass 774 groups across 67 suites; the installed diagnostic is unchanged.
+
+The [native admission candidate](research/sd_chunk_admission_findings.txt) now
+holds entry before the first bounce fill/cache effects, then drains native status,
+flags, binary token and pending IRQ before each address write. Four inline adapters
+preserve stock register state and consume a matching preparation marker at command
+entry. A compiled host-completion predicate replaces the chunk's positive MODEL
+reply in sixteen new test groups, including unchanged capture metadata/payload/
+readback and pending-admission cancellation. A 24-byte record and one opt-in port
+are added only to fixtures. Actual old hardware/IRQ/task exclusion and exclusive
+spans remain a MODEL source lease; a false lease still admits a late old TC. The
+native outer card/USB gate must therefore bind before this can run on hardware.
+The original filesystem's allocation-table, mirror and directory sector updates
+also execute under this guard; physical sectors and source exclusion remain models.
+
+The preceding [ring-layout diagnostic](research/ring_probe_findings.txt) ran on the
+device with extra capture disabled. It changes only the original startup size
+instruction, plants bounded guards after cold clearing, reports requested IO
+spans and samples ordinary modulo backlog. All twelve tails remain intact after
+two idle scans, a 197.6-second ordinary backing recording, transfer/pad restoration,
+exercised recorded-song playback and stopped Editor parameter changes/restoration
+for all five effects. A computer-controlled USB test also exercises all five
+effect audio paths and restores Room. Seven more full scans reach sweep 26 with
+all tails intact, distinct effect-energy responses and no new source omission.
+Original numeric parameters/pads and final heap/MIDI controls pass. The preserved
+audio corrects a phase-sensitive waveform assertion using decay-energy envelopes
+and wrong-effect controls; this is not sample-identical reverb reproduction.
+The USB-only workload does not test SD service or the additional capture tap.
+Five new source observations were omitted
+during the recording interval and one during sampled playback. Broader mode and tail
+ownership qualification remains pending; clean guards cannot establish reads,
+aliases or physical cache/DMA ownership. Segmented history is now implemented offline;
+its physical ownership and a justified service budget remain unfinished.
+
+The audit also reproduces premature staging reuse at a final-stream transition
+under controlled delay. It does not establish a device defect, but it prevents
+assuming extra work is safe inside the native writer. The separate optional
+worker remains the design until native staging and scheduling are proved.
 
 The first workflow uses one chosen backing pad (pad 1 by default). It keeps
 previous takes as files, without rotating assignments across four pads or copying
@@ -212,6 +467,23 @@ old work remain prerequisites; clearing signals cannot provide those guarantees.
 `src/capture/capture-only.elf`. This contains capture and its worker, without any
 pad publication, global reload/read/USB hooks, or synthetic DSP fixtures.
 Completed captures remain temporary files for this first milestone.
+`--heap-fixture` adds a separate [native heap arena experiment](research/capture_heap_findings.txt).
+It allocates the runtime objects and a smaller history through the original
+allocator instead of placing them in the scatter-table gap. Allocation failure
+leaves capture disabled. This experiment is excluded from normal/placement
+profiles and supplies no device startup hook or storage release. Experiment 06
+reserved the exact 128-slot arena and unused worker allowance during ordinary
+recording, leaving 69,256 free bytes. This establishes those allocations' capacity,
+not actual worker service or later stock reserve. The subsequent unreserved
+comparison measured a roughly 460 ms native write, exceeding both 128-slot
+(170.667 ms) and 256-slot (341.333 ms) histories. The next supported size, 512,
+requests 280,031 arena bytes and exceeds the observed 163,104-byte free heap.
+The memory/storage strategy must be revised before reliable continuous capture;
+larger unowned RAM or a reduced reserve floor is not justified. Native elapsed
+calls include waits/scheduling; actual worker blackouts, occupancy/catch-up and
+stack headroom remain unmeasured. See the latest
+[performance findings](research/capture_performance_findings.txt).
+Code/permanent-global placement is a separate requirement.
 The [capture-only integration harness and binding plan](research/capture_integration_findings.txt)
 now verify one exact extra file beside seven byte-identical ordinary files using
 this normal ELF. Code/RAM/stack candidates and startup requirements are sized,
@@ -305,6 +577,14 @@ the map enabled, and mount ignores a failed write-protection query; readiness
 cannot rely on those flags alone. Full board/card initialization and identity,
 physical completion, cache/source exclusion and outer storage authorization
 remain unbound. Automatic worker release is still disabled.
+The [native exFAT composition](research/native_exfat_findings.txt) now covers
+the format reported by the connected card, including contiguous/fragmented
+allocation, entry checksums, cross-cluster readback and errors. A combined case
+uses a native heap arena, original folder/file/SD instructions and 256-KiB
+clusters. It still uses virtual sectors and modeled completion; actual-card
+geometry and behavior remain unmeasured. Stock mount can write usage metadata
+before a later error and accepts the examined boot-checksum mismatch, so mounted
+state or an error alone cannot establish safe storage authorization.
 The [native outer setup](research/native_storage_setup_findings.txt) now creates
 the recorder/pad folders through stock filesystem instructions from an empty
 card fixture. Application capacity/cluster policy is checked separately from

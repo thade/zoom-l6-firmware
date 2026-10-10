@@ -1,15 +1,247 @@
-Remaining deployment gates — 6 October 2026
+Remaining deployment gates — updated 10 October 2026
 ===========================================
 
 Current boundary
 ----------------
+Update: a concrete logical startup witness is now implemented in a separate
+build and passes9 groups. Native initial directory success and matching USB
+request/consumption/ACK must precede normal Main readiness; stale replies and
+later transitions permanently revoke it. The lease admission API now requires
+this condition in that build, but it grants no physical SD permission or release.
+Experiment17 is prepared locally to qualify full-payload publication and dormant
+native worker allocation. It is not staged or installed. Diagnostic16 remains
+on the mixer. See storage_boot_findings.txt and experiments/17-dormant-boot/README.md.
+
+The latest full offline regression passes882 groups across82 suites,
+including three continuous-startup, ten startup-enumeration, ten source-reuse
+and five native-ingress groups, four USB acknowledgement groups and nine concrete
+startup-witness groups. Twelve dormant-payload groups pass separately.
+Five
+Main receive calls now retain a whole request on the original stack until
+storage-only shutdown joins, leaving later requests in the original FIFO.
+Control objects remain owned until reboot, avoiding a reproduced dependency
+on Main draining ordinary control callbacks. Native physical completion and
+remaining ingress/lock paths are not proved by this offline binding.
+Source/IRQ joining, exclusive memory/cache ownership, trusted admission
+and startup release remain deployment gates; no capture update image exists.
+A native dispatch follow-up removes an incorrect subtype restriction from the
+Main delayed-USB guard. Five groups pass, including32 pending-file combinations,
+and44 direct callers are classified. Four USB startup groups show that
+a requested audio mode and a semaphore return cannot alone establish a settled,
+SD-inactive worker. Actual cold history and matched request consumption are now
+bound in the separate logical witness; see storage_boot_findings.txt. These checks
+do not grant physical source admission.
+The cold-start follow-up identifies the native successful mount/folder branch
+and distinguishes ordinary startup from setup modes that later enter the same
+Main loop (five focused groups). It supplies a concrete logical observation
+point, not physical admission. See native_startup_boundary_findings.txt.
+Ten SD cold-start groups now exercise original default/high-speed enumeration
+and demonstrate false-success final flags in the card model. The expanded
+passive diagnostic14 passes66 groups and is execution-verified after the user's
+update/reboot. All11 schema2 pages form a stable first-enumeration trace:
+31 commands,43 IRQs/waits,6 PIO reads,0 omissions/skips/errors and native result0.
+The six requests identify ACMD13 status, ACMD51 SCR and four CMD6 check/switch
+reads. Reset is still set at the early observation but clear at first-command
+entry, with raw/signal/pending/active zero and IRQ110 enabled. Original pads/MIDI
+and retained health pass; free heap163104. No audio test was performed.
+Settings and156 file metadata entries were preserved during staging without
+scanning audio. See sd_cold_start_findings.txt and experiments/14-sd-startup/README.md.
+This completes the passive startup question. Source qualification must still
+cover reset/enumeration before filesystem/extra-file traffic; another unchanged
+passive trace cannot bind that contract. Capture remains disabled.
+Five further effect-provider groups execute all original engines and 4,808
+parameter updates outside the candidate memory ranges; physical ownership is
+still unresolved. See effect_memory_providers_findings.txt.
+The combined capture/Main/retained-SD fixture now has27,248 code bytes and272
+global bytes. Stock packing overflows by3,524 bytes; LZ4 leaves2,168 spare with
+its512-byte helper included. Its source permission is still unbound; installed
+hooks would hold native IO, so this is a JSON patch plan, not a bootable image.
+See capture_sd_retained_findings.txt for ten focused groups and exact limits.
+Ten further enumeration-guard groups cover retained failures in original
+startup PIO reads and both traced card paths. These close the native ANY-event
+failure, not initial physical reset/source exclusion. No source port is granted.
+See sd_enumeration_guard_findings.txt.
+An explicit source-reuse layout now puts the27,248 code bytes and272 globals
+over already-consumed DSP input, with2,054 packed bytes spare and a552-byte helper.
+Ten separate groups pass and the bounded lifetime scan has no confirmed later
+consumer. This avoids separate code/global gap reservations but does not prove
+indirect/physical ownership. Diagnostic16 now verifies the tiny publication path
+on hardware: marker0x4c36 executes over consumed input,16 bytes are zeroed, cache
+bits and expected scatter records match. It passes73 offline checks. Settings
+and156 metadata entries were preserved at staging. Existing pads/MIDI/health and
+startup trace pass; free heap163104. Automated pad playback matches at0.999027,
+with no host callback errors or new detail conditions/omissions across1,163 data
+waits. This does not qualify the full payload; no capture image or release exists.
+See capture_source_reuse_findings.txt.
+The isolated LZ4 diagnostic15 passes71 offline groups and is now execution-
+verified after update/reboot. Its fixed RAM scatter reply matches the expected
+new source/helper and unchanged original DSP destination/length. Original pads,
+MIDI and health pass. Automated pad playback matches the source at0.992265 with
+no host callback errors,1,162 native data waits and no new detail conditions or
+omissions. Free heap remains163104. The first audio check failed whole-source
+matching during a large gain change; that result is preserved, not relabeled.
+The user confirms changing the volume for comfort.
+This qualifies the loader for the exercised original DSP path, not arbitrary
+extra executable memory, physical source completion or combined capture.
+The installed firmware is source-reuse diagnostic16, retaining loader15,
+startup14 and earlier memory/command observations, with extra capture disabled. The
+latest ordinary backing/live-input take predates this update and is verified;
+see sd_command_observation_findings.txt and progress.md for that evidence.
+
+Diagnostic12's three queries and paired snapshots agree on one enabled 32-MiB
+SDRAM window at 80000000..82000000, 16-bit bus, nine column bits, four banks and
+refresh enabled. DTCM/ITCM mappings are 128/32 KiB. GPR16 selects fuse config;
+GPR17 is not claimed as the active full bank map. Original pad names/counts,
+MIDI ports and retained diagnostic snapshots pass after update/reboot, with
+163104 current/minimum free heap bytes. This verifies configuration and new
+diagnostic execution, not installed flash bytes, physical chip density, total
+internal capacity or free/owned memory. The derived-address follow-up has 32
+passing offline groups, bounding adjacent USB/free-table/queue consumers and
+resolving its two gap constants as character-table data. No confirmed gap user
+was found; ownership remains unresolved. The upper 872-KiB gap fits the current
+history, potentially avoiding native ring shortening. Next gather passive
+activity evidence and trace remaining destination providers/pools before any
+reservation; unchanged fingerprints alone will not prove ownership. No layout
+or installed image changes result from that audit. See ram_gap_ownership_findings.txt.
+See physical_ram_capacity_findings.txt and experiments/12-memory-capacity/README.md.
+
+The subsequent passive upper-gap diagnostic 13 is now verified against its exact
+prepared image: 53 groups, including all 42 prior diagnostic groups. It reads
+872 fixed 1024-byte pages twice per query, guarded by the observed controller
+configuration. It adds no persistent query state, gap/controller writes, cache
+maintenance, allocation, task or extra capture. Card staging/readback, normal
+Eject, transfer exit and original pad/MIDI/retained replies pass. Settings and
+all 149 recording/pad file metadata entries are unchanged. The user identified
+these recordings as disposable and stopped the post-write full audio scan;
+routine staging now uses bounded firmware/settings/basic file checks.
+The user's update/reboot is followed by verified diagnostic-13 execution and
+retained queries/pads/MIDI. Two full idle sweeps agree across all 872 pages.
+Two verified one-shot pad plays cover disjoint 436-page halves, also matching
+idle throughout. USB captures are finite, match the source and have no host
+callback errors. Page-query tick differences are 0 or 1; current/minimum heap
+stays 163104 bytes. Physical stack headroom and precise timing remain unmeasured.
+Command observations add 84 conditions and five omissions; the last retained
+condition is ENTRY_RAW4 with raw08 and successful command/wait. Raw/detail
+observers have zero errors/conditions or omissions. This resembles the earlier
+playback finding and is not a clean command trace or a physical-completion proof.
+A 165.251-second multitrack take now adds full-gap coverage across two windows,
+with SD writes advancing and all 872 fingerprints matching idle. Only the first
+backing is identified in USB and saved MASTER audio. The master becomes silent
+at34.956 seconds, consistent with a user-reported level/mute change; second
+backing playback is unconfirmed. All seven WAV headers have equal frame counts;
+only the new MASTER audio and small headers were read. Full post-stop and
+post-transfer sweeps agree; normal Eject, transfer exit and pad restoration pass.
+Post-recording command conditions/omissions are1950/9, detail conditions/omissions
+878/0, raw errors/omissions0/0 and broad-call omissions1. The detail conditions
+remain write-side data-inhibit/data-line-active observations, not proof of faulty
+storage or physical completion. Free heap returns to163104 after transfer, with
+a160664 low-water mark. A full song-playback sweep now agrees, with73 additional
+SD reads and no writes; playback is user-reported and USB MASTER is silent, so
+audible song content remains unverified. All five effects have distinct measured
+responses; six full sweeps including restored Room match idle. Room restoration
+is audio-verified, heap stays163104/160664, and those effects tests add no SD
+traffic or host audio errors. The initial Room attempt lacked an effect tail and
+stopped before any type change; the user then enabled send/return. Remaining
+providers/aliases and unexercised transition paths still need qualification.
+See recording-comparison.json and mode-comparison.json in private diagnostic13
+evidence. Three new offline USB setup-copy cases bring the gap suite to35 groups;
+they bound a further fixed buffer, not downstream endpoint/DMA ownership.
+Unchanged complete snapshots cannot establish free RAM, physical independence
+or absence of cached/DMA/read-only consumers. Trace remaining providers before
+any reservation. See ram_activity_probe_findings.txt.
+
+The offline USB-provider follow-up passes 75 focused groups. All eleven profile
+selections and complete descriptor construction use fixed storage outside both
+gaps. Six original USB-worker configurations supply five buffer ranges inside
+the configured internal DTCM window; their installer/getters and initial audio
+states are traced. Twenty-two additional focused groups now bound format-dependent
+lengths at80070298 and native claim/consume operations across the recovered
+profiles. Later endpoint/transfer paths remain open. The MPU check covers both
+gap boundaries but does not
+exclude physical aliases. Neither gap is reserved and diagnostic13 remains
+unchanged. See usb_memory_providers_findings.txt for exact scope and fixtures.
+
+The transition fixture now leaves870 packed bytes spare before physical SD/source
+bindings. Eight new Main groups cover the five byte-checked receiver sites and
+32 pending-I/O dispatch combinations; eleven storage-stop groups cover retained
+callbacks and nonblocking marker submission. Four separate USB-source groups
+restrict the known worker notification to its SD-capable modes, not all USB
+audio modes. Seven separate audio-processing groups support effects inclusion
+and downstream master dynamics, with synthetic engine output and input samples.
+They also identify a48-frame stock master-body delay in the initialized48-kHz
+configuration. See storage_main_findings.txt, usb_storage_sources_findings.txt
+and tap_processing_findings.txt. No capture image or hardware change results.
+
+Earlier diagnostic milestones (historical)
+-------------------------------------------
+The detail revision of passive
+diagnostic 09 runs on hardware and passes 13 offline groups; the original image
+and ten-group verification remain intact. Automatic pad-1 playback is verified
+in USB audio and a subsequent 179.196-second recording. All seven ordinary
+files are valid, finite and aligned; the 12.972-second one-shot backing is
+identified in MASTER, with no backing detected in mostly quiet input stems.
+The user reports audible backing and no audio problems. All prior evidence and
+settings are preserved and the mixer is back in normal operation.
+The recording interval reaches all four sites, adding 4896 waits with no missed
+chunk observations. The 934 direct-write and 14 bounce-write detections have
+only data-inhibit/line-active categories; retained writes also show DAT0 low,
+with transfer-active bits clear. NXP's driver documentation allows card busy
+after a write returns; this candidate explanation is not a memory/DMA join.
+The stock MPU/cache software map is now decoded: proposed spans lie in cached
+region 10 (32 MiB). The fifteen-group offline cache experiment adds post-read
+invalidation inside retained native frames, with a per-command raw latch and
+pre-command buffer-start snapshot. It still assumes physical completion and
+exclusive line ownership; normal/device builds exclude it. See
+sd_cache_contract_findings.txt. Raw completion/error identity, physical cache/
+buffer ownership and real storage-transition binding remain the next concrete
+questions. A separate passive raw-IRQ diagnostic 10 is staged/readback verified and
+passes 23 groups (13 retained detail groups plus 10 new raw groups). It records
+full INT_STATUS before native acknowledgement/masking and stores CCR/TCM
+registers on completion/error interrupts. Native event mapping is preserved;
+there is no guard, controller/cache write, task/allocation or extra capture.
+All 128 recording/pad files and settings are preserved; normal Eject, transfer
+exit and original Editor/pad replies pass. After update/reboot, fresh raw pages
+confirm execution; startup and automated one-shot playback pass, with zero
+observed raw errors/omissions. Playback adds 1163 DMA-mode TC samples and
+matching bounce-read waits, verified finite USB backing, no host audio-buffer
+errors, unchanged pads and 163104 current/minimum free heap bytes. Hardware
+readings resolve the bounce CPU cache path. Exact peripheral bus coherence and
+completion/ownership remain unbound. Two ordinary takes now have fourteen valid,
+finite WAVs aligned within each take. The restarted 201.279-second take includes
+the backing plus substantial input-3 notes; its backing window agrees with USB
+master/stems, and no strong coherent backing is detected in the separate stems.
+The earlier interrupted take has no identified complete backing. Listening is
+uncertain following the user's correction. The stopped interval adds 12776 native
+waits and DMA-mode TC samples, zero raw/detail omissions and zero raw errors.
+Ninety-six live latest-TC pages have sampled DMA-write configuration and no error
+flags; they have no proven command generation/owner. Detailed writes retain
+trailing inhibit/line activity with transfer-active bits clear. Broad observations
+omit eight calls and peak at 648 ticks; this does not qualify added-worker service.
+Stopped current/minimum heap remains 163104 bytes. Inspection, normal Eject,
+transfer exit and original pad replies pass. New evidence hashes and all prior
+metadata/settings are checked; old audio byte hashes were not repeated.
+Next bind concrete completion/generation and buffer ownership beneath both
+payload and metadata IO, then qualify the outer transitions and exact memory.
+See sd_raw_observation_findings.txt.
+Recording and later transfer/hash
+intervals are kept separate. See
+sd_chunk_observation_findings.txt. Earlier milestones below retain their original
+sizes and counts as historical evidence.
+
 The selected capture logic, native mount/folder/file paths, no-overwrite rename,
 packed loading and proposed instruction patches now have offline evidence.
 The smaller linked variant leaves 2,924 packed bytes spare. This is still an
 experimental build: automatic worker release, storage transition protection,
 physical SD completion and automatic pad handoff are unbound. No capture update
 image exists. Separate USB marker trials have been deployed on hardware.
-The consolidated offline regression passes 575 groups across 53 suites.
+The separate heap-backed alternative has fourteen passing groups using the
+original allocator and selected native filesystem/SD paths. It is excluded from
+the existing packed/startup builds and supplies no startup/storage provider.
+Twenty-two native exFAT groups now cover virtual card allocation, file readback,
+folder setup, rename/collisions, failures and heap-backed capture with 256-KiB
+clusters. Exact actual-card geometry/contents and physical behavior remain
+unmeasured. The full offline regression passes 612 groups across 55 suites;
+eight existing profiles retain their original loaded segments.
 
 The next deployment progress requires hands-on device evidence. Enabling an
 assumed completion provider or treating mount flags as authorization would
@@ -29,20 +261,115 @@ user completed the physical update/reboot. USB returned to L6, all three MIDI
 ports remained available, and the editor connected with firmware 1.10 and the
 existing pad assignments. Restoration from the working trial is verified.
 
-Next, approve and validate a bounded packed-code/loading test. Original startup
-decoder evidence is offline; loader acceptance, physical instruction visibility
-and bootloader recovery remain separate. Do not install the capture ELF or
+The user chose to skip the separate packed-code/loading trial. Experiment 04
+instead prepares a useful heap/SD observation trial with capture disabled. Its
+984-byte code/state segment uses the unused tail of the packed, unchanged DSP
+source inside the original MAIN length; persistent state is 56 bytes. Thirteen
+separate offline groups verify the decoder, all eight original startup outputs,
+editor reply lifetime, ordinary calls and retained modeled SD failures. The
+trial was staged/read-back verified and the user reported update/reboot on
+6 October. All three fixed diagnostic replies now confirm execution of this
+packed addition. The editor connected after relaunch with existing pad settings
+and normal MIDI ports. Two brief recordings now have valid, aligned master/stem
+files; one includes pad playback, with expected master/stem separation and no
+audible problems reported. Exact DSP identity remains offline evidence; longer
+audio/load tests remain necessary. Installed flash was not read
+back, and this does not establish arbitrary code/RAM ownership.
+Untouched stock restoration from this working trial is verified: exact staging
+and the user-reported update/reboot are followed by ordinary pad replies before
+and after a diagnostic query timeout, matching assignments, normal MIDI ports
+and a connected editor. No flash readback or broken-image recovery was tested.
+Bootloader recovery remains separate. Do not install an offline capture ELF or
 infer large-buffer ownership from a tiny marker.
 
 2. Establish candidate memory and scheduling evidence
 
-The large history interval is an arithmetic gap between stock scatter regions.
+The heap-backed alternative in capture_heap_findings.txt requests owned runtime
+arenas from the original allocator, avoiding the large gap for those objects.
+Its tested 128-slot request is 77,279 bytes and retains about 171 ms of history;
+this is not a selected or measured hardware budget. Experiment 04's three idle
+sample sets report 163,104 bytes free and the same minimum. Post-recording
+observations, including the pad recording, preserve those values. The combined
+SD maximum grows to 142 ms and four calls are cumulatively unmeasured. The
+170.67-ms history therefore has only about
+29 ms nominal margin to the measured peak, with incomplete timing coverage and
+no added capture I/O. This is not a justified buffer selection. Heap reporting
+is aggregate free space, not measured contiguous capacity or an extra-worker
+reserve. The brief recording-with-playback test has not established added-worker
+capacity. Establish reserve for later stock allocation/worker stacks, then measure write latency
+and overrun behavior. Code and permanent globals still need their own placement
+and startup route. Success in an initially modeled heap is not live headroom.
+
+If retaining the old large-buffer option, its interval is an arithmetic gap
+between stock scatter regions.
 One heap ends below it, but full ownership, aliases, physical extent and dynamic
 users remain unresolved. Confirm the candidate span across boot and normal
 recording/playback/card/USB modes before placing live audio history there.
 Measure stack/heap headroom, worker priority, sustained write latency and audio
 overhead. The experimental 16-KiB worker stack and polling settings are inputs,
 not measured budgets. Begin with bounded observation, then a capture-only trial.
+
+The 7 October Astra performance review in astra_performance_buffer_review.txt
+identified two offline corrections, now implemented and documented in
+capture_performance_findings.txt. Aligned full 4-KiB transfers now use one direct
+native submission; selected builds emit hardware scaling with exact samples and
+preserved FPSCR. Original software FP context switching is verified offline,
+while hardware exception/preemption and stack headroom remain unmeasured. Native allocator
+charges plus the experimental 16-KiB worker/task leave 69,256 bytes with 128 slots,
+but only 1,672 with 256. Keep 128 only for bounded capacity/overflow measurement;
+the subsequent 460 ms write below rules out choosing it for continuous capture.
+Do not select 256 from today's aggregate heap. Full worker service/lock waits,
+starting ring age, repeated stalls and catch-up must inform the final buffer.
+
+Experiment 05 is verified locally and was staged/read-back verified on 7 October,
+with capture disabled. Settings/audio were preserved, the card was safely
+unmounted, transfer mode exited and original pad/MIDI replies confirmed. The
+user-reported update/reboot was followed by seven valid diagnostic replies and
+editor reconnection. Idle free/minimum heap is 163,104 bytes; 579 SD reads and
+266 public reads had no errors/skips and peaks of 57/59 ticks. Host calibration
+bounds the rate at 999.38–1,000.19 Hz. A longer recording test is prepared with
+the original Glory Box backing looping on pad 1. The saved take is 20.04 seconds,
+with seven finite, aligned WAVs and no audible issues reported. Post-recording
+counters have no errors, SD peaks 81/53 ticks and public file peaks 82/112 ticks
+for read/write respectively. Nine public calls were unmeasured (shared across
+read/write); heap free/minimum remains 163,104 bytes. Host polling captured only
+idle counts; retained device counters provide the recording timing evidence.
+The user confirmed stopping the short take deliberately, then completed a
+187.263-second repeat with seven finite, aligned WAVs and no audible problems
+reported. Both backing repeat periods equal the source length exactly. Retained
+counters have no observed errors or increased cumulative peaks, with 105 more
+unmeasured public calls and no new SD skips. Current free heap is 163,104 bytes;
+the cumulative minimum of 160,664 already predates the longer take. No live host
+samples were collected; these counters do not provide a recording time series.
+All new copies passed hash verification and 23 prior evidence files are intact.
+Pad 1's original assignment/mode/level are restored. Untouched stock is staged
+and read-back verified with settings, all 86 card entries and all 30 saved audio
+hashes preserved. Safe unmount, transfer exit and normal editor/pad/MIDI checks
+passed. The user chose to retain the timing firmware and defer stock restoration;
+routine restoration is not a development gate.
+Installed flash bytes have not been read back.
+It splits SD read/write peaks/histograms/errors,
+separates busy versus missed-claim skips and measures full public file calls,
+including lock waits. Its 444-byte state and code occupy 1,756 bytes in the same
+original DSP source tail, with integer-only observers and no new task/allocation
+or request. Experiment 06 now prepares a bounded capture-disabled reservation
+trial with 15 passing offline groups. One explicit command after normal startup
+reserves the candidate arena and worker allowance; partial failures roll back,
+success holds unused blocks until reboot, and no task/file operation is added.
+Its 64-KiB free floor is experimental, not an established later stock reserve.
+The exact trial is staged/read-back verified with settings/audio preserved and
+safe unmount, transfer exit and ordinary editor/pad/MIDI checks passed. After the
+user-reported update, exact new status replies confirm execution. One explicit
+reservation obtained the candidate's three blocks for an exact 93,848-byte
+charge, leaving 69,256 current/minimum free with no worker created. Fourteen
+live query sets during/after ordinary recording retain held status and that
+reported free/minimum value. Saved files are valid and finite, but Channel 1
+has an unexplained extra five seconds; no all-files-aligned pass is claimed.
+After transfer/remount/restoration, current free is 69,256 and reported minimum
+66,816. These particular requests fit; largest
+contiguous allocation, later reserve and task/IRQ stack
+high-water still require separate audited observation; do not infer them from
+the aggregate heap query. Timing/return never grants physical completion.
 
 3. Establish the native SD completion provider
 
@@ -60,8 +387,13 @@ Use accepted application mount and usable target-folder outcomes in one protecte
 card generation. Close added admissions before outer mount/detach/USB effects;
 allow ongoing native work and ordinary event service to finish. Bind automatic
 release only after completion/lifetime and transition coverage are established.
-Neither zero outer return nor native FAT32-ready alone is sufficient. Test
+Neither zero outer return nor native filesystem-ready alone is sufficient. Test
 removal, transfer mode and cancellation with exact ordinary and extra recordings.
+The actual connected card reports exFAT. Native exFAT mount/allocation/metadata/
+readback and selected failure paths now have offline coverage, including its
+reported cluster size. Mount may change usage metadata before returning an
+error, and the examined path accepts a boot-checksum mismatch. Neither outcome
+establishes storage authorization, unchanged card bytes or actual-card validity.
 
 5. Finish hardware-only pad handoff and song validation
 
@@ -69,14 +401,468 @@ After capture-only passes hardware tests, bind the stopped-pad admission fence
 and checked native rename/readback port. A failed rename barrier can follow an
 already changed name, so uncertain outcomes retain ownership. Preserve prior
 takes and verify exact initial pad reads before assignment/settings save.
+Native exFAT rename/collision/readback/error behavior now also has offline
+coverage; the admission fence and seal port still require justified bindings.
 Then validate full-song timing/count-in, repeated layers, clean stems, preserved
 ordinary masters, audio integrity, failures and restoration. Package the finished
 image and user instructions only after these tests pass.
 
 Next device step
 ----------------
-The added-code trial and stock restoration are complete. Prepare and verify a
-bounded packed-code/loading trial before the next physical update is requested.
-Subsequent probe choices depend on available read-only diagnostics. Opening the
-device is not assumed; firmware alone has not established an externally
-accessible recovery/debug path.
+Experiment 06 reserves the exact candidate arena/worker allowance during
+ordinary recording: charge 93,848 bytes, leaving 69,256 free. That take has an
+unexplained extra 240,000 frames in Channel 1. Original stop arithmetic reproduces
+one extra ring from synthetic consumer state beyond the saved stop, without
+proving the hardware interleaving. A same-image comparison after normal reboot,
+with no reservation command or firmware update, has seven valid, finite,
+aligned 177.147-second files and exact backing repeat periods. The user reports
+no audible problems. Thirteen live sets and final snapshots retain UNTRIED and
+163,104 current/reported minimum free before transfer, with no measured errors.
+The discrepancy did not recur, but one comparison is not causal proof or a fix.
+The user now recalls stopping the affected take with Play/Stop rather than
+Record and considers the issue minor. An original-instruction trace shows the
+record/play/stop requests share RecStop in recording state; full button ingress
+and hardware timing remain unobserved. Defer stop diagnostics and use Record
+consistently in later trials, logging that choice. Include both buttons in final
+workflow validation; this follow-up does not block the next buffer investigation.
+See stop_cursor_lap_findings.txt.
+
+This comparison also records 460-tick SD/public write peaks (about 460 ms) and
+a 380-tick public read peak. No SD calls and 93 public calls went unmeasured.
+128 slots retain 170.667 ms and 256 retain 341.333 ms, both shorter than that
+write. The next supported 512 slots request 280,031 arena bytes, exceeding the
+observed free heap even before stack/task reserve. Compiled sizing rejects
+345 slots as non-power-of-two. Native elapsed calls include waits/scheduling,
+not a measured extra-worker blackout. Revise the owned-memory/storage strategy
+and measure service, starting history age, occupancy and catch-up before
+choosing a continuous-capture budget. Do not reduce the floor or enlarge into
+unaudited RAM. See capture_performance_findings.txt.
+
+All 37 prior evidence hashes are preserved, safe transfer exit and original pad
+restoration pass. Current heap is 163,104 bytes, minimum 160,664 only after the
+transfer/remount/restoration interval. The same diagnostic image is running
+unreserved. Unused reserved capacity is measured; added-recorder throughput is
+not. Actual worker stack/scheduling, physical SD completion, source/cache fences,
+startup release and storage transitions remain separate gates. Stock swapping
+is optional, and no extra recorder is ready to deploy.
+
+Experiment 07 is now staged/read-back verified and passes 17 offline groups, with all
+40 prior diagnostic checks passing and prior images unchanged. It observes
+public READ/WRITE and actual native token take/give by eight stable TCB slots,
+without adding capture/files/workers/reservation. Take return to give entry is
+a held-body lower bound including scheduling; native take/give durations remain
+separate. Pending calls can be consistently observed while waiting/holding/
+giving. Native file/SD sectors/results and retained error-stack ownership match
+baseline in fixtures. See service_probe_findings.txt and experiments/07-storage-service.
+Safe unmount/transfer exit and ordinary status/pad/MIDI checks pass. All 100
+audio/pad entries, global settings and 44 saved audio evidence hashes are
+preserved. After the user-reported update/reboot, all 41 new service pages and
+seven legacy timing pages confirm diagnostic execution, with four distinct task
+owners, consistent pages, zero omissions/errors and 163,104 current/minimum free
+heap. Original pads and MIDI ports match. Installed flash has not been read back.
+The 258.204-second service-probe take has seven finite aligned files and three
+exact source-length loop joins; the user reports no audible problems. All 44
+prior evidence hashes/global settings are preserved and original pad controls
+are restored after safe transfer exit. Twenty-three restarted snapshots show
+a 484-tick public WRITE and same-task/job 419-tick SD held body, a separate
+481-tick filesystem held maximum with no public parent, and a 414-tick READ
+including a 396-tick filesystem take. These peaks rise before exhaustion with
+subsequent file activity. The earlier 598-tick boot held peak is excluded.
+481 ms generates 184,704 stereo sample bytes, more than the entire free heap.
+The history must be revised; exact optional-consumer service remains unmeasured.
+
+The start is not sampled live; the original idle collector failed before the
+take. All new per-task pages are consistent, but eight active legacy pages are
+unavailable. Eight permanent slots fill near the final file activity: 22 full
+slots and 22 unmatched gives omit events. Transfer/remount/restoration raises
+both to 62,337, outside the workload. All observed errors are zero, not proof
+for unobserved calls. Heap current/minimum stays 163,104 during the series;
+after transfer minimum is 160,664 and current again 163,104. Audio matching is
+strong in selected alignment/join windows, but one local window is unexplained;
+levels remain deferred. See service_probe_findings.txt for exact limitations.
+Next audit native writer/staging lifetime and owned larger history offline;
+improve attribution before another hardware probe. No extra recorder is enabled.
+No physical completion or actual new-consumer service/stack budget is supplied
+by this probe.
+
+Earlier experiment 04 sequence
+-----------------------------
+The added-code trial and stock restoration are complete. The standalone loading
+trial is skipped. Experiment 04's fixed read-only MIDI queries and ordinary SD
+observer are prepared and checked locally; no capture or completion provider is
+enabled. The exact image is staged on the connected card with successful
+readback, a local stock backup and safe unmount. The user-reported update/reboot
+is now followed by valid replies and editor reconnection. Idle heap free/minimum
+is 163,104 bytes; unit 1 reports 573 reads, no writes or skips, latest success
+and maximum 66 ticks. Host calibration over 61 seconds bounds the rate at
+999.59–1,000.59 Hz, so the longest observed read is approximately 66 ms.
+After the requested normal recording, counters show 187 additional measured
+reads and 300 writes; heap free/minimum remains 163,104 bytes. The combined SD
+maximum is now approximately 142 ms and one call went unmeasured. Latest return
+is successful, but peak operation type, skipped-call cause and historical errors
+are unavailable. The subsequent pad-recording interval adds 321 measured reads,
+299 writes and three unmeasured calls; heap and the maximum remain unchanged,
+and the latest return is successful. Both saved takes (18.59 and 19.13 seconds)
+have valid, frame-aligned float WAVs and finite samples. Backing plus channels
+explain more than 99.9999% of the second master sample energy, with no substantial
+coherent backing copy in the stems; the user reported no audible problems.
+This is a short ordinary-workflow check, not extra capture or full-song validation.
+Untouched stock restoration from this working diagnostic trial is now verified.
+Exact stock staging/readback preserved recordings/pads/settings. After safe
+unmount, transfer exit and the user-reported update/reboot, ordinary pad replies
+worked before and after a three-second diagnostic query timeout. Assignments
+matched, normal MIDI ports remained and the editor connected with firmware 1.10.
+This is behavioral verification, not installed-flash readback or broken-image
+recovery. Next establish added-worker reserve, history sizing and physical
+completion. Keep skipped/error/incomplete
+observations visible; only the latest native result is retained. These measurements inform buffer
+sizing but do not establish physical completion, source/cache exclusion or safe
+recovery. Opening the device is not assumed; firmware alone has not established
+an externally accessible recovery/debug path.
+
+Native staging/ring-layout follow-up — 7 October 2026
+-------------------------------------------------
+See native_storage_layout_findings.txt. Twenty-seven new offline groups and
+38 existing focused regressions pass (65/7 suites). The final-stream negative
+control permits a queued staging pointer to be overwritten before a token wait;
+actual scheduler admissibility is unproved, so native-writer composition remains
+gated. Keep the existing separate worker pending lifetime/priority evidence.
+Both 231552/223104-frame proposals pass original twelve-lane DSP copy and
+mono/stereo float readers, PCM16/24/float alternate writers and DSP playback.
+Two descriptors alias the same arena; cached C+50/C+1e94 must agree too.
+Reinitialization resets capacities. No fixed tail is owned on hardware yet.
+Next trace cold-start/mode setup, alternate MAIN audio, every descriptor/reset
+user and cached-bound propagation before implementing segmented history or
+preparing a memory-layout probe. Candidate 512/1024 slots are not selected
+service budgets. Physical joins, source/cache, ordinary backlog, service/catch-up,
+storage transitions and startup release remain gates. No device change occurred.
+
+Native initialization/audio-mode follow-up — 8 October 2026
+---------------------------------------------------------
+See native_ring_modes_findings.txt. Twenty-four new groups and 91 related
+regressions pass (115/11 suites). Full original audio/recorder initialization
+propagates one changed MOVW at 800121ce to both B descriptors and both C caches;
+reinitialization retains it. All four complete audio callbacks match stock-sized
+samples across wrap in the tested idle-effects states. Original recorded-song
+refill/registered alternate writer/acknowledgement also wraps all mono/stereo
+PCM16/PCM24/float32 lanes without touching proposed tails; file reads and locks
+are modeled. Original selected lookback/control/stop cases retain their semantics.
+Stale playback caches and coherent late shrinking with invalid cursors both
+have tail-corruption counterexamples. Prefer the original fixed startup size
+instruction; do not add a late resize or capacity-repair hook.
+The code has no segmented history implementation or owned device tails yet.
+Remaining aliases/deferred effects copies, physical/scatter/DMA/cache users,
+reentry/USB/storage transitions and real ordinary backlog must be qualified
+before a tail-memory diagnostic. Keep capture disabled in that diagnostic.
+Actual optional service/catch-up, ordinary margin, stack/priority, physical IO
+joins and optional startup release remain gates. The native staging reuse risk
+still excludes assuming a combined writer is safe. No image/device change.
+
+Fixed-tail diagnostic follow-up — 8 October 2026
+------------------------------------------------
+Experiment 08 is prepared locally; see ring_probe_findings.txt. Twenty new
+offline groups and 128 groups across eight focused suites pass. Exact earlier
+diagnostic builders/hashes are unchanged. One original startup size instruction
+sets 223104 frames; the probe has no extra capture, task, heap allocation or IO
+request. Cold scatter clears the whole ring, followed by explicit bounded guard
+initialization after coherent idle setup. All twelve tails have unique guards;
+396 read chunks form one sweep. Original generic effect-copy negative controls
+are detected, but their computed destinations remain an unresolved alias source.
+Requested file/SD buffer spans and sampled modulo ordinary backlog are recorded.
+Guard success detects no writes in checked words; it cannot prove reads, aliases,
+physical DMA/cache lifetime, whole-lap absence or unsampled backlog maxima.
+Next verify staging/readback and manual update, then stopped initialization/scan,
+ordinary backing recording, recorded-song playback and effects in separate steps.
+Begin with scans after stopping; qualify live scanning afterward. Preserve all
+prior audio/settings and inspect seven ordinary WAVs. Slot-exhausted service
+attribution remains unresolved; this layout image supplies legacy aggregate
+timing only, not an improved extra-consumer service or selected buffer budget.
+Segmented history, actual optional service/catch-up, physical completion/source
+joins, storage transitions, stack/priority and worker startup remain gates.
+
+Experiment 08 staging is now verified: exact readback, previous-root/settings
+backups, 107 unchanged audio/pad metadata entries, and all 51 saved audio hashes
+before/after. Safe unmount and transfer exit pass; original pad assignments/counts,
+normal MIDI ports and consistent legacy timing/heap replies match. Current free
+heap is 163104 bytes. No guard or update command was sent. Next the user performs
+the manual update and normal reboot; query the fixed idle layout before explicit
+guard initialization. Staging is not installed-flash or hardware-layout proof.
+
+Experiment 08 execution/idle follow-up — 8 October 2026
+------------------------------------------------------
+User-reported update/reboot and new replies confirm diagnostic execution. Both
+descriptors/caches agree on 223104 frames. All 202752 guard words are initialized;
+two full circular idle scans pass across twelve tails. Current/minimum heap is
+163104 bytes. One historical source omission remains unknown; no new source
+omissions or observed overlap/invalid spans occur in checked windows, including
+59 requests while preparing pad 1. Two missed guard claims were safely retried.
+Nine host groups cover interval checks, bounded retry and full-cycle semantics;
+the twenty probe groups pass again and the image is unchanged. No installed
+flash readback or complete source/boot coverage is claimed.
+
+Pad 1 is GLORY_BOX.WAV, Loop, 0 dB, with other assignments/counts unchanged and
+Multi Track selected. Next collect read-only status/backlog during a three-minute
+backing/input-3 recording, stop with Record and scan before reboot/transfer.
+Then inspect all seven audio files and preserve prior evidence/settings. Mode
+changes/effects/recorded-song playback, live scans and transfer/reentry remain
+separate qualification steps. Segmented history, actual optional service and
+catch-up, physical source/cache/SD joins, stack/priority and safe worker startup
+remain unfinished; intact idle guards do not select a safe capture budget.
+
+Experiment 08 ordinary recording — 8 October 2026
+------------------------------------------------
+Take 261008_153310 lasts 197.6 seconds, with seven finite aligned float32 WAVs.
+The user reports no audible problems. Both observed backing periods exactly
+match the source; eight independent windows retain exact alignment. The stopped
+full guard scan checks 202752 words across twelve tails with no corruption,
+layout fault or invalid sampled cursor. All 51 prior evidence hashes and global
+settings remain unchanged. Five new source observations are omitted since
+preparation (six total); no observed spans overlap, but the missing addresses
+remain unknown. Recording start was not sampled; 33 active snapshots and three
+stopped snapshots are available. Legacy timing also retains omissions despite
+zero observed errors. Current/minimum heap is 163104 bytes. Sampled modulo
+ordinary lag reaches 75121 frames / 1.565021 seconds; unsampled peaks/whole laps
+remain invisible. Levels remain deferred. Broader mode/ownership, storage
+transition and recorded-song/effects qualification remain before segmented
+history. No safe optional service/buffer budget or physical completion is proved.
+
+Safe transfer exit and original pad/mode/level restoration are also verified.
+Separate complete scans after transfer and pad restoration retain intact guards
+(sweeps 4 and 5). Source omissions rise to 63 during transfer; source exclusion
+remains incomplete. Guards remain armed, current heap is 163104 and historical
+minimum after transfer is 160664. Next exercise recorded-song playback and
+effects separately, preserving the powered guard state. These scans qualify
+checked writes in exercised modes, not every memory alias or physical lifetime.
+
+Recorded-song playback follow-up — 8 October 2026
+------------------------------------------------
+The user reports no audible problems. Twenty-nine sampled cursor advances span
+145.075 seconds from the first snapshot; start/exact duration and later unsampled
+activity remain unknown. The complete stopped scan reaches sweep 6 with all
+twelve guarded tails intact. One missed guard check is safely retried, with no
+guard rewriting. Source omissions rise from 63 to 64 during sampled playback;
+none are newly omitted within the stopped scan. Fresh pads/counts and legacy
+controls pass; current/minimum heap remains 163104/160664. This qualifies checked
+writes in exercised playback, not full source coverage or physical lifetime.
+The first Hall adjustment was blocked by automatic approval review until the
+user explicitly authorized temporary changes and restoration. That approval is
+now resolved and the parameter follow-up below is complete.
+Segmented history, aliases/read/cache/DMA ownership, optional service/catch-up,
+stack/priority and safe worker startup remain gates.
+
+Authorized effect-parameter follow-up — 8 October 2026
+----------------------------------------------------
+One parameter in each of Hall, Room, Spring, Delay and Echo is changed by one
+unit and restored before the next effect. All ten resulting full guard scans
+pass, as does a final scan after closing/reopening the Editor dialog and checking
+all ten original values. Sweep 17 retains all twelve tails, with no corruption,
+layout fault or new source omission. Source counts remain 85988 requests and 64
+historical omissions. Nine missed guard claims are safely retried across the
+step scans; the final scan has none. Fixed pad/count/MIDI/legacy controls pass,
+with heap still 163104/160664 bytes. No extra capture or image change is made.
+Next exercise selection and audible live input through all five effect engines,
+then scan after stopping. Stopped parameter entry alone does not qualify those
+audio paths, resolve missing source observations or establish physical lifetime.
+
+Computer-controlled effect audio follow-up — 8 October 2026
+-----------------------------------------------------------
+Five 24-second USB effect passes plus a restored Room pass complete. Seven
+stopped full guard scans reach sweep 26, retaining all twelve tails with no
+corruption/layout fault. Two missed guard claims are safely retried (22 total).
+Source requests/omissions stay 85988/64; none newly omitted. All captures are
+finite with matching dry USB input and measurable effect-only tail windows.
+Energy envelopes distinguish all five effects and match restored Room within
+2.933 percent (correlation 0.999570); four wrong-effect controls are rejected.
+The first runner's overly strict waveform assertion remains preserved in its
+failure report, with a separate corrected offline evaluation of the same WAVs.
+All ten numeric effect parameters, original pads/counts, normal MIDI ports and
+heap are confirmed; Room is restored. The user's nonzero send/return setup is
+retained. No new firmware or extra recording stream is enabled.
+This closes the checked-write qualification for these exercised effect paths.
+The USB-only workload does not test SD storage/service or new overdub timing.
+Full read/alias/cache/DMA ownership and missed source calls remain unknown;
+segmented history, optional service/catch-up, physical storage joins, a justified
+buffer budget, stack/priority and safe worker startup remain unfinished.
+
+Segmented history milestone — 8 October 2026
+------------------------------------------
+The 1024-slot, eight-tail history is now implemented offline, retaining contiguous
+storage and the separate worker. A shared validator/indexer covers exchange,
+manager, handover and both retirement scans. Native heap allocation owns small
+objects and stable external-history metadata. Four new exchange and twelve
+composition groups pass, including exact eight-file recording, wraps, repeated
+modeled stalls, sample-exact cuts, continued post-stop production, overwrite/late
+endpoint rejection and rearm. See segmented_history_findings.txt for the finite
+span inventory, allocation sizes, fixture qualifications and packing figures.
+
+This closes the offline segmented-addressing milestone. Physical tail alias/read/
+cache/DMA ownership, startup/scatter/reinitialization exclusion, owned executable
+and global placement, storage admission/generation/transition/physical completion,
+actual optional copy gaps/occupancy/catch-up/ordinary progress, stack/priority/FP
+preemption and effects/compression at the capture tap remain deployment gates.
+The external arena is not yet composed with a production startup/storage binding.
+1.365333 seconds is still prototype geometry, not a selected safe service budget.
+Verified extra recordings remain TMP; native pad handoff is a following milestone.
+No device operation, installation or new BIN is part of this implementation.
+
+Minimal composition milestone — 9 October 2026
+--------------------------------------------
+One offline minimal ELF now combines encoded startup/audio/control hooks and a
+native heap allocation with fixed segmented history. Twelve new groups verify
+original scatter loading, native heap cold registration, closed startup failures,
+waiting without history/files, exact native eight-file recording, wraps, repeated
+logical stalls, history-loss failure and rearm. The worker remains W_WAITING after
+boot; no production storage release exists. See capture_composition_findings.txt.
+
+The composed proposal has 2279 packed bytes spare, requests 9855 heap bytes plus
+the separate experimental 16384-byte stack/native task metadata, and proposes
+100 global bytes (four more than the prior minimal fixture). These are accounting
+figures, not memory ownership, safe service headroom or device timing evidence.
+Storage admission/generation/transition exclusion and physical completion/error
+joining, code/global and tail alias/cache ownership, actual worker service/stack/
+FP behavior and effects/dynamics at the extra tap remain before a hardware trial.
+No device image, transfer, installation or pad handoff was performed.
+
+Storage gate and chunk observation — 9 October 2026
+--------------------------------------------------
+The separate storage-gated composition now pins every manager step and resume,
+including automatic next-TMP creation, to one admitted generation. Nonblocking
+close/join, initialized-IDLE cancellation and permanent retirement until reboot
+pass fifteen groups. Full redesign regressions pass 715 groups across 63 suites.
+The gate is bound cold but not admitted/released by any native setup observer;
+native outer transitions and physical completion/cache validity remain unbound.
+See storage_lease_findings.txt for 9887-byte arena / 104 globals / 1396 packed
+bytes spare accounting and exact fixture limits. No capture BIN was produced.
+
+Intermediate bounce copy/reuse inside a native driver callback also needs the
+physical checkpoint. The passive experiment in sd_chunk_observation_findings.txt
+observes the four DMA data-wait returns before that copy/reuse or next chunk.
+Ten additional focused groups preserve original wait arguments/results, tested
+data and MMIO writes, full scatter/DSP and unit release, including observed
+active/error/mode counterexamples. It grants no completion permission and adds
+no extra file, worker, recovery or history writes. First anomaly persists until
+reboot; omissions/busy snapshots remain explicit. Native capacity stays 223104.
+
+This is the finite next physical question: actual DMA/endian/argument mode and
+controller activity at these chunk returns during ordinary recording/backing
+playback. Nominal idle samples cannot settle stale IRQ identity, command exits,
+PIO, physical/cache/card persistence or safely joined errors. Those facts still
+need binding before any extra-capture trial, alongside exact memory ownership
+and measured service/stack/tap behavior. No deliberate removal/error injection
+or speculative reset/retry is required for this passive workload.
+
+Command/buffer context follow-up — 9 October 2026
+------------------------------------------------
+Diagnostic 11 is prepared locally and passes 35 separate offline groups. See
+sd_command_observation_findings.txt. Four before-DS_ADDR adapters, native block
+command entry, original raw IRQ and four data-wait returns expose original span,
+task/event and command-associated conditions without changing storage policy.
+All tested native payloads/MMIO/results/unit lifetimes are preserved; original
+09/09-detail/10 images rebuild byte-identically. The journal explicitly fails
+to distinguish a late prior-origin TC from a current one, so no physical join,
+source exclusion, exclusive ownership, cache permission or capture release is
+claimed. Actual stack/timing remain unmeasured. Next stage/update and collect
+stopped startup, pad playback and ordinary backing/live-input recording evidence.
+Exact diagnostic-11 staging/readback is now verified. All 142 recording/pad
+files and settings are preserved; the earlier 128 audio hashes also still match.
+Normal Eject, transfer exit, Editor reconnection and original pad/MIDI/heap checks
+pass. After user-reported update/reboot, new-protocol replies now verify
+diagnostic-11 execution. Startup and automated pad playback pass with original
+pads/ports and heap preserved. Startup has one explicitly omitted command
+observation; playback adds two more, so coverage remains partial. The playback
+interval has1163 matched programs/commands/waits and raw TC, no raw/detail errors
+or omissions, and USB source matching above0.992. Six live pages were collected
+within the backing window. Ordinary backing/live-input recording is next; no
+extra recorder is enabled and no flash readback is claimed.
+
+The ordinary diagnostic-11 check is now complete. Take261009_213512 lasts
+262.786667 seconds with seven finite, valid, aligned native WAVs. Its12.972-second
+backing is identified in MASTER alongside substantial live input, with no strong
+coherent source match in the stems. All twelve channels of the full18.005333-second
+USB capture match SD within4.657e-10. The user reports audible backing and no audio
+problems. The stopped interval adds6579 programs/block commands/waits/rawDMA_TC,
+including1366 direct and3514 bounce writes, with zero raw errors/raw-detail
+omissions. Five command observations are omitted; complete source coverage and
+physical ownership remain unproved. Detailed write detections contain only
+inhibit/line activity. Existing metadata/settings/pads are preserved; normal
+Eject, transfer exit/reconnection and unchanged current heap pass. Prior audio
+hashes are not repeated. Transfer observations are separated. See
+sd_command_observation_findings.txt for exact identity, data and limitations.
+This closes the passive workload check, not completion/source/cache admission.
+Concrete physical completion/source exclusion beneath audio and metadata, outer
+transitions, exact memory ownership and measured worker capacity still precede
+extra capture. Automatic pad assignment remains a following milestone.
+
+Per-chunk retained-stack checkpoint — 9 October 2026
+--------------------------------------------------
+An opt-in offline guard now holds each of the four traced native block-data
+waits before intermediate bounce copy/refill or driver-frame unwinding. The
+whole-operation checkpoint alone was too late for those boundaries. One32-byte
+record snapshots the original span/task and clears its raw latch for each chunk;
+nominal completion requires an exact positive MODEL provider. Sixteen new groups
+pass, and the full redesign passes746 groups across65 suites. Direct/bounce split
+transfers, held completion, errors, owner/event changes, cache ordering and
+capture metadata/payload/readback are covered. See sd_chunk_guard_findings.txt.
+
+This closes the offline lifetime-checkpoint milestone. It does not supply the
+physical completion provider: source exclusion/draining must precede EACH native
+DS_ADDR store, including the initial interval. The new snapshot is after that
+store and before command launch. A deliberately false provider still accepts a
+late prior-origin physical TC. Native IRQ/task posts, event lifetime and actual
+nominal/error joining remain to be bound, alongside exclusive buffers/cache
+lines and the outer USB/card transition gate. Unresolved completion retains
+ownership; speculative reset/retry is not added. Worker release, memory and
+measured service/stack/tap qualification still precede an extra TMP trial.
+All normal profiles exclude this guard. No image was staged or installed, and
+the running passive diagnostic11 is unchanged.
+
+Native pre-address admission follow-up — 9 October 2026
+------------------------------------------------------
+The offline guard now holds BEFORE first bounce fill/cache effects as well as
+before each of the four native DS_ADDR stores. Recovered status/flag/token/IRQ
+draining and a compiled nominal host-completion predicate pass16 new groups,
+including metadata/payload/readback and cancellation on the unchanged capture
+core plus original FAT/mirror/directory sector writes. See
+sd_chunk_admission_findings.txt. Only a24-byte record, one opt-in port
+and inline adapters are added; there is no reset/retry/event recreation or worker.
+
+The compiled predicate replaces the chunk's positive MODEL reply, not its missing
+source lease. Prior physical work, IRQ/task posts and event/span ownership remain
+explicit MODEL inputs held through address programming and completion. A lying
+source lease still admits a late old TC. A before-address hook alone also cannot
+protect the first write bounce fill, which is why initial callback entry is held.
+Unpatched address hooks are detected only after their unsafe store has occurred.
+Outer card/USB transition exclusion before side effects, initial source joining,
+IRQ111 ownership/exclusion and software notification fencing remain next. Exact
+memory/cache ownership, worker release and service/stack/tap measurements still
+precede an extra TMP device trial. No image or device operation occurred here.
+The full runner passed761 groups/66 suites, followed by16 groups in the updated
+admission suite against unchanged fixtures. Consolidated coverage is762 groups.
+
+Native outer transition executor — 9 October
+--------------------------------------------
+An isolated offline executor now closes/joins the generation lease before any
+of five original native USB/card bodies run. Pending I/O leaves those operations
+untouched and lets other work continue; uncertain close holds indefinitely.
+Eleven focused groups include fifty unchanged native body comparisons, forty
+pending combinations, actual packed scatter/startup and seven byte-identical
+ordinary recordings. There is no new queue, allocation, wait loop or task.
+The separate fixture leaves 1212 packed bytes spare with unchanged 9887 requested
+heap bytes and 104 proposed globals.
+
+This does NOT close the native transition deployment gate. Request retention and
+retry remain a test caller contract; no original Main transition hook is added.
+Both actual Main loops consume card/USB packets even when a raw callee returns
+BUSY, and card removal continues stop/cleanup. The caller must therefore retain
+the whole request before mutation, preserve stock admission and order, handle
+overlap/backpressure, and supply a safe native retry/wakeup. A bounded twenty-call
+inventory and switch decoding identify physical, startup, helper and delayed
+command ingress; they do not prove exhaustive indirect coverage. Existing delayed
+command channels are leads, not safe retry authorization. Software retirement
+excludes only the extra manager; other native source/IRQ/cache ownership, trusted
+mount observations, exact memory and worker measurements remain unbound. No
+capture image or hardware action was produced. See storage_transition_executor_findings.txt
+and analysis/storage_transitions_verification.json.
+The full offline runner passes 774 groups across 67 suites, including this
+eleven-group experiment and profile-isolation coverage. Installed diagnostic 11
+and the mixer/card contents were not changed.

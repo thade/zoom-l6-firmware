@@ -1,0 +1,50 @@
+USB worker's SD notification eligibility — 10 October 2026
+=========================================================
+
+Four focused groups execute original USB-worker mode branches, the card-state
+callback and outer notification router. The44 cold configurations cover all11
+worker command bits, setup success/failure, and connected/disconnected arrival.
+Kernel/USB/controller setup and callback arrival are explicit fixtures.
+
+Worker command bits4,6,8,10 select SD-capable PIDs0860,088f,088e,088d. Their
+original branches initialize unit0 and set the worker's local SD-active state.
+Bits0,1,2,3,5,7,9 select0865,0867,0866,0868,089f,089e,089d; these leave that local
+state inactive and do not call unit0 setup. These are worker bit indices, not
+the public mode API's indices; the first four public mappings differ.
+
+When active, callback80050360 writes a connected/disconnected latch at801f911c.
+The worker consumes that latch at80046ce8. A changed state1 calls80036c98(1,1);
+a changed state2 calls80036c98(0,1). The latter calls80068508(0) and posts the
+software SD wakeup0x100 if the registered storage callback is nonnull. The native
+unit token does not exclude this path. With local SD-active state clear, the
+worker skips the latch/notification branch even when the synthetic polling body
+invokes the actual callback. Starting then stopping the SD-capable modes enters
+unit0 teardown80068318; audio-only cases do not.
+
+Implication
+-----------
+A first capture trial can plausibly exclude this known producer by admitting
+only a settled normal/audio mode and retiring capture before SD-capable USB
+mode changes. A check of mode flags alone is insufficient: the native request,
+worker acknowledgement and event identity must establish that settled state.
+The Main binding covers selected received requests, not every indirect ingress.
+This audit does not enable a source lease or prove initial physical idle.
+
+Known remaining sources are ordinary controllerIRQ110, unsupportedIRQ111 into
+the same controller body, and detach80062230. The detach route clears registration
+before notifying and must be excluded before its entry, not at its final post.
+The mount caller8005fd00 passes(1,1) and does not generate the abort wakeup.
+Other aliased handles/indirect posts, physical command completion and cache-line
+ownership remain unbound. No mixer, card, app or installed image was changed.
+
+The follow-up in storage_ingress_findings.txt adds four acknowledgement groups.
+Cold audio requests have inactive SD state when the worker acknowledges, but
+an injected stale ACK can let the requester return without worker execution.
+An audio request after an SD mode without STOP retains the old SD-active instance;
+proper STOP tears it down first. Admission therefore needs actual cold worker
+history and matched request consumption, not only a requested mode or ACK result.
+
+Code: tests/emulation/verify_usb_storage_sources.py
+Report: analysis/usb_storage_sources_verification.json
+Separate from the793-group/69-suite regression. Stock SHA256:
+64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb

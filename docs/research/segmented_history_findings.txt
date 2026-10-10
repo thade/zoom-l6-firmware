@@ -1,0 +1,206 @@
+Segmented capture history — offline milestone
+8 October 2026
+
+Implementation
+--------------
+One producer and one worker retain the original ownership/publication protocol,
+4-KiB aligned staging and independent file worker. No new queue, scheduler,
+per-block filesystem operation or pad publication is introduced.
+
+history_storage.h/.c describe up to eight equal power-of-two slot segments.
+Count remains 2..4096; each declared region must be large enough, 8-byte aligned,
+nonwrapping and disjoint from every other full region and the metadata. Unused
+entries must be zero. Descriptor words 6/7 retain their old pointer/count meaning
+unless HISTORY_EXTERNAL (bit 31) is set: then word 6 points to stable metadata,
+and the remaining bits specify total slots. Metadata readability/ownership is
+an explicit caller prerequisite, not established by arithmetic checks.
+
+Exchange copies validated metadata during exclusive worker preparation. All
+producer/consumer slot operations and BOTH retirement scans use exchange_slot.
+The audio boundary only consumes preparation; no scan/allocation/file IO occurs
+there. Samples, timestamps, atomics and generation checks retain their existing
+meaning. Missing history invalidates eligibility rather than filling gaps.
+
+Manager checks every declared region and metadata against its six resettable
+objects, its own storage and permanent worker/context storage. RESET preserves
+sample payloads. Handover prepares all states before audio publication.
+
+native_arena_alloc_external obtains only small objects from the original v1.10
+heap and owns a permanent copy of the descriptor. External history is separately
+owned. Native heap and allocator-control spans are rejected before ALLOC writes
+headers. A failed allocation/registration is never freed live. Post-allocation
+range conflicts fail closed and retain the reservation until reboot. The
+existing contiguous heap and caller-provided contiguous backends remain usable.
+
+Build: build_extra_capture.py --segmented-fixture
+Output: src/capture/capture-only-segmented.elf (offline, not a deployable BIN).
+The ordinary profiles share the region implementation; their prior behavior
+continues to be covered by the existing regressions. No mixer operation, update
+package, transfer or device installation is part of this milestone.
+
+Prototype geometry
+------------------
+Ordinary ring: 223104 frames / 4.648 seconds; twelve lanes remain at their fixed
+960000-byte stride. A Slot remains 528 bytes. First eight tails each hold 128
+slots in 67584 bytes: 1024 slots, 65536 frames, 1.365333 seconds, 540672 bytes.
+The other four tails are not proposed for permanent code/global allocation.
+
+ lane  inclusive start  exclusive end
+  0     81503600         81513e00
+  1     815edc00         815fe400
+  2     816d8200         816e8a00
+  3     817c2800         817d3000
+  4     818ace00         818bd600
+  5     81997400         819a7c00
+  6     81a81a00         81a92200
+  7     81b6c000         81b7c800
+
+These are host-seeded spans for the prototype, not physically authorized RAM.
+1.365333 seconds is a geometry, not a measured safe buffer budget. Age before a
+stall, admission delay, time to next successful copy, repeated stalls and sleep/
+catch-up throughput all consume that budget. Whole laps and unsampled ordinary
+peaks remain invisible in the earlier hardware modulo-backlog measurements.
+
+Finite span-access inventory
+----------------------------
+Each entry below has a supported bound or a named remaining dependency. Earlier
+intact guards qualify exercised writes; they do not close read/alias questions.
+
+1. Cold scatter clearing — known access, requires startup ordering.
+   Original entry 800a693c clears [80c74c00,81f26000), including ALL tails. Extra
+   preparation/release must occur afterward. No cold-clear prevention is needed;
+   optional live ownership must never overlap scatter reentry. The actual
+   startup release binding is not implemented. Evidence: ring_probe_findings.
+
+2. Native descriptors/caches — bounded in executed initialization paths.
+   MOVW at 800121ce, with existing MOVT, feeds B+53e8/53f8. Getters and recorder
+   setup populate C+50/1e94. One fixed startup instruction patch makes all four
+   223104, keeping arena base 81429800 and stride unchanged. Full original
+   initializers refresh those bounds/cursors in tests. Live resize is excluded
+   by design; a runtime producer join enforcing reinitialization exclusion is
+   unfinished. Evidence: native_ring_modes_findings, stock_ring_modes suite.
+
+3. Ordinary reader/writer/refill/DSP — supported tested bounds.
+   Reader 80018fd0, alternate writer 80019498, song refill 80038b50 through
+   registered wrapper 80002d11, and RAM DSP copy/playback windows use shortened
+   descriptors/caches in exercised mono/stereo/PCM16/PCM24/float32 wrap cases.
+   Four recovered audio callbacks match their stock-sized fixtures. Stale caches
+   and out-of-range cursors demonstrably access tails. Startup and transitions
+   must therefore keep all capacities coherent and producer cursors valid.
+   Evidence: native_storage_layout_findings, native_ring_modes_findings.
+
+4. Effects/computed destinations — recovered providers bounded offline.
+   Setup 8001dc10 registers generic word/doubleword copies 8005b741/8005b791.
+   Deferred destination/count at 80445308/80445310 can address arbitrary ranges;
+   negative controls corrupt synthetic tails. All five live USB effects and
+   numeric parameter changes preserve hardware guards in exercised states.
+   The follow-up effect_memory_providers audit executes all five original
+   initializers,4808 parameter updates and engines without candidate-range
+   access. Three further groups follow Hall/Room/Spring's actual deferred
+   coefficient requests through original consumers; exact destinations/data
+   and later audio match synchronous operation. This bounds the traced effect
+   providers, not every indirect caller, competing producer or physical alias.
+   Evidence: effect_memory_providers_findings, pad_reader_audit, ring_probe_findings.
+
+5. Native file/source/DMA/cache — incomplete observation and lifetime.
+   Diagnostic requested-span observations find no overlap in sampled calls,
+   but 64 historical observations were omitted. The effects-only USB test had
+   no SD/file source activity. Missing sources must be attributed/bounded before
+   treating observed disjointness as a complete contract. Extra history is CPU
+   copied into aligned staging; no proposed extra IO points directly into a
+   tail. Coherent emulator atomics do not establish physical cache/MPU behavior,
+   native aliases or SD/DMA source release. Those remain named device bindings.
+
+6. USB/card/recorded-playback transitions — checked writes, join unresolved.
+   Hardware guards survive exercised recording, recorded-song playback and
+   transfer/restoration. Original reinitialization/configuration is bounded in
+   tests, but may reset state while an extra worker owns samples or IO. Storage
+   generation, admission closure, producer/worker joining and transition reopen
+   must be bound before device capture. A mount flag/Main identity alone is
+   insufficient. Evidence: capture_storage_findings, capture_transitions tests.
+
+7. Extra code/permanent globals/stack — separate ownership gate.
+   These eight tails provide history only. Candidate code/global intervals in
+   placement.ld have no physical ownership approval. Heap-owned small objects
+   do not resolve executable/global placement, startup creation/release or real
+   stack/FP preemption. Shared uncertain filesystem transfers may retain
+   resources and stall ordinary users; only missing-history failure is currently
+   demonstrated to leave ordinary files/audio independent.
+
+8. Signal tap — original effects/dynamics routing now checked offline.
+   Original mixer windows and compiled capture preserve live-input plus pad
+   audio separately from master gain, with clean channel files and an ordinary
+   processed-master fixture. The full active effects-return/compressor path is
+   omitted in that composition. A10 October follow-up now executes original
+   effect-return mixing, gain ramps and active master dynamics in seven focused
+   groups. Synthetic effect-engine output reaches the tap, while master gain
+   and dynamics act downstream. See tap_processing_findings.txt. Full engine/
+   input/capture composition and device audio still require qualification.
+
+Verification records
+--------------------
+New suites: verify_segmented_exchange.py and verify_capture_segmented.py.
+Reports: analysis/segmented_exchange_verification.json and
+analysis/capture_segmented_verification.json. Full runner incorporates both.
+The final full redesign run passes 685 groups across 61 suites. The existing
+uncompressed-tap suite passes nine additional groups, for 694 distinct groups
+across 62 suites. After correcting startup stack arguments, both affected suites
+are rerun: heap (14 groups) and segmented composition (12 groups), both passing;
+these repeats are not added to the group total. Diff whitespace checks pass.
+
+The four exchange groups and twelve composition groups pass. The long take
+contains 243648 frames, crossing the 223104-frame ordinary wrap and more than
+three 1024-slot history wraps. It repeatedly omits 600 logical worker polls
+(0.8 seconds of audio), then catches up with four copies per worker poll. One
+verified extra file and all seven ordinary payloads remain exact; 100 more
+post-stop audio blocks do not extend the selected extra range. This is an
+explicit schedule, not a measured hardware blackout.
+
+Both native filesystem variants preserve seven baseline files byte-for-byte
+and verify the eighth independently from FAT/sector content (171 modeled device
+requests each). Partial endpoints retain exactly 274 frames. Late endpoints and
+overwritten selected start/final blocks yield no eligible take. A reader in the
+last segment blocks both retirement paths. Rearm preserves the previous extra
+file. Malformed geometry/ranges, metadata/control overlaps, heap/control aliases,
+bad session/queue and handler context are rejected without unsafe publication.
+The test's deep ordinary registration/endpoints remain modeled; its synthetic
+end limit was extended beyond the old 100000-frame short-test limit, both cached
+capacities now match 223104, and registration restores its full stream mask.
+Heap/segmented boot fixtures now explicitly place AAPCS arguments 5/6 (pad and
+initial serial) on the emulated stack; excess invoke-list arguments only set
+r0-r3 and previously left a WAV scratch pointer as the serial. Filename tests
+now require OD_00000001.TMP. This is a fixture correction, not a new firmware
+calling convention or device startup binding.
+
+The existing uncompressed-tap suite also passes its nine groups for live input,
+pad inclusion and gain separation. Full active effects/compressor response at
+the extra tap is still a separate integration requirement.
+
+The external arena requests 9855 heap payload bytes, including worst-case
+31-byte alignment padding. Native allocator headers, later stock allocations,
+worker stack (experimental 16384 bytes) and task object (148 bytes) are additional.
+History consumes 540672 separately owned bytes. Exchange size is 144 bytes;
+NativeCaptureArena is 128 bytes; Capture remains 4160 bytes. Ordinary heap-backed
+history is still supported with its updated allocation accounting.
+
+Current independent placement builds (raw code / packed code / source spare):
+  placement      22916 / 18625 / 207 bytes
+  startup        22820 / 18771 /  61 bytes
+  full hooks     22840 / 18808 /  24 bytes
+  minimal hooks  19400 / 16050 / 2782 bytes
+All fit the unchanged source span; the full diagnostic build margin is tiny.
+These figures do NOT include a composed external-arena startup/storage binding.
+The startup fixture's old fixed addresses overlapped the enlarged exchange;
+its later objects move by 96 bytes, with an Exchange size assertion and matching
+host plans/guards. These remain unowned offline candidate addresses, not new
+device allocations. No compressed image or MAIN length change is made.
+
+Following milestone
+-------------------
+Compose an owned executable/global placement, heap/external arena initialization,
+one-way native worker startup release, storage-generation admission/transition
+joins and physical completion. Qualify real FP context/stack and actual copy gap,
+oldest selected age, occupancy, catch-up and ordinary progress. Build one minimal
+capture candidate only after these bindings; keep verified extra files as TMP.
+Then perform short and whole-song Record-stop hardware trials before automatic
+pad-1 handoff. No broad new guard-only testing is a default prerequisite.

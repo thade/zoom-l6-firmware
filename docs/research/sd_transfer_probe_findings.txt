@@ -8,6 +8,10 @@ does not implement that recovery or validate its physical meaning.
 sd_card_recovery_findings.txt adds a compiled, once-per-failed-transfer stop
 attempt while retaining this same stack. Stop success remains separate from
 explicit MODEL JOINED; normal build profiles still exclude the entire probe.
+sd_chunk_guard_findings.txt adds an opt-in nominal checkpoint inside EACH native
+data wait, before intermediate bounce copy/refill. The enclosing operation
+checkpoint alone is too late there. Sixteen additional groups pass; physical
+source exclusion and joining remain modeled and all normal builds exclude it.
 
 Result
 A thirteen-group offline experiment now connects compiled probe code to the

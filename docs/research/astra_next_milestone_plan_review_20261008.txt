@@ -1,0 +1,143 @@
+Astra review of the next overdub-recording milestone
+8 October 2026
+Reviewer: gpt-6-astra, xhigh effort, explicitly requested by the user
+Review scope: plan, architecture and relevant implementation/evidence; read-only.
+No tests, firmware builds, device operations or implementation changes were made
+as part of this review. This file preserves the review's advice.
+
+Recommendation
+--------------
+The direction is right. Implementing and testing a larger audio history is the
+next coding milestone; making the extra recorder safe to deploy is a subsequent
+integration milestone. The four-step plan made the hardware trial sound closer
+than the evidence supports.
+
+Start fixed segmented history offline now, alongside a finite audit of its exact
+memory spans. Do not default to another broad round of guard-only experiments.
+Keep the contiguous backend, one producer, one consumer, separate worker and
+aligned 4-KiB staging. No new queue, scheduler or pad machinery is necessary.
+
+Material findings
+-----------------
+1. The simulation-to-device step omitted concrete bindings.
+
+   Worker creation/release, executable and permanent-global placement, storage
+   admission and physical transfer completion remain unfinished. Reclaimed
+   history tails do not establish ownership of candidate code/global addresses.
+   Use heap-owned small runtime objects with external history, while verifying
+   executable/global placement separately. Recalculate allocation and packed
+   image margins after composition.
+
+   native_worker.h:35 explicitly requires verified storage admission before
+   release and states there is no production caller. build_extra_capture.py:1
+   still builds offline ELFs; line 21 prohibits combining heap and startup/
+   placement fixtures. A mount flag or valid Main identity is not storage
+   readiness. capture_storage_findings.txt:69 describes teardown invalidating
+   metadata during live IO. capture_io_lifetime_findings.txt:16 still relies on
+   a modeled completion provider, including nominal success.
+
+2. Replace "nothing else uses this memory" with a bounded access contract.
+
+   The recent effects test qualifies checked writes through exercised native
+   effect paths. It does not exercise SD activity or the additional capture tap,
+   or establish reads, aliases, cache/DMA ownership.
+
+   Inventory the exact eight proposed tails: initialization/clearing/reentry;
+   both descriptors and cached capacities; direct/computed audio and effects
+   accesses; native file/DMA source spans; transitions restoring access to tails.
+   Each entry ends with a supported bound, an exclusion enforced before admission,
+   or a named unresolved dependency. Intact guards support the audit but cannot
+   answer read/alias questions. Offline implementation can proceed alongside
+   this inventory without claiming hardware ownership.
+
+   Evidence: ring_probe_findings.txt:365 and :394.
+
+3. Treat 1024 slots as prototype geometry, not a service guarantee.
+
+   Eight tails of 128 slots fit the tested 223104-frame ordinary layout and hold
+   1.365 seconds of extra history. Use this geometry for the offline candidate
+   rather than inventing another layout immediately (native_storage_layout_
+   findings.txt:121).
+
+   The 481-ms measurement is a filesystem held interval; 962 ticks is an
+   unattributed take interval. Neither measures the extra worker's blackout
+   (service_probe_findings.txt:191). Budget existing history age, time until the
+   next successful copy, repeated stalls and recovery throughput, including the
+   worker's deliberate sleep after each batch (native_worker.c:106).
+
+   Normal initialized recording selects no lookback, although setup delays the
+   first consumer access. The latent 0.5/2-second branches are not established
+   user modes; reject unsupported ranges when encountered (record_boundaries_
+   findings.txt:24). Sampled ordinary modulo backlog is not a worst-case bound.
+
+   Preserve the separate worker. A controlled delayed final-stream schedule
+   reproduces premature native staging reuse (native_storage_layout_findings.
+   txt:51); inserting extra work there is not a justified simplification. Shared
+   storage contention still requires actual scheduling/service measurement.
+
+4. Keep signal routing and failure behavior in the acceptance criteria.
+
+   Ordinary USB/master effect responses do not prove effects exist at the
+   extra tap. Verify live-input and pad inclusion, effects behavior, and separation
+   from master dynamics at that tap (architecture.md:21). Begin offline; this
+   does not require reopening the deferred level investigation.
+
+   Missing history can invalidate only the extra take while ordinary recording
+   continues. An uncertain physical transfer can retain shared filesystem
+   resources and stall ordinary users (capture_io_lifetime_findings.txt:107).
+   Do not promise every failure affects only the extra file before the physical
+   completion binding supports that claim.
+
+Smallest concrete next coding milestone
+--------------------------------------
+A capture-only offline build with fixed segmented history, exercised through the
+actual compiled manager and worker. Segmentation must update every contiguous
+assumption, including:
+
+  block_exchange.c:26        preparation/publication/claim/release slot indexing
+  session_manager.c:27       count*sizeof(Slot) span and overlap validation
+  control_transport.c:362    history handover through a contiguous pointer
+  emulator_bridge.c:328     BOTH retirement scans over exchange->slots[i]
+  native_arena.c:17          allocation/sizing of history and descriptor lifetime
+
+Use one consistent slot-access path and validate external spans before publishing
+them. Retain the existing contiguous backend and race protections.
+
+Acceptance
+----------
+* Reject invalid, overlapping, undersized, misaligned and wrapping spans before
+  publication; never touch the gaps between tails.
+* Preserve exact slot identity and samples across all segment boundaries and
+  repeated whole-ring wraps, including producer/reader claim races.
+* Preserve one exact extra file and all seven ordinary files through compiled
+  lifecycle tests: partial first/last blocks, delayed admission, stop, continued
+  audio after stop, and rearm.
+* Recover from modeled repeated stalls that fit the candidate history. Excess
+  stalls, missing generations and a stop endpoint behind already-copied audio
+  must yield no eligible take.
+* Stop does not freeze the producer. Selected endpoint samples survive until
+  copied, or the extra take fails (emulator_bridge.c:279).
+* Update heap/packing figures and run focused regressions for changed protocols.
+  Worker timing settings remain experimental.
+
+Following milestone: device integration
+--------------------------------------
+Complete placement/startup/storage bindings and construct one minimal capture
+candidate. Add compact measurements for oldest selected age, successful-copy
+gaps, occupancy/recovery, loss, stack headroom and ordinary progress. Fold
+necessary measurement into that candidate where possible; a separate diagnostic
+should address a named blocking uncertainty. Physical FP preemption/context and
+stack behavior remain unqualified despite software preservation tests.
+
+Then run a controlled short capture followed by a whole-song trial, using Record
+consistently to stop. Verify eight exact file ranges/content and retain completed
+extra takes as temporary files. Automatic pad-1 assignment follows reliable
+recording and verified handoff bindings.
+
+What can proceed autonomously
+-----------------------------
+Segmented implementation, focused simulation, span inventory, offline tap tests
+and build composition need no device interaction. Physical cache/DMA/SD completion,
+actual worker service/stack behavior and installation acceptance require hardware
+evidence. Manual firmware installation and physical controls remain user
+dependencies.
