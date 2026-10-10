@@ -169,7 +169,14 @@ Limitations
 
 Next
 ----
-1. Experiment 19 (experiments/19-simple-tap) is prepared: startup, ring size,
+Hardware result (experiment 19, 11 October): the tap-only image booted and ran
+for about 27 minutes through idle, pad playback and an ordinary recording.
+77,491,392 frames were published in 1,614,404 ticks with the epoch unchanged,
+so no audio callback was missed, and the stock recorder does not restart the
+audio ring at record start or stop. Heap use was 22,008 bytes; free heap stayed
+141,096 bytes throughout.
+
+1. Experiment 19 (experiments/19-simple-tap), installed and passed: startup, ring size,
    DSP tap/commit and a read-only status query, with no recorder or storage
    hooks. It checks expansion, 48 frames per tick, audio continuity during
    recording/playback/effects and heap cost, without creating files. Seven

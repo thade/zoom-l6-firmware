@@ -5,9 +5,30 @@ The pre-master tap fills the history continuously and the worker polls, but no
 take can start: the recorder and storage hooks are not installed, so no file
 is created. The mixer still makes its ordinary master and channel recordings.
 
-**Prepared locally; not staged or installed.** Diagnostic16 remains on the mixer.
-The [early-hang recovery check](../18-recovery-hang/README.md) is parked, so
-recovery from an image that fails before Main is still unproven.
+**Installed 11 October 2026; all checks passed.** Recovery from an image that
+fails before Main remains unproven ([experiment 18](../18-recovery-hang/README.md) is parked).
+
+## Results
+
+| Check | Observed |
+|---|---|
+| Startup | status 4: worker created, state published, from the native heap |
+| Tap rate, idle | 47.98 frames per tick |
+| Continuity | epoch 1 for the whole session; `age` equals `frames` throughout |
+| Whole session | 77,491,392 frames in 1,614,404 ticks (48.0003 per tick, about 27 minutes) |
+| Heap | 141,096 bytes free and minimum, unchanged during playback and recording (22,008 used) |
+| Pad playback | pad 1 backing identified in USB audio, correlation 0.996, no callback errors |
+| Ordinary recording | epoch unchanged at record start and stop; no take, file or fault |
+| Bounds and caches | code/globals as built; instruction and data caches enabled |
+
+A single missed, repeated or reordered audio callback would have started a new
+epoch, so the tap ran on every callback for 27 minutes. The stock recorder does
+not restart the audio ring at record start or stop, so a capture take can follow
+it continuously. The take's WAV headers were not yet read; that needs the card.
+
+Staging verified the exact image by readback; settings and all 156 recording/pad
+file entries were unchanged, and pads, MIDI ports and diagnostic16's reply were
+unchanged after transfer exit. Evidence stays in `deployment/19_simple_tap/`.
 
 ## What it answers
 

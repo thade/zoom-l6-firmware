@@ -11,8 +11,10 @@ saved cursors. A storage change revokes the extra file after a bounded wait.
 Twenty-one offline groups pass, including original reset/scatter/startup.
 [Experiment 17](../experiments/17-dormant-boot/README.md) was prepared from the
 superseded payload and should not be staged. [Experiment 19](../experiments/19-simple-tap/README.md)
-replaces it: the simplified tap and worker without recorder or storage hooks,
-prepared locally with seven passing offline groups. The early-hang
+replaces it: the simplified tap and worker without recorder or storage hooks.
+It is installed and passed on hardware: 27 minutes with no missed audio callback,
+including pad playback and an ordinary recording, and 22,008 bytes of heap.
+The stock recorder does not restart the audio ring at record start or stop. The early-hang
 [recovery check](../experiments/18-recovery-hang/README.md) is parked.
 All hardware-trial tooling and research is now committed. The full offline
 regression passes 86 suites (929 groups); it now sets its own import path.
