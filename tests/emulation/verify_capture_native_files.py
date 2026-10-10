@@ -167,7 +167,7 @@ class NativeCapture(IntegrationRig):
             self.m.hooks[0x800763d8]=self.file_give
     def completed_extra(self):
         self.drive(lambda:self.mstate()==RESET,with_audio=False)
-        session,path=self.result();assert session==123 and path.endswith('.TMP')
+        session,path=self.result();assert session==getattr(self,'take_session',123) and path.endswith('.TMP')
         data=self.fs.files_in_pad()[path.rsplit('\\',1)[1]]['data']
         assert data[512:]==packed(self.expected_extra)
         assert struct.unpack_from('<I',data,508)[0]==len(self.expected_extra)*4

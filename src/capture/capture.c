@@ -35,9 +35,17 @@ KEEP uint32_t extra_capture_frames(Capture *s,const float *left,const float *rig
     uint32_t w=LOAD(&s->write),r=LOAD(&s->read);
     if(w-r>=SLOTS)return fail(s,FULL);
     float *out=s->blocks[w&(SLOTS-1)];
+    /* Preserve the software conversion's round-to-nearest, gradual underflow
+     * semantics independently of the stock task's FPSCR. Restore its complete
+     * status after scaling; this worker never exposes new FP exception flags.
+     * Memory barriers keep the sample loads/stores inside this FP scope. */
+    uint32_t fpscr;
+    __asm__ volatile("vmrs %0, fpscr\n\tvmsr fpscr, %1"
+                     :"=&r"(fpscr):"r"(0u):"memory");
     for(uint32_t i=0;i<frames;i++) {
         out[i*2]=left[i]*0x1p-31f;out[i*2+1]=right[i]*0x1p-31f;
     }
+    __asm__ volatile("vmsr fpscr, %0"::"r"(fpscr):"memory");
     s->frames[w&(SLOTS-1)]=frames;
     STORE(&s->write,w+1);return OK;
 }

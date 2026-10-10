@@ -7,7 +7,7 @@ from verify_capture_integration import IntegrationRig,record
 from verify_capture_placement import PlacementRig,seed,run_raw,dsp_frame,REGS,FP,STATUS
 from verify_capture_native_files import NativeCapture,failed,UI,FS1
 from verify_native_mount import MountedTree,MountedTreeSd
-from verify_capture_packing import edit_memory,startup,DECOMPRESS,ZERO,DEST,LENGTH
+from verify_capture_packing import edit_memory,expand_payloads,startup,DECOMPRESS,ZERO,DEST,LENGTH
 from verify_capture_startup import Boot,WORKER as STARTUP_WORKER,SCHEDULER
 from verify_record_scheduler import request_setup,word
 from verify_control_transport import QHANDLE
@@ -44,14 +44,13 @@ class HooksRig(PlacementRig):
     def load_capture_elf(self,elf):
         # Metadata comes from ELF; all code/global bytes come through original
         # startup decoder/zero routines, with no direct PT_LOAD copy.
-        u=self.m.uc;pack=self.packed;j=pack['jumps'];edit_memory(u,pack)
+        u=self.m.uc;pack=self.packed;j=pack['jumps']
         u.mem_write(DEST,b'\xa5'*LENGTH)
         u.mem_write(j['candidate_code_start'],b'\xa5'*len(pack['code']))
         n=j['globals_end']-j['globals_start']
         u.mem_write(j['globals_start'],b'\xa5'*n)
-        self.m.invoke(ZERO,[0,j['globals_start'],n])
-        for args in ((pack['code_source'],j['candidate_code_start'],len(pack['code'])),(SCATTER[0],DEST,LENGTH)):
-            assert self.m.invoke(DECOMPRESS,list(args))==0
+        edit_memory(u,pack) # Reused destinations initially contain DSP input.
+        expand_payloads(self.m,pack)
         assert self.raw(DEST,LENGTH)==pack['dsp']
         assert self.raw(j['candidate_code_start'],len(pack['code']))==pack['code']
         assert self.raw(j['globals_start'],n)==bytes(n)

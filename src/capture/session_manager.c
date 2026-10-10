@@ -6,6 +6,10 @@
 #include "exchange.h"
 #include <stddef.h>
 #include "retention.h"
+#ifdef L6_CAPTURE_STORAGE_LEASE
+#include "storage_lease.h"
+extern uint32_t bridge_close_storage(void*,uint32_t);
+#endif
 #define LD(p) __atomic_load_n((p),__ATOMIC_ACQUIRE)
 #define ST(p,v) __atomic_store_n((p),(v),__ATOMIC_RELEASE)
 static SessionManager *manager_owner;
@@ -24,31 +28,38 @@ extern uint32_t life_prepare(void*,Capture*,uint32_t,uint32_t),life_cancel_quies
 extern uint32_t life_is_prepared(const void*),life_resources_released(const void*),life_current_serial(const void*);
 extern uint32_t life_copy_verified(const void*,uint16_t*,uint32_t);
 static void *object(SessionManager *m,uint32_t i){return (void*)m->descriptor[i];}
-static uint32_t bytes(const uint32_t *d,uint32_t i) {
+static uint32_t bytes(uint32_t i) {
     const uint32_t sizes[]={ct_layout[0],rr_layout[0],bridge_layout[0],exchange_layout[0],
-                           life_layout[0],sizeof(Capture),d[7]*sizeof(Slot)};
+                           life_layout[0],sizeof(Capture)};
     return sizes[i];
 }
 static int overlap(uint32_t a,uint32_t n,uint32_t b,uint32_t k){return a<b+k && b<a+n;}
-static int spans(SessionManager *m,const uint32_t *d) {
+static int spans(SessionManager *m,const uint32_t *d,HistoryStorage *h) {
     uint32_t addr=(uint32_t)m;
-    if(!addr || (addr&3) || addr>UINT32_MAX-sizeof(*m) || d[7]<2 || d[7]>EXCHANGE_MAX_SLOTS ||
-        (d[7]&(d[7]-1)) || (d[6]&7u) || !d[8] || !d[9])return 0;
-    for(uint32_t i=0;i<7;i++) {
-        uint32_t n=bytes(d,i);
+    if(!addr || (addr&3) || addr>UINT32_MAX-sizeof(*m) ||
+        (d[5]&31u) || !d[8] || !d[9] || hstorage_decode((void*)d[6],d[7],h) ||
+        !hstorage_disjoint(h,addr,sizeof(*m)))return 0;
+    if((d[7]&HISTORY_EXTERNAL) && overlap(d[6],sizeof(*h),addr,sizeof(*m)))return 0;
+    for(uint32_t i=0;i<6;i++) {
+        uint32_t n=bytes(i);
         if(!d[i] || (d[i]&3) || d[i]>UINT32_MAX-n || overlap(d[i],n,addr,sizeof(*m)))return 0;
-        for(uint32_t j=0;j<i;j++)if(overlap(d[i],n,d[j],bytes(d,j)))return 0;
+        for(uint32_t j=0;j<i;j++)if(overlap(d[i],n,d[j],bytes(j)))return 0;
+        if(!hstorage_disjoint(h,d[i],n) ||
+           ((d[7]&HISTORY_EXTERNAL) && overlap(d[i],n,d[6],sizeof(*h))))return 0;
     }
     return 1;
 }
 KEEP uint32_t manager_storage_disjoint(SessionManager *m,const uint32_t *d,uint32_t a,uint32_t n) {
-    if(!m || !d || !a || !n || a>UINT32_MAX-n || !spans(m,d) ||
+    HistoryStorage h;
+    if(!m || !d || !a || !n || a>UINT32_MAX-n || !spans(m,d,&h) ||
        overlap(a,n,(uint32_t)m,sizeof(*m)))return 0;
-    for(uint32_t i=0;i<7;i++)if(overlap(a,n,d[i],bytes(d,i)))return 0;
-    return 1;
+    for(uint32_t i=0;i<6;i++)if(overlap(a,n,d[i],bytes(i)))return 0;
+    if((d[7]&HISTORY_EXTERNAL) && overlap(a,n,d[6],sizeof(h)))return 0;
+    return hstorage_disjoint(&h,a,n);
 }
 KEEP uint32_t manager_boot(SessionManager *m,const uint32_t *d,uint32_t pad,uint32_t serial) {
-    if(!m || !d || manager_owner || pad>3 || !serial || !spans(m,d))return 12;
+    HistoryStorage h;
+    if(!m || !d || manager_owner || pad>3 || !serial || !spans(m,d,&h))return 12;
     /* Reject a dirty manager rather than silently discard its state/ownership. */
     const uint8_t *raw=(const uint8_t*)m;
     for(uint32_t i=0;i<sizeof(*m);i++)if(raw[i])return 12;
@@ -62,7 +73,8 @@ KEEP uint32_t manager_boot(SessionManager *m,const uint32_t *d,uint32_t pad,uint
 KEEP uint32_t manager_init(SessionManager *m,const uint32_t *d,uint32_t pad) {
     /* Fresh zeroed Manager, live ARMED first session, strict audio installed.
      * Descriptor pointers refer to valid caller-owned allocations. */
-    if(!m || !d || manager_owner || m->state || pad>3 || !spans(m,d) || !ct_manager_matches(d) ||
+    HistoryStorage h;
+    if(!m || !d || manager_owner || m->state || pad>3 || !spans(m,d,&h) || !ct_manager_matches(d) ||
        !bridge_manager_matches((void*)d[2],d[8]) || !life_is_prepared((void*)d[4]))return 12;
     for(uint32_t i=0;i<10;i++)m->descriptor[i]=d[i];
     m->session=d[8];m->serial=life_current_serial((void*)d[4]);m->pad=pad;m->state=M_LIVE;manager_owner=m;return 0;
@@ -102,6 +114,17 @@ static uint32_t run(SessionManager *m) {
             if(s==10 || s==11)return s;
             if(s)remember(m,s);
         }
+#ifdef L6_CAPTURE_STORAGE_LEASE
+        if(storage_lease_closing(m)) {
+            /* Storage changes need closed files and stopped memory accesses,
+             * not permission to reuse the retained control objects. Keep old
+             * queued callbacks alive and never reset/rearm this arena. */
+            s=bridge_close_storage(object(m,2),m->session);
+            if(s==11)return s;
+            if(s || !life_resources_released(object(m,4)))return stopped(m,s?s:13,1);
+            remember(m,16);m->state=M_STORAGE_STOPPED;return m->error;
+        }
+#endif
         s=ct_shutdown(object(m,0),m->session);
         if(s==10 || s==11)return s;
         if(s)return stopped(m,s,1);
@@ -129,16 +152,22 @@ static uint32_t run(SessionManager *m) {
          * exchange_stage overwrites every timestamp/sample before READY.
          * Old history payloads therefore need no clearing, even at cold boot. */
         if(m->zero_index<6) {
-            uint32_t n=bytes(d,m->zero_index)-m->zero_offset;if(n>4096)n=4096;
+            uint32_t n=bytes(m->zero_index)-m->zero_offset;if(n>4096)n=4096;
             uint8_t *p=(uint8_t*)object(m,m->zero_index)+m->zero_offset;
             for(uint32_t i=0;i<n;i++)p[i]=0;
             m->zero_offset+=n;
-            if(m->zero_offset==bytes(d,m->zero_index)){m->zero_index++;m->zero_offset=0;}
+            if(m->zero_offset==bytes(m->zero_index)){m->zero_index++;m->zero_offset=0;}
             return 10;
         }
         m->state=M_PREPARE;return 10;
     case M_PREPARE:
-        if(LD(&m->cancel))return stopped(m,16,0);
+        if(LD(&m->cancel)) {
+#ifdef L6_CAPTURE_STORAGE_LEASE
+            return cleanup_unpublished(m);
+#else
+            return stopped(m,16,0);
+#endif
+        }
         s=life_prepare(object(m,4),object(m,5),m->pad,m->serial);
         if(s==10)return 10; /* bounded filename collision probing */
         if(s)return stopped(m,s,!life_resources_released(object(m,4)));
@@ -163,25 +192,52 @@ static uint32_t run(SessionManager *m) {
         if(s==10 || s==11)return s;
         return stopped(m,s?s:16,s!=0);
     case M_ABORT_UNPUBLISHED:return cleanup_unpublished(m);
+#ifdef L6_CAPTURE_STORAGE_LEASE
+    case M_STORAGE_STOPPED:
+#endif
     case M_STOPPED:case M_BLOCKED:return m->error;
     default:return 12;
     }
 }
 KEEP uint32_t manager_step(SessionManager *m) {
     if(!m || m!=manager_owner || !m->state)return 12;
+#ifdef L6_CAPTURE_STORAGE_LEASE
+    uint32_t lease=storage_lease_enter(m,1);if(lease)return lease;
+#endif
     uint32_t zero=0;
-    if(!__atomic_compare_exchange_n(&m->busy,&zero,1,0,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))return 11;
-    uint32_t s=LD(&m->publication_hold)?11:run(m);ST(&m->busy,0);return s;
+    if(!__atomic_compare_exchange_n(&m->busy,&zero,1,0,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE)) {
+#ifdef L6_CAPTURE_STORAGE_LEASE
+        storage_lease_leave(m);
+#endif
+        return 11;
+    }
+    uint32_t s=LD(&m->publication_hold)?11:run(m);ST(&m->busy,0);
+#ifdef L6_CAPTURE_STORAGE_LEASE
+    storage_lease_leave(m);
+#endif
+    return s;
 }
 KEEP uint32_t manager_resume(SessionManager *m) {
     if(!m || m!=manager_owner)return 12;
+#ifdef L6_CAPTURE_STORAGE_LEASE
+    uint32_t lease=storage_lease_enter(m,0);if(lease)return lease;
+#endif
     uint32_t zero=0;
-    if(!__atomic_compare_exchange_n(&m->busy,&zero,1,0,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))return 11;
+    if(!__atomic_compare_exchange_n(&m->busy,&zero,1,0,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE)) {
+#ifdef L6_CAPTURE_STORAGE_LEASE
+        storage_lease_leave(m);
+#endif
+        return 11;
+    }
     uint32_t s=12;
     if(m->state==M_STOPPED && !LD(&m->publication_hold)) {
         m->error=0;ST(&m->cancel,0);m->zero_index=m->zero_offset=0;m->state=M_RESET;s=0;
     }
-    ST(&m->busy,0);return s;
+    ST(&m->busy,0);
+#ifdef L6_CAPTURE_STORAGE_LEASE
+    storage_lease_leave(m);
+#endif
+    return s;
 }
 KEEP uint32_t manager_copy_result(SessionManager *m,uint32_t newest_index,ManagerResult *out) {
     if(!m || m!=manager_owner || !out)return 12;

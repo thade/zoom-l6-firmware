@@ -50,7 +50,9 @@ class IntegrationRig(LifeRig):
         # Shared machine construction maps the historical overdub ELF. Make it
         # inaccessible: this composition may execute only the capture-only code.
         m.uc.mem_protect(0x10000000,0x10000,UC_PROT_NONE)
-        assert not any(n.startswith(('audio_fixture_','history_','na_','backing_','bn_','sdp_')) for n in self.syms)
+        excluded=('audio_fixture_','history_','na_','backing_','bn_')
+        if not getattr(self,'sd_retained_fixture',False):excluded+=('sdp_',)
+        assert not any(n.startswith(excluded) for n in self.syms)
         self.enabled=enabled;self.session=123;self.sequence=0;self.capacity=256
         self.audio_cursor=0;self.audio_active=False;self.queued_record=False;self.recording=False
         self.pending_stock=[];self.expected={h:[] for h in range(1,8)};self.expected_extra=[]

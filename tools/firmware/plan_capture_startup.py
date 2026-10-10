@@ -13,8 +13,8 @@ SPECS=(dict(site=0x80067a84,original='0cf098fd',adapter='startup_init_hook',
        dict(site=0x800745e8,original='4ff02000',adapter='startup_idle_hook',
             continuation=0x800745ec,replay='mov.w r0,#0x20'))
 
-def make_patch(stock,spec,target):
-    if not target&1 or not 0x800b6b00<=target<0x801f5400:
+def make_patch(stock,spec,target,*,code_interval=(0x800b6b00,0x801f5400)):
+    if not target&1 or not code_interval[0]<=target<code_interval[1]:
         raise ValueError('target must be Thumb code in candidate interval')
     site=spec['site'];old=bytes.fromhex(spec['original'])
     if stock[site-BIAS:site-BIAS+4]!=old:raise ValueError('stock startup bytes differ')
@@ -33,8 +33,8 @@ def plan():
     assert p['globals']==[0x80960080,0x809600e0]
     return dict(status='offline_startup_fixture_not_deployable',firmware_sha256=STOCK_SHA,
         startup_elf_sha256=hashlib.sha256(ELF.read_bytes()).hexdigest(),patches=patches,
-        packing=p,candidate_manager=[0x80961d80,0x80962620],
-        candidate_worker=[0x80962620,0x80962660],
+        packing=p,candidate_manager=[0x80961de0,0x80962680],
+        candidate_worker=[0x80962680,0x809626c0],
         descriptor_and_configuration='local registration inputs copied by compiled manager/worker',
         limitations=['Candidate RAM addresses are unapproved for the device',
             'Two startup jumps only; audio/control/storage integration remains incomplete',

@@ -46,7 +46,7 @@ def main():
     passed('minimal_queue_fixture_rejects_unsupported_arguments',rejected=queue_fixture_rejects_bad_arguments(MinimalRig))
 
     b=Boot(pack=PACK,names=names,patches=PLAN['patches']);b.boot();b.guard()
-    assert b.optional_calls==1 and b.kernel_entered and b.word(0x80962628)==4
+    assert b.optional_calls==1 and b.kernel_entered and b.word(0x80962688)==4
     passed('original_boot_with_minimal_hooks_registers_sleeping_worker_without_storage_or_extra_file')
 
     baseline=IntegrationRig(enabled=False);ordinary=record(baseline,delay=2,blocks=23)

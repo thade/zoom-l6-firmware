@@ -8,7 +8,7 @@ from plan_capture_packing import DECOMPRESS,ZERO
 from scatter_codec import expand
 
 GAP=(0x80960078,0x80bb9400)
-STARTUP_OBJECTS=((0x80960080,0x809600e0),(0x80961d80,0x80962660))
+STARTUP_OBJECTS=((0x80960080,0x809600e0),(0x80961de0,0x809626c0))
 HEAP=(0x808e2fe0,0x8095ffd8)
 
 def inside(v,intervals):return any(a<=v<b for a,b in intervals)

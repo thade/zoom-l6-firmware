@@ -11,7 +11,7 @@ from verify_startup_order import StartupRig,SCHEDULER
 from verify_pad_protocol import ROOT,IMAGE,RETURN
 from verify_firmware_workflow import put32
 from verify_scheduling_boundaries import stop
-from verify_capture_packing import startup as scatter_startup
+from verify_capture_packing import startup as scatter_startup,edit_memory,expand_payloads
 sys.path.insert(0,str(ROOT/'tools/firmware'))
 from plan_capture_startup import ELF,SPECS,plan,make_patch
 from capture_jump_patches import BIAS,symbols
@@ -19,7 +19,7 @@ from plan_capture_packing import packing,DECOMPRESS,ZERO,SCATTER
 
 P=packing(ELF);N=symbols(ELF)
 PATCHES=[make_patch(IMAGE,s,N[s['adapter']]) for s in SPECS]
-MAN=0x80961d80;WORKER=0x80962620;TOP=0x2021fff0
+MAN=0x80961de0;WORKER=0x80962680;TOP=0x2021fff0
 REGS=[getattr(A,'UC_ARM_REG_R'+str(i)) for i in range(13)]
 FP=[getattr(A,'UC_ARM_REG_S'+str(i)) for i in range(32)]
 STATUS=[A.UC_ARM_REG_SP,A.UC_ARM_REG_LR,A.UC_ARM_REG_APSR,A.UC_ARM_REG_FPSCR]
@@ -27,19 +27,18 @@ STATUS=[A.UC_ARM_REG_SP,A.UC_ARM_REG_LR,A.UC_ARM_REG_APSR,A.UC_ARM_REG_FPSCR]
 class Boot(StartupRig):
     def __init__(self,fail=None,optional='success',patched=True,pack=P,names=N,patches=PATCHES):
         P,N=pack,names
+        code_start=P['jumps']['candidate_code_start']
         super().__init__(fail,real_scheduler=True)
         m=self.m;m.uc.mem_map(0x20210000,0x10000);m.stack=TOP
         # Make the unrelated historical overlay inaccessible. Load the capture
         # code from packed source with the original decoder, not ELF PT_LOAD.
         m.uc.mem_protect(0x10000000,0x10000,UC_PROT_NONE)
-        m.uc.mem_write(0x80960078,b'\xa5'*(0x2668-0x78))
-        m.uc.mem_write(0x800b6b00,b'\xa5'*len(P['code']))
-        m.uc.mem_write(SCATTER[0],P['packed_dsp'])
-        m.uc.mem_write(P['code_source'],P['packed_code'])
-        assert m.invoke(ZERO,[0,0x80960080,96]) is not None
-        m.invoke(DECOMPRESS,[P['code_source'],0x800b6b00,len(P['code'])])
-        m.invoke(DECOMPRESS,[SCATTER[0],SCATTER[1],SCATTER[2]])
-        assert bytes(m.uc.mem_read(0x800b6b00,len(P['code'])))==P['code']
+        m.uc.mem_write(0x80960078,b'\xa5'*(0x26c8-0x78))
+        m.uc.mem_write(code_start,b'\xa5'*len(P['code']))
+        edit_memory(m.uc,P)
+        j=P['jumps']
+        expand_payloads(m,P)
+        assert bytes(m.uc.mem_read(code_start,len(P['code'])))==P['code']
         if patched:
             for p in patches:m.uc.mem_write(p['site'],bytes.fromhex(p['patch']))
         self.optional_calls=0;self.optional_args=[];self.observed_init=None
@@ -64,7 +63,7 @@ class Boot(StartupRig):
             self.minimum_sp=min(self.minimum_sp,uc.reg_read(A.UC_ARM_REG_SP))
             if a in (N['startup_observe']&~1,N['startup_register']&~1):
                 self.c_stack.append(uc.reg_read(A.UC_ARM_REG_SP))
-        m.uc.hook_add(UC_HOOK_CODE,trace,begin=0x800b6b00,end=0x800b6b00+len(P['code'])-1)
+        m.uc.hook_add(UC_HOOK_CODE,trace,begin=code_start,end=code_start+len(P['code'])-1)
         def writes(uc,access,address,size,value,u):self.writes.append((address,size))
         m.uc.hook_add(UC_HOOK_MEM_WRITE,writes,begin=0x80960078,end=0x80bb93ff)
         # Any accidental public-file work is a hard failure, not a modeled
@@ -74,7 +73,7 @@ class Boot(StartupRig):
 
     def guard(self):
         assert bytes(self.m.uc.mem_read(0x80960078,8))==b'\xa5'*8
-        assert bytes(self.m.uc.mem_read(0x80962660,8))==b'\xa5'*8
+        assert bytes(self.m.uc.mem_read(0x809626c0,8))==b'\xa5'*8
         for a,n in self.writes:
             assert (0x80960080<=a and a+n<=0x809600e0) or (MAN<=a and a+n<=WORKER+64),(hex(a),n)
 
@@ -141,7 +140,7 @@ def main():
     assert r.word(WORKER)==MAN and r.word(WORKER+4)==0x7f00
     assert bytes(r.m.uc.mem_read(WORKER+24,20))==struct.pack('<5I',4096,1,4,1,25)
     assert bytes(r.m.uc.mem_read(MAN+44,40))==struct.pack('<10I',0x809600e0,0x809607a0,
-        0x809607c0,0x809608c0,0x80960900,0x80960d40,0x809626c0,4096,1,r.word(0x801f8f38))
+        0x809607c0,0x809608c0,0x80960960,0x80960da0,0x80962720,4096,1,r.word(0x801f8f38))
     assert r.word(N['bridge_gateway_readers'])==0x80000000
     assert r.word(N['ct_active'])==0 and r.word(N['emulator_bridge_current'])==0
     assert all(a%8==0 for a in r.c_stack) and len(r.c_stack)==2

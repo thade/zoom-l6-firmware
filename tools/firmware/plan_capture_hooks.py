@@ -34,8 +34,8 @@ SPECS=(
     dict(site=0x800350d8,original='b0b588b0',adapter='ct_stop_other',resume=0x800350dc,
          replay='stock-request adapter: push {r4,r5,r7,lr}; sub sp,#0x20'))
 
-def make_patch(stock,spec,target):
-    if not target&1 or not 0x800b6b00<=target<0x801f5400:
+def make_patch(stock,spec,target,*,code_interval=(0x800b6b00,0x801f5400)):
+    if not target&1 or not code_interval[0]<=target<code_interval[1]:
         raise ValueError('target must be Thumb code in the candidate interval')
     site=spec['site'];old=bytes.fromhex(spec['original'])
     if stock[site-BIAS:site-BIAS+len(old)]!=old:raise ValueError('stock hook bytes differ')

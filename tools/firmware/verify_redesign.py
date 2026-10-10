@@ -20,6 +20,24 @@ r=run('tools/firmware/build_overdub_prototype.py')
 if r.returncode:sys.exit(r.stdout+r.stderr)
 r=run('tools/firmware/build_capture_io_probe.py')
 if r.returncode:sys.exit(r.stdout+r.stderr)
+r=run('tools/firmware/build_extra_capture.py','--heap-fixture')
+if r.returncode:sys.exit(r.stdout+r.stderr)
+r=run('tools/firmware/build_extra_capture.py','--segmented-fixture')
+if r.returncode:sys.exit(r.stdout+r.stderr)
+r=run('tools/firmware/build_extra_capture.py','--composed-fixture')
+if r.returncode:sys.exit(r.stdout+r.stderr)
+r=run('tools/firmware/build_extra_capture.py','--storage-fixture')
+if r.returncode:sys.exit(r.stdout+r.stderr)
+r=run('tools/firmware/build_extra_capture.py','--transition-fixture')
+if r.returncode:sys.exit(r.stdout+r.stderr)
+r=run('tools/firmware/build_extra_capture.py','--sd-retained-fixture')
+if r.returncode:sys.exit(r.stdout+r.stderr)
+r=run('tools/firmware/build_extra_capture.py','--source-reuse-fixture')
+if r.returncode:sys.exit(r.stdout+r.stderr)
+r=run('tools/firmware/build_extra_capture.py','--boot-witness-fixture')
+if r.returncode:sys.exit(r.stdout+r.stderr)
+r=run('tools/firmware/build_boot_probe.py')
+if r.returncode:sys.exit(r.stdout+r.stderr)
 r=run('tools/firmware/plan_capture_binding.py')
 if r.returncode:sys.exit(r.stdout+r.stderr)
 r=run('tools/firmware/capture_jump_patches.py')
@@ -30,21 +48,33 @@ r=run('tools/firmware/plan_capture_startup.py')
 if r.returncode:sys.exit(r.stdout+r.stderr)
 r=run('tools/firmware/plan_capture_hooks.py')
 if r.returncode:sys.exit(r.stdout+r.stderr)
+r=run('tools/firmware/plan_capture_composed.py')
+if r.returncode:sys.exit(r.stdout+r.stderr)
+r=run('tools/firmware/plan_capture_lease.py')
+if r.returncode:sys.exit(r.stdout+r.stderr)
+r=run('tools/firmware/plan_capture_transitions.py')
+if r.returncode:sys.exit(r.stdout+r.stderr)
+r=run('tools/firmware/plan_capture_sd_retained.py')
+if r.returncode:sys.exit(r.stdout+r.stderr)
+r=run('tools/firmware/plan_capture_boot.py')
+if r.returncode:sys.exit(r.stdout+r.stderr)
 r=run('tools/firmware/audit_capture_ram.py')
 if r.returncode:sys.exit(r.stdout+r.stderr)
 r=run('tools/firmware/audit_capture_storage.py')
 if r.returncode:sys.exit(r.stdout+r.stderr)
+r=run('tools/firmware/audit_capture_storage_ingress.py')
+if r.returncode:sys.exit(r.stdout+r.stderr)
 r=run('tools/firmware/audit_native_filesystem.py')
 if r.returncode:sys.exit(r.stdout+r.stderr)
-names=['build_profiles','extra_capture','extra_lifecycle','history_capture','block_exchange',
-       'emulator_bridge','bridge_events','audio_invocation','request_router','control_transport',
-       'session_handover','session_manager','large_capture_handover','manager_boot','native_worker',
-       'audio_startup','shared_audio','capture_integration','capture_placement','capture_packing','capture_startup','capture_hooks','capture_minimal','capture_storage','capture_transitions','capture_io_lifetime','native_filesystem','native_filesystem_sd','capture_native_files','native_mount','native_storage_setup','native_rename','simple_handoff','backing_native','handoff_locks',
+names=['build_profiles','capture_performance','native_writer_staging','stock_ring_layout','stock_ring_modes','tap_processing','effect_memory_providers','effect_deferred_providers','extra_capture','extra_lifecycle','history_capture','block_exchange',
+       'segmented_exchange','emulator_bridge','bridge_events','audio_invocation','request_router','control_transport',
+       'session_handover','session_manager','large_capture_handover','manager_boot','native_worker','storage_ingress',
+       'audio_startup','shared_audio','capture_integration','capture_heap','capture_segmented','capture_placement','capture_packing','capture_startup','capture_hooks','capture_minimal','capture_composed','storage_lease','storage_stop','storage_transitions','storage_main','capture_storage','capture_transitions','capture_io_lifetime','native_filesystem','native_filesystem_sd','capture_native_files','native_mount','native_exfat','native_storage_setup','native_startup_boundary','native_rename','simple_handoff','backing_native','handoff_locks',
        'handoff_admission','pad_commands','pad_dispatch','native_event_window','handoff_dependencies',
-       'sd_transfer_lifetime','sd_completion','sd_transfer_probe','sd_controller_setup','sd_card_recovery',
+       'sd_transfer_lifetime','sd_completion','sd_transfer_probe','sd_controller_setup','sd_cold_start','sd_cache_contract','sd_chunk_guard','sd_chunk_admission','sd_card_recovery',
        'sd_checked_recovery','sd_native_event','sd_event_sources',
        'read_producer','read_callback',
-       'ordinary_routing','publication_workflow','startup_sites']
+       'ordinary_routing','publication_workflow','startup_sites','lz4_packing','capture_sd_retained','capture_boot_cache','sd_enumeration_guard','capture_source_reuse','usb_startup_ack','storage_boot','boot_probe','native_worker_allocation']
 results=[]
 for name in names:
     r=run(f'tests/emulation/verify_{name}.py')

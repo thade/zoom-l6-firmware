@@ -86,7 +86,11 @@ KEEP uint32_t native_worker_poll(NativeWorker *w) {
     }
     if(LD(&w->state)!=W_READY){ST(&w->busy,0);return 12;}
     uint32_t status=w->manager->error;
-    if(w->manager->state!=M_STOPPED && w->manager->state!=M_BLOCKED) {
+    if(w->manager->state!=M_STOPPED && w->manager->state!=M_BLOCKED
+#ifdef L6_CAPTURE_STORAGE_LEASE
+       && w->manager->state!=M_STORAGE_STOPPED
+#endif
+      ) {
         do {
             SessionManager *m=w->manager;
             if(w->handoff && m->state==M_RESET && m->count &&
@@ -106,9 +110,17 @@ KEEP uint32_t native_worker_poll(NativeWorker *w) {
 KEEP __attribute__((noreturn)) void native_worker_entry(void *arg) {
     NativeWorker *w=arg;
     for(;;) {
+#ifdef L6_CAPTURE_BOOT_PROBE
+        extern uint32_t boot_probe_polls;
+        __atomic_fetch_add(&boot_probe_polls,1,__ATOMIC_RELAXED);
+#endif
         (void)native_worker_poll(w);
         uint32_t ticks=w->config.poll_ticks;
-        if(LD(&w->state)!=W_READY || w->manager->state==M_STOPPED || w->manager->state==M_BLOCKED)
+        if(LD(&w->state)!=W_READY || w->manager->state==M_STOPPED || w->manager->state==M_BLOCKED
+#ifdef L6_CAPTURE_STORAGE_LEASE
+           || w->manager->state==M_STORAGE_STOPPED
+#endif
+          )
             ticks=w->config.idle_ticks;
         /* Always block, even after exhausting a MORE-work batch. No spin loop
          * while waiting for audio, queue acknowledgement or publication. */

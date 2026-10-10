@@ -111,7 +111,14 @@ KEEP uint32_t life_stop_quiesced(Life *s,Capture *c) {
     extra_stop_quiesced(c);s->phase=DRAINING;return DONE;
 }
 KEEP uint32_t life_cancel_quiesced(Life *s,Capture *c) {
-    if(s->phase==VERIFIED || s->phase==FAILED || s->phase==IDLE)return INVALID;
+    if(s->phase==VERIFIED || s->phase==FAILED
+#ifndef L6_CAPTURE_STORAGE_LEASE
+       || s->phase==IDLE
+#endif
+       )return INVALID;
+    /* In the gated manager, PREPARE follows complete clearing of Life/Capture.
+     * Cancellation before its first file call (or between collision probes)
+     * must positively retire that initialized IDLE instance as well. */
     extra_stop_quiesced(c);
     __atomic_store_n(&c->fault,4,__ATOMIC_RELEASE);
     c->handle=0;return fail(s,CANCELLED);

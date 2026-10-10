@@ -21,11 +21,31 @@ SOURCE,DEST,LENGTH,_=0x800a9408,0x20220000,0xd6dc,0x80079498
 
 def edit_memory(uc,pack=PACK):
     uc.mem_write(SOURCE,b'\xff'*LENGTH)
-    uc.mem_write(SOURCE,pack['packed_dsp'])
-    uc.mem_write(pack['code_source'],pack['packed_code'])
+    if 'loader' in pack:
+        uc.mem_write(SOURCE,pack['source_blob'])
+    else:
+        uc.mem_write(SOURCE,pack['packed_dsp'])
+        uc.mem_write(pack['code_source'],pack['packed_code'])
     for e in pack['edits']:
         assert bytes(uc.mem_read(e['address'],len(bytes.fromhex(e['old']))))==bytes.fromhex(e['old'])
         uc.mem_write(e['address'],bytes.fromhex(e['new']))
+
+def expand_payloads(m,pack):
+    """Run the selected compiled helper, never copy decoded ELF payloads."""
+    j=pack['jumps'];helper=pack['names']['scatter_lz4'] if 'loader' in pack else DECOMPRESS
+    dsp_source=pack['dsp_source'] if 'loader' in pack else SOURCE
+    if pack.get('source_reuse'):
+        # Match the explicit scatter order; earlier zeroing/code expansion would
+        # destroy DSP input which is still needed by its original destination.
+        for args in ((dsp_source,DEST,LENGTH),
+                     (pack['code_source'],j['candidate_code_start'],len(pack['code']))):
+            assert m.invoke(helper,list(args))==0
+        m.invoke(ZERO,[0,j['globals_start'],j['globals_end']-j['globals_start']])
+        return
+    m.invoke(ZERO,[0,j['globals_start'],j['globals_end']-j['globals_start']])
+    for args in ((pack['code_source'],j['candidate_code_start'],len(pack['code'])),
+                 (dsp_source,DEST,LENGTH)):
+        assert m.invoke(helper,list(args))==0
 
 def native_expand(packed,size):
     u=Uc(UC_ARCH_ARM,UC_MODE_THUMB)

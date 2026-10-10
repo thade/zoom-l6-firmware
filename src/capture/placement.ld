@@ -20,5 +20,7 @@ SECTIONS {
  placement_globals_end = .;
  placement_load_end = placement_code_end + SIZEOF(.data);
  ASSERT(placement_load_end < 0x801f5400, "candidate code reaches a stock scatter destination")
- ASSERT(placement_globals_end <= 0x809600e0, "candidate globals exceed proposed arena")
+ /* The separate composed fixture proposes four extra bytes for its arena
+  * pointer. Neither limit is a physical ownership claim. */
+ ASSERT(placement_globals_end <= (DEFINED(capture_globals_limit) ? capture_globals_limit : 0x809600e0), "candidate globals exceed proposed arena")
 }

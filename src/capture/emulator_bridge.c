@@ -10,7 +10,7 @@
 #define W(a) (*(volatile uint32_t *)(a))
 #define B(a) (*(volatile uint8_t *)(a))
 typedef struct {uint32_t session,kind;uint64_t stamp;} Packet;
-typedef struct {
+typedef struct CaptureBridge {
     Exchange *exchange;void *life;Capture *capture;
     uint32_t session,error,phase,have_start,admitted,have_stop;
     uint64_t start,stop,cursor;
@@ -326,11 +326,25 @@ KEEP uint32_t bridge_detach(Bridge *b,uint32_t session) {
     if(LD(&bridge_gateway_readers)&0x7fffffffu)return 11;
     if(LD(&b->worker_busy) || LD(&b->q_lock) || (LD(&b->actors)&0x7fffffffu))return 11;
     for(uint32_t i=0;i<=b->exchange->mask;i++)
-        if(LD(&b->exchange->slots[i].state)==3)return 11;
+        if(LD(&exchange_slot(b->exchange,i)->state)==3)return 11;
     ST(&b->closed,1);ST(&b->retired,1);
     ST(&emulator_bridge_current,(Bridge*)0);
     detached_bridge=b;detached_session=session;return 0;
 }
+#ifdef L6_CAPTURE_STORAGE_LEASE
+/* Storage cancellation only, NOT reclamation or control retirement. The arena,
+ * router, transport and history remain allocated until reboot. Old ordinary
+ * callbacks may finish against those objects, but no gateway hook/worker may
+ * start touching history or files again. This avoids waiting for a control
+ * callback that may itself require Main to service its event queue. */
+KEEP uint32_t bridge_close_storage(Bridge *b,uint32_t session) {
+    if(b==detached_bridge && session && session==detached_session)return 0;
+    if(!b || b!=LD(&emulator_bridge_current) || session!=b->session)return 12;
+    if((LD(&b->phase)!=3 && LD(&b->phase)!=4) || !LD(&b->closed))return 11;
+    __atomic_fetch_or(&bridge_gateway_readers,0x80000000u,__ATOMIC_ACQ_REL);
+    return (LD(&bridge_gateway_readers)&0x7fffffffu)?11:0;
+}
+#endif
 /* NOT a fence implementation: caller must first prevent ALL old hooks/events
  * (including stock queued callbacks) and await in-flight accesses. Retired
  * storage cannot be reclaimed until that external quiescence is established. */
@@ -339,7 +353,7 @@ KEEP uint32_t bridge_retire_quiesced(Bridge *b,uint32_t session) {
        LD(&b->worker_busy) || LD(&b->q_lock) || (LD(&b->actors)&0x7fffffffu) ||
        (b->phase!=3 && b->phase!=4))return 11;
     for(uint32_t i=0;i<=b->exchange->mask;i++)
-        if(LD(&b->exchange->slots[i].state)==3)return 11;
+        if(LD(&exchange_slot(b->exchange,i)->state)==3)return 11;
     ST(&b->closed,1);ST(&b->retired,1);ST(&emulator_bridge_current,(Bridge*)0);return 0;
 }
 KEEP const uint16_t *bridge_verified_path(Bridge *b,uint32_t session) {
@@ -405,12 +419,12 @@ KEEP uint32_t bridge_prepare_next(Bridge *b,Exchange *p,void *life,Capture *c,ui
        b->bound || b->session || b->phase || b->error || !life_is_prepared(life))return 12;
     b->session=session;b->exchange=p;b->life=life;b->capture=c;b->bound=1;return 0;
 }
-KEEP uint32_t bridge_queue_next(Bridge *b,Slot *slots,uint32_t count) {
-    if(!slots || count<2 || count>EXCHANGE_MAX_SLOTS || (count&(count-1)) || !b->bound || !b->context ||
+KEEP uint32_t bridge_queue_next(Bridge *b,void *storage,uint32_t count) {
+    if(!b->bound || !b->context ||
        !b->routed || b->session<=last_session || LD(&pending_bridge))return 12;
     /* Worker owns the fenced storage. Finish all slot-count-dependent work
      * before publishing the pointer that the audio callback can adopt. */
-    uint32_t status=exchange_prepare(b->exchange,slots,count);if(status)return status;
+    uint32_t status=exchange_prepare_storage(b->exchange,storage,count);if(status)return status;
     handover_session=b->session;
     last_session=b->session;ST(&handover_state,1);ST(&pending_bridge,b);return 0;
 }

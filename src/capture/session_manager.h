@@ -2,7 +2,7 @@
 #define L6_SESSION_MANAGER_H
 #include <stdint.h>
 enum {M_LIVE=1,M_FINISH,M_FENCE,M_RESET,M_PREPARE,M_STAGE,M_ACTIVATE,
-      M_ABORT_STAGE,M_STOPPED,M_BLOCKED,M_ABORT_UNPUBLISHED};
+      M_ABORT_STAGE,M_STOPPED,M_BLOCKED,M_ABORT_UNPUBLISHED,M_STORAGE_STOPPED};
 typedef struct {uint32_t session;uint16_t path[261];uint16_t reserved;} ManagerResult;
 typedef struct {
     uint32_t state,error,cancel,busy,session,serial,pad,head,count;
@@ -20,8 +20,11 @@ typedef void (*ManagerVisitor)(const ManagerResult *,uint32_t,uint32_t,void *);
  * Subsequent worker steps clear/prepare, then wait for audio-boundary adoption. */
 uint32_t manager_boot(SessionManager *,const uint32_t descriptor[10],uint32_t pad,uint32_t serial);
 uint32_t manager_step(SessionManager *);
-/* Check that permanent worker storage does not overlap the manager or any
- * descriptor arena that RESET can clear. This does not validate physical RAM. */
+void manager_cancel(SessionManager *);
+uint32_t manager_resume(SessionManager *);
+/* Check permanent worker/context storage against the manager, resettable
+ * objects, history metadata and every full history region. This does not
+ * validate physical RAM; external descriptors must be readable and stable. */
 uint32_t manager_storage_disjoint(SessionManager *,const uint32_t *,uint32_t address,uint32_t bytes);
 uint32_t manager_visit_results(SessionManager *,ManagerVisitor,void *);
 /* Optional permanent publication owner. Once bound, the completed-take RESET

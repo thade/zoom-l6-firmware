@@ -80,7 +80,7 @@ def main():
     passed('cold_4096_slot_boot_defers_optional_admission_then_records_two_exact_takes')
 
     # Wrong descriptors must be rejected before closing gateways or doing IO.
-    for field,value in ((7,3),(7,8192),(8,0),(9,0),(6,SLOTS+4),(0,STATE)):
+    for field,value in ((7,3),(7,8192),(8,0),(9,0),(6,SLOTS+4),(5,STATE+4),(0,STATE)):
         r=ColdRig();r.m.uc.mem_write(DESC+4*field,struct.pack('<I',value))
         assert r.boot()==12 and r.mstate()==0 and not r.calls
         assert word(r.m,r.syms['ct_gateway_readers'])==0

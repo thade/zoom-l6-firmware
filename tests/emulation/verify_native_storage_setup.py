@@ -41,7 +41,7 @@ class FolderTree(MountedTree):
         folder=self.directory(sound['cluster']).get('PAD%d'%(pad+1))
         return self.directory(folder['cluster']) if folder else {}
     def setup_folders(self):return self.m.invoke(0x80002d80,[])
-    def setup_card(self,present=True,phase=2):
+    def setup_card(self,present=True,phase=2,argument=2):
         m=self.m
         keep={0x8005fc98,0x8000ac80,0x8000ac70,0x80002d80,0x80002ec8,0x80008d68,0x80062230}
         saved={fn:m.hooks.get(fn) for fn in callees(0x80009a40,0x80009b18)-keep}
@@ -72,7 +72,7 @@ class FolderTree(MountedTree):
             self.mounts.append(uc.reg_read(A.UC_ARM_REG_R0));active['mount']=False
         handles=[m.uc.hook_add(UC_HOOK_CODE,enter,begin=0x8005fc98,end=0x8005fc98)]
         handles += [m.uc.hook_add(UC_HOOK_CODE,mounted,begin=pc,end=pc) for pc in (0x8005fcd6,0x8005fce4,0x8005fdc0)]
-        try:return m.invoke(0x80009a40,[2])
+        try:return m.invoke(0x80009a40,[argument])
         finally:
             m.uc.hook_del(h)
             for h in handles:m.uc.hook_del(h)

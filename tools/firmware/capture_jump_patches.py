@@ -26,9 +26,9 @@ def symbols(path=ELF):
         e=ELFFile(f)
         return {s.name:s['st_value'] for s in e.get_section_by_name('.symtab').iter_symbols()}
 
-def make_patch(stock,spec,target):
+def make_patch(stock,spec,target,*,code_interval=(0x800b6b00,0x801f5400)):
     """Pure encoding with exact-byte/span checks; no writes or allocation."""
-    if not (target&1) or not 0x800b6b00<=target<0x801f5400:
+    if not (target&1) or not code_interval[0]<=target<code_interval[1]:
         raise ValueError('target must be Thumb code inside the candidate interval')
     site=spec['site'];old=bytes.fromhex(spec['original'])
     offset=SCATTER[0]-BIAS+site-SCATTER[1]
@@ -45,15 +45,21 @@ def make_patch(stock,spec,target):
                 literal_address=literal,patch=patch.hex(),
                 decoded_original=[f'{i.mnemonic} {i.op_str}' for i in instructions])
 
-def plan(elf_path=ELF):
+def plan(elf_path=ELF,*,source_reuse=False):
     stock=SOURCE.read_bytes()
     if hashlib.sha256(stock).hexdigest()!=STOCK_SHA:raise ValueError('unsupported stock firmware')
     validate(stock)
     assert struct.unpack_from('<4I',stock,0x800a691c-BIAS)==SCATTER
-    names=symbols(elf_path);patches=[make_patch(stock,s,names[s['adapter']]) for s in SPECS]
+    from capture_source_reuse_layout import CODE_INTERVAL,GLOBALS_START,GLOBALS_LIMIT
+    interval=CODE_INTERVAL if source_reuse else (0x800b6b00,0x801f5400)
+    names=symbols(elf_path);patches=[make_patch(stock,s,names[s['adapter']],code_interval=interval) for s in SPECS]
     start=names['placement_code_start'];end=names['placement_load_end']
     assert all(start<=p['target']<end for p in patches)
-    assert stock[start-BIAS:end-BIAS]==b'\xff'*(end-start)
+    if source_reuse:
+        assert start==CODE_INTERVAL[0] and end<=CODE_INTERVAL[1]
+        assert names['placement_globals_start']==GLOBALS_START
+        assert names['placement_globals_end']<=GLOBALS_LIMIT<=SCATTER[0]+SCATTER[2]
+    else:assert stock[start-BIAS:end-BIAS]==b'\xff'*(end-start)
     with elf_path.open('rb') as f:
         e=ELFFile(f)
         segments=[dict(address=s['p_vaddr'],load_address=s['p_paddr'],

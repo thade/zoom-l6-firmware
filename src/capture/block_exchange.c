@@ -20,17 +20,27 @@ static int mode(const Observation *o) {
 }
 static uint32_t fault(Exchange *p) {
     p->fault=TIMELINE;ST(&p->pub_fault,TIMELINE);
-    if(p->pending && p->owns)ST(&p->slots[(uint32_t)(p->next>>6)&p->mask].state,FREE);
+    if(p->pending && p->owns)ST(&exchange_slot(p,(uint32_t)(p->next>>6))->state,FREE);
     p->pending=p->owns=0;return TIMELINE;
 }
 KEEP uint32_t exchange_prepare(Exchange *p,Slot *slots,uint32_t count) {
+    /* A tagged count is invalid for this legacy API; invalidate preparation
+     * as for every other bad count, without interpreting slots as metadata. */
+    return exchange_prepare_storage(p,slots,(count&HISTORY_EXTERNAL)?0:count);
+}
+KEEP uint32_t exchange_prepare_storage(Exchange *p,const void *storage,uint32_t count) {
     if(!p)return INVALID;
     p->prepared=0;p->pending=p->owns=0;
     p->fault=p->pub_fault=TIMELINE;
-    if(!slots || ((uintptr_t)slots&7u) || count<2 || count>EXCHANGE_MAX_SLOTS ||
-       (count&(count-1)) || (uintptr_t)slots>UINT32_MAX-count*sizeof(Slot))return INVALID;
-    p->slots=slots;p->mask=count-1;
-    for(uint32_t i=0;i<count;i++)slots[i].state=FREE;
+    HistoryStorage h;
+    if(hstorage_decode(storage,count,&h) || !hstorage_disjoint(&h,(uint32_t)p,sizeof(*p)))return INVALID;
+    /* Copy validated metadata into the exchange; audio never reads the caller's
+     * descriptor. Preparation and descriptor replacement require quiescence. */
+    p->history=h;
+    p->slot_shift=0;
+    for(uint32_t n=h.slots_per_segment;n>1;n>>=1)p->slot_shift++;
+    p->slots=h.segments[0].slots;p->mask=(count&~HISTORY_EXTERNAL)-1;
+    for(uint32_t i=0;i<=p->mask;i++)exchange_slot(p,i)->state=FREE;
     p->prepared=1;return OK;
 }
 KEEP uint32_t exchange_begin(Exchange *p,const Observation *o) {
@@ -55,7 +65,7 @@ KEEP uint32_t exchange_stage(Exchange *p,const float *l,const float *r,const Obs
     if(p->pending || !mode(o) || o->capacity!=p->capacity || o->cursor!=p->expected ||
        p->next>UINT64_MAX-64)return fault(p);
     p->pending=1;p->owns=0;
-    Slot *s=&p->slots[(uint32_t)(p->next>>6)&p->mask];
+    Slot *s=exchange_slot(p,(uint32_t)(p->next>>6));
     uint32_t old=LD(&s->state);
     if(old!=FREE && old!=READY){p->dropped++;return WAIT;}
     if(!__atomic_compare_exchange_n(&s->state,&old,WRITING,0,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE)) {
@@ -75,7 +85,7 @@ KEEP uint32_t exchange_commit(Exchange *p,const Observation *o) {
     if(!p->pending || !mode(o) || o->capacity!=p->capacity || o->cursor!=next_cursor ||
        version>=0xfffffffcu)return fault(p);
     ST(&p->version,version+1);
-    if(p->owns)ST(&p->slots[(uint32_t)(p->next>>6)&p->mask].state,READY);
+    if(p->owns)ST(&exchange_slot(p,(uint32_t)(p->next>>6))->state,READY);
     p->next+=64;p->expected=next_cursor;p->pending=p->owns=0;
     ST(&p->pub_lo,(uint32_t)p->next);ST(&p->pub_hi,(uint32_t)(p->next>>32));
     ST(&p->pub_cursor,next_cursor);ST(&p->version,version+2);
@@ -108,7 +118,7 @@ KEEP uint32_t exchange_claim(Exchange *p,const uint64_t *first,Slot **out) {
     if(status)return status;
     if(*first%64 || *first>UINT64_MAX-64)return INVALID;
     if(*first+64>next)return WAIT;
-    Slot *s=&p->slots[(uint32_t)(*first>>6)&p->mask];
+    Slot *s=exchange_slot(p,(uint32_t)(*first>>6));
     uint32_t old=READY;
     if(!__atomic_compare_exchange_n(&s->state,&old,READING,0,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))
         return old==FREE?MISSING:WAIT;
@@ -118,7 +128,7 @@ KEEP uint32_t exchange_claim(Exchange *p,const uint64_t *first,Slot **out) {
 /* Only the worker owning this exact claim may release it, after all reads. */
 KEEP uint32_t exchange_release(Exchange *p,const uint64_t *first) {
     if(*first%64)return INVALID;
-    Slot *s=&p->slots[(uint32_t)(*first>>6)&p->mask];
+    Slot *s=exchange_slot(p,(uint32_t)(*first>>6));
     if(LD(&s->state)!=READING || s->first!=*first)return INVALID;
     ST(&s->state,READY);return OK;
 }

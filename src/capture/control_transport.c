@@ -10,7 +10,7 @@
 typedef struct {uint32_t task;Request *request,*callback;} Task;
 typedef struct {uint32_t words[8];Request *request;uint32_t id,claimed,done,sent;} Job;
 typedef struct {Request request;uint32_t busy;} EntrySlot;
-typedef struct {Router *router;uint32_t session,queue,used,error;Task tasks[8];Job jobs[8];EntrySlot entries[16];
+typedef struct CaptureTransport {Router *router;uint32_t session,queue,used,error;Task tasks[8];Job jobs[8];EntrySlot entries[16];
     uint32_t closing,cutoff,barrier_tx,barrier_seen,drain_error,drain_worker;
 } Transport;
 typedef struct {Transport *transport;Task *task;Request *previous;EntrySlot *slot;uint32_t identity;} Entry;
@@ -231,6 +231,25 @@ static uint32_t body_ct_drain_poll(Transport *t,uint32_t session) {
     uint32_t wire[8]={(uint32_t)ct_drain_marker,(uint32_t)t,t->session,t->cutoff,0x4c364452u,0,0,0};
     EXIT();
     uint32_t mutex=*(volatile uint32_t*)0x80446894u;
+#ifdef L6_CAPTURE_STORAGE_LEASE
+    /* A storage revocation must be able to regain the manager step pin even
+     * when a producer or ordinary callback is blocked on Main. Only this
+     * internal marker uses a nonblocking kernel send; stock requests retain
+     * their original wrappers/timeout. Zero means no enqueue in the recovered
+     * kernel contract. Preserve the stock wrapper's diagnostic send count. */
+    uint32_t acquired=((uint32_t(*)(uint32_t,uint32_t))0x80076951u)(mutex,0);
+    uint32_t sent=0,released=1;
+    if(acquired==1) {
+        sent=((uint32_t(*)(uint32_t,const uint32_t*,uint32_t,uint32_t))0x800763d9u)(t->queue,wire,0,0);
+        if(sent==1)(*(volatile uint32_t*)0x806b2f20u)++;
+        released=((uint32_t(*)(uint32_t,uint32_t,uint32_t,uint32_t))0x800763d9u)(mutex,0,0,0);
+    }
+    ENTER();
+    if(acquired>1 || sent>1 || released!=1 || (!sent && t->barrier_seen)) {
+        t->barrier_tx=3;t->drain_error=30;EXIT();return 30;
+    }
+    if(!acquired || !sent){t->barrier_tx=0;EXIT();return 11;}
+#else
     uint32_t acquired=((uint32_t(*)(uint32_t,uint32_t))0x80076951u)(mutex,UINT32_MAX);
     uint32_t sent=UINT32_MAX,released=0;
     if(acquired==1) {
@@ -241,6 +260,7 @@ static uint32_t body_ct_drain_poll(Transport *t,uint32_t session) {
     if(acquired!=1 || sent!=0 || released!=1) {
         t->barrier_tx=3;t->drain_error=30;EXIT();return 30;
     }
+#endif
     t->barrier_tx=2;uint32_t status=owned_idle(t) && t->barrier_seen?0:10;
     EXIT();return status;
 }
@@ -342,7 +362,7 @@ KEEP uint32_t ct_shutdown(Transport *t,uint32_t session) {
 }
 
 /* Fresh staging descriptor: Transport, Router, Bridge, Exchange, Life, Capture,
- * Slots, slot_count, unique_session, original_queue. Manager-only; storage is
+ * history_storage, tagged_slot_count, unique_session, original_queue. Manager-only; storage is
  * fresh/zeroed under the shutdown contract, Life prepared by its worker. */
 extern uint32_t bridge_prepare_next(void*,void*,void*,void*,uint32_t);
 extern uint32_t bridge_queue_next(void*,void*,uint32_t),bridge_handover_ready(void*,uint32_t);
@@ -360,10 +380,11 @@ KEEP uint32_t ct_boot_close(void) {
     bootstrap_pending=1;return 0;
 }
 KEEP uint32_t ct_stage_next(const uint32_t *d) {
+    HistoryStorage h;
     if(active || (!detached_transport && !bootstrap_pending) || staged_transport ||
        __atomic_load_n(&ct_gateway_readers,__ATOMIC_ACQUIRE)!=0x80000000u ||
        !d[0] || !d[1] || !d[2] || !d[3] || !d[4] || !d[5] || !d[6] || !d[9] ||
-       d[7]<2 || d[7]>EXCHANGE_MAX_SLOTS || (d[7]&(d[7]-1)))return 12;
+       hstorage_decode((void*)d[6],d[7],&h))return 12;
     Transport *t=(Transport*)d[0];Router *r=(Router*)d[1];
     if(t->router || r->bridge)return 12;
     uint32_t s=bridge_prepare_next((void*)d[2],(void*)d[3],(void*)d[4],(void*)d[5],d[8]);if(s)return s;
