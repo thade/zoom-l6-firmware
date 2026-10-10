@@ -12,5 +12,7 @@ subprocess.run([sys.executable,'-m','ziglang','cc','-target','thumb-freestanding
  'tests/fixtures/sd_dependency_route.c','tests/fixtures/sd_transfer_probe.c',
  'tests/fixtures/sd_transfer_probe_hooks.S','tests/fixtures/sd_stop_probe.c',
  'tests/fixtures/sd_recovery_probe.c','tests/fixtures/sd_event_probe.c',
+ 'tests/fixtures/sd_admission_probe.c',
+ 'tests/fixtures/sd_cache_probe.c',
  '-o',str(out)],cwd=ROOT,env=env,check=True)
 print(out)

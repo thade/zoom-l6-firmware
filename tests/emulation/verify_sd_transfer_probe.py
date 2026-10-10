@@ -35,14 +35,18 @@ def install(m,syms):
         patch(m,address,syms[name],span)
 
 class Probe(Sd):
+    elf_path=ELF
+    def install_probe(self):install(self.m,self.syms)
     def __init__(self,enabled=True):
         super().__init__(Emulator(cpu_model=arm.UC_CPU_ARM_CORTEX_M7,mclass=True))
         m=self.m;m.uc.mem_map(0x10010000,0x20000)
-        with ELF.open('rb') as f:
+        with self.elf_path.open('rb') as f:
             elf=ELFFile(f)
             for seg in elf.iter_segments():
                 if seg['p_type']=='PT_LOAD' and seg['p_filesz']:
                     m.uc.mem_write(seg['p_vaddr'],seg.data())
+                if seg['p_type']=='PT_LOAD' and seg['p_memsz']>seg['p_filesz']:
+                    m.uc.mem_write(seg['p_vaddr']+seg['p_filesz'],bytes(seg['p_memsz']-seg['p_filesz']))
             self.syms={s.name:s['st_value'] for s in elf.get_section_by_name('.symtab').iter_symbols()}
         self.waits=[];self.joins=[];self.native_commands=[];self.copies=[]
         self.fault=None;self.fault_once=True;self.pending=False;self.join_reply=0;self.kernel_waits=[]
@@ -76,7 +80,7 @@ class Probe(Sd):
             self.copies.append(tuple(uc.reg_read(r) for r in REGS[:3]))
         m.uc.hook_add(UC_HOOK_CODE,copy_entry,begin=0x80001754,end=0x80001754)
         if enabled:
-            install(m,self.syms)
+            self.install_probe()
     def state(self):
         values=struct.unpack('<14I',self.m.uc.mem_read(self.syms['sdp_state'],56))
         return dict(zip(FIELDS,values))
