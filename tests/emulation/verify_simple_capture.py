@@ -19,25 +19,25 @@ from verify_pad_protocol import ROOT,IMAGE
 from capture_jump_patches import SCATTER,BIAS,symbols
 from build_simple_capture import build
 from plan_simple_capture import plan,ELF
-from plan_capture_packing import packing
 
-build();PLAN=plan();PACK=packing(ELF);N=symbols(ELF)
+build();PLAN=plan();PACK=PLAN['pack'];N=symbols(ELF)
 STATE=0x23000000;DESC=0x23001800;PACKET=0x23001900;HISTORY=0x23100000
 FIELDS=('expected capacity staged frames epoch published_cursor age published_capacity '
         'take open_take stop_take abort_take start stop take_epoch take_revoked skipped event_faults '
         'revoked file_open state done cursor fifo_used bytes handle serial limit named '
-        'completed failed last_status mask shift').split()
+        'completed failed last_status polls task mask shift').split()
 OFF={name:4*i for i,name in enumerate(FIELDS)};HIST=4*len(FIELDS)
-PATH,HEADER,FIFO=176,256,768
+PATH=HIST+40;HEADER=(PATH+80+31)&~31;FIFO=HEADER+512
 REC_STOP=0x8004ba4d;PLAY_STOP=0x8004b91d
 OK,REVOKED,TIMELINE,OVERRUN,ORDER,IO,NAME,EVENT,VERIFY=range(9)
 
 class SimpleRig(PlacementRig):
     """Stock-only integration harness plus the simplified capture build."""
+    plan,pack,names=PLAN,PACK,N
     def __init__(self,segments=8,per_segment=128,init=True):
         self.stream=[];self.extra_writes=[];self.delays=0;self.packet=(0,0,0,0)
         PlacementRig.__init__(self,patched=False,enabled=False)
-        m=self.m;j=PACK['jumps']
+        m=self.m;PACK,PLAN,N=self.pack,self.plan,self.names;j=PACK['jumps']
         # The earlier composition is loaded by the base harness but never entered.
         m.uc.mem_write(j['candidate_code_start'],PACK['code'])
         m.uc.mem_write(j['globals_start'],bytes(j['globals_end']-j['globals_start']))
@@ -61,7 +61,7 @@ class SimpleRig(PlacementRig):
         # Deep stream registration is modeled; its checkpoint calls sc_admit,
         # the C entry of the 0x8000b158 adapter. Earlier capture hooks stay off.
         if name=='ct_emulator_admit':
-            def hook(uc,a,size,u):self.entries.append('sc_admit');uc.reg_write(A.UC_ARM_REG_PC,N['sc_admit'])
+            def hook(uc,a,size,u):self.entries.append('sc_admit');uc.reg_write(A.UC_ARM_REG_PC,self.names['sc_admit'])
             self.m.uc.hook_add(UC_HOOK_CODE,hook,begin=address,end=address)
     def delay(self,a):self.delays+=1;return 0
     def receive_packet(self,a):
@@ -77,9 +77,9 @@ class SimpleRig(PlacementRig):
         self.stream.extend(v for pair in zip(left,right) for v in pair)
     def field(self,name):return word(self.m,STATE+OFF[name])
     def set(self,name,value):put32(self.m,STATE+OFF[name],value)
-    def step(self):return self.m.invoke(N['sc_worker_step'],[])
-    def stop(self,cursor,caller=REC_STOP):self.m.invoke(N['sc_stop'],[cursor,caller])
-    def admit(self):self.m.invoke(N['sc_admit'],[])
+    def step(self):return self.m.invoke(self.names['sc_worker_step'],[])
+    def stop(self,cursor,caller=REC_STOP):self.m.invoke(self.names['sc_stop'],[cursor,caller])
+    def admit(self):self.m.invoke(self.names['sc_admit'],[])
     def opens(self):return sum(1 for c in self.calls if c in ('create','reopen'))
     def settle(self,limit=200):
         for _ in range(limit):
@@ -87,10 +87,29 @@ class SimpleRig(PlacementRig):
         assert self.field('state')==0
     def main_receive(self,*packet):
         self.packet=packet;self.delays=0
-        return self.m.invoke(N['sc_main_receive'],[PACKET])
+        return self.m.invoke(self.names['sc_main_receive'],[PACKET])
     def path(self):return getstr(self.m,STATE+PATH)
     def extra(self):return bytes(self.disk[self.path()])
     def premaster(self,start,stop):return packed(self.stream[2*start:2*stop])
+
+class SimpleBoot(Boot):
+    """Original reset/scatter/startup with the packed build and native heap."""
+    plan,pack,names=PLAN,PACK,N
+    def __init__(self,optional=1):
+        N=self.names;j=self.pack['jumps']
+        super().__init__(pack=self.pack,names=dict(N,native_worker_entry=0),patches=self.plan['patches'])
+        m=self.m;m.hooks.pop(0x8006de78) # original native heap allocator
+        m.hooks[0x80074780]=lambda a:0;m.hooks[0x80077540]=lambda a:0
+        original=m.hooks[0x80076c60];self.created=[];self.added_writes=[]
+        def create(a):
+            if a[0]!=N['sc_worker_entry']:return original(a)
+            self.created.append(bytes(m.uc.mem_read(a[1],10)));put32(m,a[5],0x7f00);return optional
+        m.hooks[0x80076c60]=create
+        # Writes by added code into the reused span must stay within its globals.
+        code=(j['candidate_code_start'],j['candidate_load_end'])
+        def added(uc,access,address,size,value,u):
+            if code[0]<=uc.reg_read(A.UC_ARM_REG_PC)<code[1]:self.added_writes.append((address,size))
+        m.uc.hook_add(UC_HOOK_MEM_WRITE,added,begin=SCATTER[0],end=SCATTER[0]+SCATTER[2]-1)
 
 def take(r,delay=2,blocks=22,every=1):
     r.audio_call();r.begin_recording(delay)
@@ -370,21 +389,10 @@ def main():
             assert tails==tuple(0x81429800+i*960000+223104*4 for i in range(8))
     passed('startup_allocates_once_and_publishes_only_after_worker_creation')
 
-    class SimpleBoot(Boot):
-        def __init__(self):
-            names=dict(N,native_worker_entry=0)
-            super().__init__(pack=PACK,names=names,patches=PLAN['patches'])
-            m=self.m;m.hooks.pop(0x8006de78) # original native heap allocator
-            m.hooks[0x80074780]=lambda a:0;m.hooks[0x80077540]=lambda a:0
-            original=m.hooks[0x80076c60];self.created=[]
-            def create(a):
-                if a[0]!=N['sc_worker_entry']:return original(a)
-                self.created.append(bytes(m.uc.mem_read(a[1],10)));put32(m,a[5],0x7f00);return 1
-            m.hooks[0x80076c60]=create
     b=SimpleBoot();b.boot()
     g=b.word(N['sc_state']);j=PACK['jumps']
     assert b.created==[b'L6Capture\0'] and b.word(N['sc_startup_status'])==4 and g and g%32==0
-    assert all(j['globals_start']<=a and a+n<=j['globals_end'] for a,n in b.writes)
+    assert b.added_writes and all(j['globals_start']<=a and a+n<=j['globals_end'] for a,n in b.added_writes)
     assert struct.unpack('<2I',bytes(b.m.uc.mem_read(g+HIST+32,8)))==(8,128)
     passed('original_reset_scatter_and_startup_expand_the_build_and_register_the_worker',
            state=hex(g),state_bytes=r.size)

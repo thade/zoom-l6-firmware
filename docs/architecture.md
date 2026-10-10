@@ -45,8 +45,8 @@ exclude read-only users, DMA activity or physical/cache aliases.
 
 The extra file exists only for a stock recording. It is the
 [simplified capture](research/simple_capture_findings.txt) in `src/capture/simple/`:
-4,020 bytes of code, 8 bytes of globals and 12 patch sites, packed with the stock
-decoder.
+4,024 bytes of code, 8 bytes of globals and 12 patch sites, packed with the stock
+decoder into the consumed DSP source span that experiment 16 ran from.
 
 | Participant | Entry | Owns |
 |---|---|---|
@@ -62,10 +62,12 @@ file covers the same frames as the seven stock files. History is 1,024 blocks of
 length and header after reopening. A storage-changing packet, a continuity break,
 lost history or a missing stop abandons only that take.
 
-Remaining deployment questions: early-hang recovery
-([experiment 18](../experiments/18-recovery-hang/README.md)), lane-tail and
-code/global ownership, worker stack and SD service under the extra 384,000 B/s,
-and the admission-to-start delay on hardware. Pad handoff follows reliable capture.
+The first hardware step is [experiment 19](../experiments/19-simple-tap/README.md):
+the tap and worker without recorder or storage hooks. Remaining questions:
+lane-tail ownership, worker stack and SD service under the extra 384,000 B/s,
+the admission-to-start delay, and early-hang recovery
+([experiment 18](../experiments/18-recovery-hang/README.md), parked). Pad handoff
+follows reliable capture.
 
 ## Earlier composition (superseded)
 

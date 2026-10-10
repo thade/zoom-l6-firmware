@@ -300,6 +300,7 @@ static uint32_t capture(SimpleCapture *g) {
 }
 KEEP uint32_t sc_worker_step(void) {
     SimpleCapture *g=LD(&sc_state);if(!g)return SC_INVALID;
+    g->polls++;
     if(LD(&g->state)==SC_CAPTURING)return capture(g);
     uint32_t t=LD(&g->take);
     if(t==g->done)return 0;
@@ -337,8 +338,7 @@ KEEP void startup_register(void) {
     for(uint32_t i=0;i<sizeof(*g);i++)((uint8_t*)g)[i]=0;
     ScHistory h={.segments=SC_MAX_SEGMENTS,.per_segment=TAIL_BLOCKS};
     for(uint32_t i=0;i<SC_MAX_SEGMENTS;i++)h.segment[i]=(ScBlock*)(RING+i*STRIDE+RING_FRAMES*4u);
-    uint32_t task=0;
     /* Create the worker first: without it, no hook should start a take. */
-    if(CREATE(sc_worker_entry,"L6Capture",4096,0,1,&task)!=1 || !task)return;
+    if(CREATE(sc_worker_entry,"L6Capture",4096,0,1,&g->task)!=1 || !g->task)return;
     if(!sc_init(g,&h,1))sc_startup_status=4;
 }

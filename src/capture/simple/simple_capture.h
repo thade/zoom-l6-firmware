@@ -42,7 +42,7 @@ typedef struct {
     uint32_t revoked,file_open;
     /* Worker only. */
     uint32_t state,done,cursor,fifo_used,bytes,handle,serial,limit,named;
-    uint32_t completed,failed,last_status;
+    uint32_t completed,failed,last_status,polls,task;
     uint32_t mask,shift;
     ScHistory history;
     uint16_t path[40];

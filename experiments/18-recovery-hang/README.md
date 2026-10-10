@@ -5,7 +5,8 @@ Every earlier restoration started from an image that booted. Experiment 17 and
 any capture image add code that runs before Main, so this question should be
 answered before they are installed.
 
-**Prepared locally; not staged or installed. Installing it is the user's decision.**
+**Parked (11 October 2026).** Prepared locally, not staged. Trials continue
+without this check, so recovery from an image that fails before Main is unproven.
 
 ## Image
 

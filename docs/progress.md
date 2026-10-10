@@ -5,16 +5,17 @@ Goal: Allow for an overdubbing workflow using just the L6 hardware.
 **11 October 2026.** An independent review found the capture-first composition
 far larger than the goal needs, with five defects; one could hang Main after a
 card removal. Capture is now [simplified](research/simple_capture_findings.txt):
-4,020 bytes of code, 12 patch sites and stock packing instead of 29,060 bytes,
+4,024 bytes of code, 12 patch sites and stock packing instead of 29,060 bytes,
 34 sites and an LZ4 loader. Start and stop come from the stock recorder's own
 saved cursors. A storage change revokes the extra file after a bounded wait.
 Twenty-one offline groups pass, including original reset/scatter/startup.
 [Experiment 17](../experiments/17-dormant-boot/README.md) was prepared from the
-superseded payload and should not be staged. Before any trial that runs added
-code before Main, [experiment 18](../experiments/18-recovery-hang/README.md)
-checks whether PLAY/STOP recovery survives an application that hangs at reset.
+superseded payload and should not be staged. [Experiment 19](../experiments/19-simple-tap/README.md)
+replaces it: the simplified tap and worker without recorder or storage hooks,
+prepared locally with seven passing offline groups. The early-hang
+[recovery check](../experiments/18-recovery-hang/README.md) is parked.
 All hardware-trial tooling and research is now committed. The full offline
-regression passes 85 suites (922 groups); it now sets its own import path.
+regression passes 86 suites (929 groups); it now sets its own import path.
 
 The latest independent work adds a [concrete startup witness](research/storage_boot_findings.txt):
 successful initial card setup and a matched USB request, consumption and acknowledgement

@@ -11,13 +11,17 @@ including one through original reset, scatter and startup code. No firmware
 image was built and nothing was installed.
 
                          earlier composition (exp. 17)   simplified
-  added code             29,060 bytes                    4,020 bytes
+  added code             29,060 bytes                    4,024 bytes
   added globals          288 bytes                       8 bytes
   patch sites            34                              12
-  packing                LZ4 loader + source reuse       stock decoder, 15,462 spare
-  heap objects           9,896-byte arena                5,407 bytes (one state)
+  packing                LZ4 loader + source reuse       stock decoder + source reuse, 15,448 spare
+  heap objects           9,896-byte arena                5,439 bytes (one state)
 
 Sources: src/capture/simple/. Build: tools/firmware/build_simple_capture.py.
+Code (0x800a9688) and globals (0x800b0a00) reuse the consumed DSP source span
+that experiment 16 executed from. The stock decoder expands the patched DSP
+first, then the code over its consumed input, then zeroes the globals; the
+packed code sits beyond both destinations.
 Plan: tools/firmware/plan_simple_capture.py (JSON in analysis/).
 
 Why the earlier design was larger than the problem
@@ -154,8 +158,8 @@ Limitations
   SD service with the extra 384,000 B/s, worker stack (16 KiB requested) and
   scheduling, and filesystem behavior when a card is removed mid-write (the
   extra file inherits the stock driver's behavior here).
-- Lane-tail and code/global placement carry the same evidence and open
-  ownership questions as before (ram_gap_ownership_findings.txt).
+- Lane-tail ownership carries the same evidence and open questions as before
+  (ram_gap_ownership_findings.txt).
 - Card cleanup can stop the stock recorder directly (0x8000b2a8) without the
   setter. That path follows a card change, which revokes the take. Any other
   stop without the setter leaves the take open until the next admission aborts
@@ -165,9 +169,11 @@ Limitations
 
 Next
 ----
-1. Answer the early-hang recovery question (experiments/18-recovery-hang).
-2. Build a dormant hardware trial from this build: startup, ring-size and DSP
-   tap/commit only, plus a read-only status query of frames/epoch/skipped. It
-   would measure the audio-path cost on hardware without creating files.
-3. Then a capture-only trial: short take, then whole song, checking the extra
+1. Experiment 19 (experiments/19-simple-tap) is prepared: startup, ring size,
+   DSP tap/commit and a read-only status query, with no recorder or storage
+   hooks. It checks expansion, 48 frames per tick, audio continuity during
+   recording/playback/effects and heap cost, without creating files. Seven
+   offline groups pass in tests/emulation/verify_simple_trial.py.
+2. Then a capture-only trial: short take, then whole song, checking the extra
    file against the MASTER timing (allow the 48-frame stock master delay).
+The early-hang recovery check (experiment 18) is parked.
