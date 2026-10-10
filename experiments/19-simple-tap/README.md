@@ -19,12 +19,13 @@ fails before Main remains unproven ([experiment 18](../18-recovery-hang/README.m
 | Heap | 141,096 bytes free and minimum, unchanged during playback and recording (22,008 used) |
 | Pad playback | pad 1 backing identified in USB audio, correlation 0.996, no callback errors |
 | Ordinary recording | epoch unchanged at record start and stop; no take, file or fault |
+| Take files | `261011_033958`: MASTER and six stems, valid float32 headers, all 7,661,184 frames (159.6 s) |
 | Bounds and caches | code/globals as built; instruction and data caches enabled |
 
 A single missed, repeated or reordered audio callback would have started a new
 epoch, so the tap ran on every callback for 27 minutes. The stock recorder does
 not restart the audio ring at record start or stop, so a capture take can follow
-it continuously. The take's WAV headers were not yet read; that needs the card.
+it continuously. The take's seven WAV headers were read afterwards (headers only, no audio scan).
 
 Staging verified the exact image by readback; settings and all 156 recording/pad
 file entries were unchanged, and pads, MIDI ports and diagnostic16's reply were

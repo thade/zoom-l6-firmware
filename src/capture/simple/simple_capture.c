@@ -128,8 +128,8 @@ KEEP void sc_admit(void) {
     uint32_t t=g->take+1;g->open_take=t;ST(&g->take,t);
 }
 /* Stock stop cursor setter (0x80006918). Only the RecStop call ends a take;
- * selected is the cursor the stock files end at. The worker runs at a lower
- * priority than this task, so it cannot observe the stop half-written. */
+ * selected is the cursor the stock files end at. stop is written before
+ * stop_take is released, so the worker never sees a half-written stop. */
 KEEP void sc_stop(uint32_t selected,uint32_t caller) {
     SimpleCapture *g=LD(&sc_state);
     if(!g || !g->open_take || caller!=REC_STOP_RETURN)return;
@@ -154,9 +154,15 @@ KEEP int32_t sc_main_receive(uint32_t *packet) {
     if(storage && g) {
         /* Paired with the worker: either it sees this revocation before its
          * next file call, or we see file_open and wait. */
+        g->revoke_packet=packet[0]<<16|(packet[1]&255)<<8|(packet[2]&255);
         __atomic_fetch_add(&g->revoked,1,__ATOMIC_SEQ_CST);
         __atomic_thread_fence(__ATOMIC_SEQ_CST);
-        for(uint32_t i=0;i<SC_WAIT_TICKS && LD(&g->file_open);i++)DELAY(1);
+        /* One bounded wait per stuck file, not per packet of a burst. */
+        if(!LD(&g->file_open))g->main_timed_out=0;
+        else if(!g->main_timed_out) {
+            for(uint32_t i=0;i<SC_WAIT_TICKS && LD(&g->file_open);i++)DELAY(1);
+            g->main_timed_out=LD(&g->file_open);
+        }
     }
     return result;
 }
@@ -314,8 +320,19 @@ KEEP uint32_t sc_worker_step(void) {
     if(s){finish(g,s);return 1;}
     return 10;
 }
+#ifdef SC_STACK_PAINT
+/* Trial builds measure the worker stack: paint 15 KiB below the entry frame of
+ * the 16-KiB stack once; the status query finds the deepest overwritten word. */
+KEEP uint32_t *sc_stack_low,*sc_stack_high;
+#endif
 KEEP __attribute__((noreturn)) void sc_worker_entry(void *unused) {
     (void)unused;
+#ifdef SC_STACK_PAINT
+    uint32_t sp;__asm__ volatile("mov %0, sp":"=r"(sp));
+    uint32_t *high=(uint32_t*)((sp-128u)&~3u),*low=(uint32_t*)((sp-15u*1024u)&~3u);
+    for(volatile uint32_t *p=low;p<high;p++)*p=SC_STACK_PAINT;
+    sc_stack_low=low;ST(&sc_stack_high,high);
+#endif
     for(;;)DELAY(sc_worker_step()==10?1u:25u);
 }
 

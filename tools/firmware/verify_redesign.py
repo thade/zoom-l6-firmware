@@ -76,7 +76,7 @@ names=['build_profiles','capture_performance','native_writer_staging','stock_rin
        'sd_transfer_lifetime','sd_completion','sd_transfer_probe','sd_controller_setup','sd_cold_start','sd_cache_contract','sd_chunk_guard','sd_chunk_admission','sd_card_recovery',
        'sd_checked_recovery','sd_native_event','sd_event_sources',
        'read_producer','read_callback',
-       'ordinary_routing','publication_workflow','startup_sites','lz4_packing','capture_sd_retained','capture_boot_cache','sd_enumeration_guard','capture_source_reuse','usb_startup_ack','storage_boot','boot_probe','native_worker_allocation','simple_capture','simple_trial']
+       'ordinary_routing','publication_workflow','startup_sites','lz4_packing','capture_sd_retained','capture_boot_cache','sd_enumeration_guard','capture_source_reuse','usb_startup_ack','storage_boot','boot_probe','native_worker_allocation','simple_capture','simple_trial','simple_take']
 results=[]
 for name in names:
     r=run(f'tests/emulation/verify_{name}.py')

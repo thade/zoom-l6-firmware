@@ -228,13 +228,15 @@ def main():
     r.inject=('close_write',1,'error') # e.g. the card was removed
     r.main_receive(0,0,0x33,0)
     assert r.delays==500 and r.field('revoked')==1 # worker cannot run in this model
+    assert word(r.m,STATE+PATH+84)==0x000033 # the revoking packet is recorded
+    r.main_receive(0,0,0x34,0);assert r.delays==0 and r.field('revoked')==2 # one wait per stuck file
     assert r.step()==1 and r.field('last_status')==REVOKED and r.field('file_open')==0 and not r.opened
     assert r.calls.count('close_write')==1 # attempted once, failed, forgotten
-    r.main_receive(0,0,0x33,0);assert r.delays==0
-    r.main_receive(3,0,0x33,0);assert r.delays==0 and r.field('revoked')==2
+    r.main_receive(0,0,0x33,0);assert r.delays==0 and word(r.m,STATE+PATH+80)==0
+    r.main_receive(3,0,0x33,0);assert r.delays==0 and r.field('revoked')==3
     for packet in ((0,0,0x31,0),(1,1,0,0),(2,0,0xa1,0)):r.main_receive(*packet)
-    assert r.field('revoked')==2
-    passed('storage_packet_waits_at_most_500_ticks_and_failed_close_never_blocks_Main',
+    assert r.field('revoked')==3
+    passed('storage_packets_wait_at_most_500_ticks_per_stuck_file_and_failed_close_never_blocks_Main',
            wait_ticks=500,classified=['0/x/32..35','1/0/0..5','2/x/a2,a3'])
 
     # Revocation between admission and file creation: no file is created.

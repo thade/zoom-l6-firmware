@@ -46,6 +46,9 @@ typedef struct {
     uint32_t mask,shift;
     ScHistory history;
     uint16_t path[40];
+    /* Main only, in the padding before header: a wait already timed out for
+     * the open file, and the last packet that revoked (category<<16|sub<<8|code). */
+    uint32_t main_timed_out,revoke_packet;
     _Alignas(32) uint8_t header[512];
     _Alignas(32) uint8_t fifo[SC_FIFO+SC_FRAMES*8];
 } SimpleCapture;

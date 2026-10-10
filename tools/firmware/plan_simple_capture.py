@@ -16,6 +16,7 @@ from scatter_codec import compress,expand
 
 ELF=ROOT/'src/capture/simple/simple-capture.elf'
 TRIAL_ELF=ROOT/'src/capture/simple/simple-capture-trial.elf'
+TAKE_ELF=ROOT/'src/capture/simple/simple-capture-take.elf'
 QUERY_SPEC=dict(site=0x800301f0,original='2de9f047',adapter='health_parser',resume=0x800301f4,
                 replay='push.w {r4-r10,lr}',purpose='read-only status query on the Editor parser')
 RECORDER_SPECS=(
@@ -81,9 +82,11 @@ def interior_branches(stock,patches):
     return found
 
 def plan(elf_path=None,trial=False):
-    """Capture plan, or with trial=True the tap-only trial: startup, ring size,
-    DSP tap/commit and the status query; no recorder or storage hooks."""
-    elf_path=elf_path or (TRIAL_ELF if trial else ELF)
+    """Capture plan (trial=False); the tap-only trial (True or 'tap': startup,
+    ring size, DSP tap/commit and the status query, no recorder or storage
+    hooks); or the take trial ('take': every capture site plus the query)."""
+    if trial is True:trial='tap'
+    elf_path=elf_path or {False:ELF,'tap':TRIAL_ELF,'take':TAKE_ELF}[trial]
     stock=SOURCE.read_bytes()
     if hashlib.sha256(stock).hexdigest()!=STOCK_SHA:raise ValueError('unsupported stock firmware')
     validate(stock);names=symbols(elf_path)
@@ -93,7 +96,7 @@ def plan(elf_path=None,trial=False):
         raise ValueError('stock ring capacity instruction differs')
     patches.append(dict(SIZE_PATCH))
     if trial:patches.append(main_patch(stock,QUERY_SPEC,names['health_parser'],**at))
-    else:
+    if trial!='tap':
         patches+=[main_patch(stock,s,names[s['adapter']],**at) for s in RECORDER_SPECS]
         patches+=[receive_patch(stock,site,old,names['sc_main_receive'],adapter='sc_main_receive',**at)
                   for site,old in RECEIVERS]
@@ -109,7 +112,7 @@ def plan(elf_path=None,trial=False):
     interiors=interior_branches(stock,patches+p['jumps']['patches'])
     if interiors:raise ValueError('direct branch enters a displaced span: '+str(interiors))
     pack=packing_report(p)
-    return dict(status='offline_simple_capture_trial_plan' if trial else 'offline_simple_capture_plan_not_deployable',
+    return dict(status=f'offline_simple_capture_{trial}_trial_plan' if trial else 'offline_simple_capture_plan_not_deployable',
         firmware_sha256=STOCK_SHA,pack=p,
         elf_sha256=hashlib.sha256(elf_path.read_bytes()).hexdigest(),
         patches=ordered,DSP_patches=p['jumps']['patches'],packing=pack,

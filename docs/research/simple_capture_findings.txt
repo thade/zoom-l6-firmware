@@ -130,8 +130,12 @@ Deliberate behavior choices
   rather than guessing where it ended.
 - The size limit (0x7ffff000 bytes, about 93 minutes) finishes a shorter valid
   file instead of failing the take.
-- Abandoned takes leave a partial .TMP. The stock pad scanner ignores .TMP;
-  cleanup is future work.
+- Abandoned takes leave a partial .TMP. The stock pad scanner is expected to
+  ignore .TMP (experiment 20 checks pads after a take and a reboot); cleanup is
+  future work.
+- Main waits at most once per stuck file: after one 500-tick wait times out,
+  further storage packets for the same open file do not wait again. The last
+  revoking packet is recorded for diagnosis.
 
 Evidence (verify_simple_capture.py, 21 groups)
 ----------------------------------------------
@@ -181,6 +185,11 @@ audio ring at record start or stop. Heap use was 22,008 bytes; free heap stayed
    hooks. It checks expansion, 48 frames per tick, audio continuity during
    recording/playback/effects and heap cost, without creating files. Seven
    offline groups pass in tests/emulation/verify_simple_trial.py.
-2. Then a capture-only trial: short take, then whole song, checking the extra
-   file against the MASTER timing (allow the 48-frame stock master delay).
+2. Experiment 20 (experiments/20-simple-take) is prepared: every capture site
+   plus the query, which also reports bytes, start/stop, the last revoking
+   packet and the worker's stack use (15 KiB painted in this trial build only). tools/device/analyze_capture_take.py
+   checks a collected take: equal frames to MASTER and every stem, finite
+   samples, the 48-frame master lag (±2) and a correlation floor. Four offline
+   groups pass for the exact image, and four unit tests for the analysis tool.
+   Experiment 19's image is now rebuilt from its pinned commit (045b3ce).
 The early-hang recovery check (experiment 18) is parked.

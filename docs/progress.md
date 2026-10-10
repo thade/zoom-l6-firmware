@@ -14,10 +14,12 @@ superseded payload and should not be staged. [Experiment 19](../experiments/19-s
 replaces it: the simplified tap and worker without recorder or storage hooks.
 It is installed and passed on hardware: 27 minutes with no missed audio callback,
 including pad playback and an ordinary recording, and 22,008 bytes of heap.
-The stock recorder does not restart the audio ring at record start or stop. The early-hang
+The stock recorder does not restart the audio ring at record start or stop, and the
+take's seven WAV headers are valid. [Experiment 20](../experiments/20-simple-take/README.md),
+the first trial that writes the extra file, is prepared locally. The early-hang
 [recovery check](../experiments/18-recovery-hang/README.md) is parked.
 All hardware-trial tooling and research is now committed. The full offline
-regression passes 86 suites (929 groups); it now sets its own import path.
+regression passes 87 suites (933 groups); it now sets its own import path.
 
 The latest independent work adds a [concrete startup witness](research/storage_boot_findings.txt):
 successful initial card setup and a matched USB request, consumption and acknowledgement
