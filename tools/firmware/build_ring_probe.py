@@ -3,7 +3,7 @@
 import os,struct,subprocess,sys,json
 from elftools.elf.elffile import ELFFile
 from build_health_probe import ROOT,END,BIAS,SCATTER,DSP_SOURCE,SOURCE,candidate
-from build_deployment_probe import validate,digest
+from build_deployment_probe import validate,digest,write_manifest
 OUT=ROOT/'deployment/08_ring_probe'
 ELF=ROOT/'src/diagnostics/ring.elf'
 ENTRY=0x800b2400
@@ -68,6 +68,6 @@ def build():
     p=OUT/'trial_ring_probe/L6.BIN';p.parent.mkdir(parents=True,exist_ok=True)
     if p.exists():assert p.read_bytes()==data,'Refusing to replace a different prepared image'
     else:p.write_bytes(data)
-    (OUT/'manifest.json').write_text(json.dumps(r,indent=2)+'\n')
+    write_manifest(OUT/'manifest.json',r)
     print(json.dumps({k:r[k] for k in ('trial_sha256','code_bytes','state_bytes','native_capacity_frames')}))
 if __name__=='__main__':build()

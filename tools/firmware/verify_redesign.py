@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Build and verify the capture-first redesign locally. No device operations."""
-import json,subprocess,sys
+import json,os,subprocess,sys
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
+# Suites import planners/builders by module name; do not rely on the caller's shell.
+ENV=dict(os.environ,PYTHONPATH=os.pathsep.join(filter(None,[str(ROOT/'tools/firmware'),os.environ.get('PYTHONPATH')])))
 def run(*args):
-    return subprocess.run([sys.executable,*args],cwd=ROOT,text=True,capture_output=True)
+    return subprocess.run([sys.executable,*args],cwd=ROOT,env=ENV,text=True,capture_output=True)
 for profile,fixture in (('research',False),('capture-only',False),('handoff',False),('handoff',True)):
     r=run('tools/firmware/build_extra_capture.py','--profile',profile,*(['--test-fixtures'] if fixture else []))
     if r.returncode:sys.exit(r.stdout+r.stderr)
@@ -74,7 +76,7 @@ names=['build_profiles','capture_performance','native_writer_staging','stock_rin
        'sd_transfer_lifetime','sd_completion','sd_transfer_probe','sd_controller_setup','sd_cold_start','sd_cache_contract','sd_chunk_guard','sd_chunk_admission','sd_card_recovery',
        'sd_checked_recovery','sd_native_event','sd_event_sources',
        'read_producer','read_callback',
-       'ordinary_routing','publication_workflow','startup_sites','lz4_packing','capture_sd_retained','capture_boot_cache','sd_enumeration_guard','capture_source_reuse','usb_startup_ack','storage_boot','boot_probe','native_worker_allocation']
+       'ordinary_routing','publication_workflow','startup_sites','lz4_packing','capture_sd_retained','capture_boot_cache','sd_enumeration_guard','capture_source_reuse','usb_startup_ack','storage_boot','boot_probe','native_worker_allocation','simple_capture']
 results=[]
 for name in names:
     r=run(f'tests/emulation/verify_{name}.py')

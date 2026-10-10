@@ -3,7 +3,7 @@
 import hashlib,json,os,struct,subprocess,sys
 from pathlib import Path
 from elftools.elf.elffile import ELFFile
-from build_deployment_probe import SOURCE,STOCK_SHA,validate,digest
+from build_deployment_probe import SOURCE,STOCK_SHA,validate,digest,write_manifest
 from build_added_code_probe import branch
 from scatter_codec import compress,expand
 ROOT=Path(__file__).resolve().parents[2]
@@ -70,6 +70,6 @@ def build():
         p=OUT/role/'L6.BIN';p.parent.mkdir(parents=True,exist_ok=True)
         if p.exists():assert p.read_bytes()==data,'Refusing to replace a different prepared image'
         else:p.write_bytes(data)
-    (OUT/'manifest.json').write_text(json.dumps(report,indent=2)+'\n')
+    write_manifest(OUT/'manifest.json',report)
     print(json.dumps({k:report[k] for k in ('trial_sha256','code_bytes','packed_bytes','state_bytes')}))
 if __name__=='__main__':build()

@@ -7,7 +7,7 @@ recording is therefore the only recording path in this trial.
 """
 import json,struct,subprocess,sys
 from capture_jump_patches import ROOT,BIAS,SCATTER,symbols
-from build_deployment_probe import SOURCE,STOCK_SHA,validate,digest
+from build_deployment_probe import SOURCE,STOCK_SHA,validate,digest,write_manifest
 from plan_capture_lz4 import packing
 from plan_capture_boot import plan
 from plan_capture_hooks import make_patch
@@ -69,6 +69,6 @@ def main():
     data,r,_,_=trial();path=OUT/'trial_dormant_boot/L6.BIN';path.parent.mkdir(parents=True,exist_ok=True)
     if path.exists():assert path.read_bytes()==data,'Refusing to overwrite a different prepared image'
     else:path.write_bytes(data)
-    (OUT/'manifest.json').write_text(json.dumps(r,indent=2)+'\n')
+    write_manifest(OUT/'manifest.json',r)
     print(json.dumps({k:r[k] for k in ('trial_sha256','code_bytes','globals_bytes','spare_bytes')}))
 if __name__=='__main__':main()

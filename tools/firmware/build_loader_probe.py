@@ -10,7 +10,7 @@ import build_memory_capacity_probe as memory
 import build_sd_startup_detail as detail
 from build_lz4_loader_fixture import compiled as loader_compiled
 from build_health_probe import ROOT,SOURCE,BIAS,SCATTER,DSP_SOURCE,DSP_DEST,DSP_BYTES,END
-from build_deployment_probe import digest,validate
+from build_deployment_probe import digest,validate,write_manifest
 from plan_capture_packing import align4
 
 ENTRY=detail.ENTRY
@@ -72,6 +72,6 @@ def build():
     path=OUT/'trial_loader/L6.BIN';path.parent.mkdir(parents=True,exist_ok=True)
     if path.exists():assert path.read_bytes()==data,'Refusing to replace a different prepared image'
     else:path.write_bytes(data)
-    (OUT/'manifest.json').write_text(json.dumps(r,indent=2)+'\n')
+    write_manifest(OUT/'manifest.json',r)
     print(json.dumps({k:r[k] for k in ('trial_sha256','code_bytes','state_bytes','loader_bytes','source_spare_before_diagnostic')}))
 if __name__=='__main__':build()

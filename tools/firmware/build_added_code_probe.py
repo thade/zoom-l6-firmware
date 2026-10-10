@@ -5,7 +5,7 @@ import struct
 from pathlib import Path
 
 from capstone import Cs, CS_ARCH_ARM, CS_MODE_THUMB
-from build_deployment_probe import SOURCE, STOCK_SHA, digest, validate
+from build_deployment_probe import SOURCE, STOCK_SHA, digest, validate, write_manifest
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / 'deployment/03_added_code'
@@ -83,7 +83,7 @@ def build():
                                  'Recovery from broken firmware remains unproven'])
     path = OUT/'manifest.json'
     if not path.exists():
-        path.write_text(json.dumps(manifest, indent=2)+'\n')
+        write_manifest(path, manifest)
     print(json.dumps(dict(images=images, changed_bytes=len(manifest['changed_bytes']))))
 
 

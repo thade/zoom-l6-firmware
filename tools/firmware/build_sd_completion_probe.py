@@ -4,7 +4,7 @@ import argparse,json,os,struct,subprocess,sys
 from elftools.elf.elffile import ELFFile
 from capstone import Cs,CS_ARCH_ARM,CS_MODE_THUMB
 from build_health_probe import ROOT,BIAS,SCATTER,DSP_SOURCE,END,SOURCE,candidate
-from build_deployment_probe import validate,digest
+from build_deployment_probe import validate,digest,write_manifest
 from build_added_code_probe import branch
 OUT=ROOT/'deployment/09_sd_completion';ELF=ROOT/'src/diagnostics/sd-completion.elf'
 DETAIL_OUT=OUT/'detail';DETAIL_ELF=ROOT/'src/diagnostics/sd-completion-detail.elf'
@@ -77,7 +77,7 @@ def build(detail=False):
     p=out/'trial_sd_completion/L6.BIN';p.parent.mkdir(parents=True,exist_ok=True)
     if p.exists():assert p.read_bytes()==data,'Refusing to replace a different prepared image'
     else:p.write_bytes(data)
-    (out/'manifest.json').write_text(json.dumps(r,indent=2)+'\n')
+    write_manifest(out/'manifest.json',r)
     print(json.dumps({k:r[k] for k in ('trial_sha256','code_bytes','state_bytes','native_capacity_frames')}))
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)

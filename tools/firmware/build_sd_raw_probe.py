@@ -5,7 +5,7 @@ from elftools.elf.elffile import ELFFile
 from capstone import Cs,CS_ARCH_ARM,CS_MODE_THUMB
 from build_sd_completion_probe import ENTRY,CAP,SIZE_SITE,WAIT_SITES,HOOKS,bl
 from build_health_probe import ROOT,BIAS,SCATTER,DSP_SOURCE,END,SOURCE,candidate
-from build_deployment_probe import validate,digest
+from build_deployment_probe import validate,digest,write_manifest
 from build_added_code_probe import branch
 ELF=ROOT/'src/diagnostics/sd-raw.elf';OUT=ROOT/'deployment/10_sd_raw'
 IRQ_SITE=0x8006eab6;IRQ_BYTES=6
@@ -74,6 +74,6 @@ def build():
     p=OUT/'trial_sd_raw/L6.BIN';p.parent.mkdir(parents=True,exist_ok=True)
     if p.exists():assert p.read_bytes()==data,'Refusing to replace a different prepared image'
     else:p.write_bytes(data)
-    (OUT/'manifest.json').write_text(json.dumps(r,indent=2)+'\n')
+    write_manifest(OUT/'manifest.json',r)
     print(json.dumps({k:r[k] for k in ('trial_sha256','code_bytes','state_bytes','native_capacity_frames')}))
 if __name__=='__main__':build()

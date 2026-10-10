@@ -4,6 +4,7 @@ import json
 import build_memory_capacity_probe as memory
 import build_sd_startup_probe as startup
 from build_health_probe import ROOT
+from build_deployment_probe import write_manifest
 
 ENTRY=startup.ENTRY
 ELF=ROOT/'src/diagnostics/sd-startup-detail.elf'
@@ -40,7 +41,7 @@ def build():
     path=OUT/'trial_sd_startup_detail/L6.BIN';path.parent.mkdir(parents=True,exist_ok=True)
     if path.exists():assert path.read_bytes()==data,'Refusing to replace a different prepared image'
     else:path.write_bytes(data)
-    (OUT/'manifest.json').write_text(json.dumps(r,indent=2)+'\n')
+    write_manifest(OUT/'manifest.json',r)
     print(json.dumps({k:r[k] for k in ('trial_sha256','code_bytes','state_bytes','native_capacity_frames')}))
 
 if __name__=='__main__':build()

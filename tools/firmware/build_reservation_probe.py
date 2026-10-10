@@ -3,6 +3,7 @@
 import hashlib,json,os,struct,subprocess,sys
 from elftools.elf.elffile import ELFFile
 from build_health_probe import ROOT,ENTRY,END,SOURCE,candidate
+from build_deployment_probe import write_manifest
 from build_timing_probe import HOOKS,PROLOGUES
 
 OUT=ROOT/'deployment/06_reservation_probe'
@@ -71,6 +72,6 @@ def build():
         p=OUT/role/'L6.BIN';p.parent.mkdir(parents=True,exist_ok=True)
         if p.exists():assert p.read_bytes()==payload,'Refusing to replace a different prepared image'
         else:p.write_bytes(payload)
-    (OUT/'manifest.json').write_text(json.dumps(r,indent=2)+'\n')
+    write_manifest(OUT/'manifest.json',r)
     print(json.dumps({k:r[k] for k in ('trial_sha256','code_bytes','state_bytes','budget')}))
 if __name__=='__main__':build()

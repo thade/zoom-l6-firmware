@@ -4,8 +4,11 @@
 Writes only inside the repository deployment directory, never to a device/card.
 Package acceptance and recovery are unknown until separately tested on hardware.
 """
-import hashlib,json,struct
+import hashlib,json,struct,subprocess,sys
 from pathlib import Path
+if not __debug__:
+    # Image builders enforce every container/patch invariant with assert.
+    sys.exit('Refusing to build firmware images with Python -O: asserts are disabled')
 ROOT=Path(__file__).resolve().parents[2]
 SOURCE=ROOT/'Reference/L6_v1.10_E/L6.BIN'
 OUT=ROOT/'deployment/01_usb_marker'
@@ -14,6 +17,13 @@ MARKER_OFFSET=0xa1d55
 CHECKSUM_OFFSET=0x1fc
 
 def digest(b):return hashlib.sha256(b).hexdigest()
+def provenance():
+    """Source revision that produced a manifest; dirty means uncommitted edits."""
+    git=lambda *a:subprocess.run(['git',*a],cwd=ROOT,text=True,capture_output=True).stdout.strip()
+    return dict(source_commit=git('rev-parse','HEAD') or None,
+                source_dirty=bool(git('status','--porcelain','--untracked-files=no','--','src','tools','tests')))
+def write_manifest(path,report):
+    path.write_text(json.dumps({**report,**provenance()},indent=2)+'\n')
 def validate(b):
     assert len(b)==0x395200
     assert struct.unpack_from('<II',b,0x6c)==(0,0), 'BOOT descriptor changed'
@@ -50,6 +60,6 @@ def build():
                      'Stock reinstall, modified-image boot and restoration must be observed separately',
                      'Name change may affect software which matches product strings exactly',
                      'No tested recovery after modified firmware; no bootloader dump'])
-    (OUT/'manifest.json').write_text(json.dumps(report,indent=2)+'\n')
+    write_manifest(OUT/'manifest.json',report)
     print(json.dumps(report,indent=2))
 if __name__=='__main__':build()

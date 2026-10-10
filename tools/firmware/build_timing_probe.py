@@ -3,6 +3,7 @@
 import json,os,subprocess,sys
 from elftools.elf.elffile import ELFFile
 from build_health_probe import ROOT,ENTRY,END,SOURCE,candidate
+from build_deployment_probe import write_manifest
 OUT=ROOT/'deployment/05_timing_probe';ELF=ROOT/'src/diagnostics/timing.elf'
 HOOKS={'health_parser':0x800301f0,'health_sd':0x80068378,
        'timing_read':0x80060620,'timing_write':0x800622b0}
@@ -40,6 +41,6 @@ def build():
         p=OUT/role/'L6.BIN';p.parent.mkdir(parents=True,exist_ok=True)
         if p.exists():assert p.read_bytes()==payload,'Refusing to replace a different prepared image'
         else:p.write_bytes(payload)
-    (OUT/'manifest.json').write_text(json.dumps(report,indent=2)+'\n')
+    write_manifest(OUT/'manifest.json',report)
     print(json.dumps({k:report[k] for k in ('trial_sha256','code_bytes','packed_bytes','state_bytes')}))
 if __name__=='__main__':build()

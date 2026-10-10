@@ -78,7 +78,7 @@ def report(p):
         source_span=[SCATTER[0],SCATTER[0]+SCATTER[2]],metadata_edits=p['edits'],
         unchanged=['MAIN length and container descriptors','All original scatter destinations and lengths',
                    'Original payloads except the two already-planned capture DSP hooks'],
-        limitations=['Independent packing experiment; no default planner or device build selects this decoder.',
+        limitations=['Selected by the experiment 15 and 17 trial builders; the simplified capture uses stock packing.',
             'No firmware image, checksum update, staging, device or bootloader operation.',
             'Original-startup and malformed-block checks are in verify_lz4_packing.py; packing alone is not verification.',
             'Executing a new helper from this loaded source span needs its own hardware/cache/startup qualification.',

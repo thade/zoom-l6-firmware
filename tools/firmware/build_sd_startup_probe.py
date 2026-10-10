@@ -7,7 +7,7 @@ import build_ram_activity_probe as activity
 import build_sd_command_probe as command
 from build_health_probe import ROOT,SOURCE,BIAS,SCATTER,DSP_SOURCE,END
 from build_added_code_probe import branch
-from build_deployment_probe import validate,digest
+from build_deployment_probe import validate,digest,write_manifest
 from build_sd_completion_probe import bl
 
 ENTRY=memory.ENTRY
@@ -72,6 +72,6 @@ def build():
     path=OUT/'trial_sd_startup/L6.BIN';path.parent.mkdir(parents=True,exist_ok=True)
     if path.exists():assert path.read_bytes()==data,'Refusing to replace a different prepared image'
     else:path.write_bytes(data)
-    (OUT/'manifest.json').write_text(json.dumps(r,indent=2)+'\n')
+    write_manifest(OUT/'manifest.json',r)
     print(json.dumps({k:r[k] for k in ('trial_sha256','code_bytes','state_bytes','native_capacity_frames')}))
 if __name__=='__main__':build()

@@ -3,7 +3,7 @@
 import json
 import struct
 from pathlib import Path
-from build_deployment_probe import SOURCE, STOCK_SHA, validate, digest
+from build_deployment_probe import SOURCE, STOCK_SHA, validate, digest, write_manifest
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / 'deployment/02_code_marker'
@@ -53,7 +53,7 @@ def build():
                      'Recovery from broken firmware remains unproven'])
     path = OUT / 'manifest.json'
     if not path.exists():
-        path.write_text(json.dumps(manifest, indent=2)+'\n')
+        write_manifest(path, manifest)
     print(json.dumps(dict(images=images, changed_bytes=manifest['changed_bytes']), indent=2))
 
 
