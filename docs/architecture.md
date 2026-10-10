@@ -26,18 +26,6 @@ original effect engines and bounds their tested memory accesses. Combined effect
 and extra capture still need hardware qualification.
 Neither additional capture nor automatic pad handoff has run on the device.
 
-Initial storage readiness now has a concrete, one-boot software witness: the
-first normal Main card setup must reach its successful directory branch, and
-the first audio-only USB request must be consumed and acknowledged by the native
-worker before normal Main reception. Unexpected ordering, stale acknowledgements
-or later storage transitions revoke it until reboot. This adds no queue or retry
-loop and is only a necessary condition for lease admission; physical SD/cache
-permission and capture release remain unbound. See
-[startup evidence](research/storage_boot_findings.txt).
-The [prepared dormant trial](../experiments/17-dormant-boot/README.md) loads the
-full payload and registers a sleeping worker without connecting recording or SD
-hooks. Diagnostic16 remains installed while that larger trial awaits hardware.
-
 The [passive upper-gap diagnostic](research/ram_activity_probe_findings.txt)
 completed its hardware checks after manual update. Two full idle sweeps and disjoint
 halves across two verified pad plays have matching fingerprints. Two windows
@@ -54,6 +42,38 @@ ownership of apparently spare memory. Stable fingerprints are insufficient to
 exclude read-only users, DMA activity or physical/cache aliases.
 
 ## Current design
+
+The extra file exists only for a stock recording. It is the
+[simplified capture](research/simple_capture_findings.txt) in `src/capture/simple/`:
+4,020 bytes of code, 8 bytes of globals and 12 patch sites, packed with the stock
+decoder.
+
+| Participant | Entry | Owns |
+|---|---|---|
+| Audio | DSP tap and commit | History blocks, published frame count and epoch |
+| Stock recorder task | Stream admission `0x8000b158`, stop setter `0x80006918` | One start and one stop per take |
+| Main | Five original receive calls | A revocation counter; waits at most 500 ticks |
+| Worker task | Polling loop | The extra file; the only filesystem caller |
+
+Start and stop come from the stock recorder's own saved cursors, so the extra
+file covers the same frames as the seven stock files. History is 1,024 blocks of
+64 frames (1.365 s) in the eight shortened lane tails. The worker writes whole
+4-KiB chunks, finishes at the stop frame, rewrites the header and checks the
+length and header after reopening. A storage-changing packet, a continuity break,
+lost history or a missing stop abandons only that take.
+
+Remaining deployment questions: early-hang recovery
+([experiment 18](../experiments/18-recovery-hang/README.md)), lane-tail and
+code/global ownership, worker stack and SD service under the extra 384,000 B/s,
+and the admission-to-start delay on hardware. Pad handoff follows reliable capture.
+
+## Earlier composition (superseded)
+
+The sections below describe the capture-first composition that preceded the
+simplified design. Its sources remain in `src/capture/` for research and to
+reproduce experiment 17, which was prepared from it.
+
+### Composition design
 
 One audio history ring retains samples with monotonic positions. One serialized
 worker selects the exact start/end range, stages up to eight blocks (4 KiB),
@@ -461,7 +481,7 @@ The audit also records a second unit callback reaching the same MMIO body; its
 actual device use is unresolved. Closing outer admissions and physically joining
 old work remain prerequisites; clearing signals cannot provide those guarantees.
 
-## Build profiles
+### Build profiles
 
 `build_extra_capture.py` defaults to **capture-only**, producing
 `src/capture/capture-only.elf`. This contains capture and its worker, without any

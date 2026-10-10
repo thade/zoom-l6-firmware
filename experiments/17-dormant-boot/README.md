@@ -4,7 +4,11 @@ This trial loads the full recording code and creates its worker, which stays
 asleep. It checks startup and memory use before adding extra recording traffic.
 The mixer still makes its ordinary master and channel recordings.
 
-**Prepared locally; not staged or installed.** Diagnostic16 remains on the mixer.
+**Superseded; do not stage.** This image carries the earlier capture
+composition, which the [simplified capture](../../docs/research/simple_capture_findings.txt)
+replaces. A dormant trial should be rebuilt from the simplified build, after the
+[early-hang recovery check](../18-recovery-hang/README.md). Diagnostic16 remains
+on the mixer.
 No mixer controls, levels, pad assignments or card contents were changed while
 preparing this trial.
 

@@ -2,6 +2,20 @@
 
 Goal: Allow for an overdubbing workflow using just the L6 hardware.
 
+**11 October 2026.** An independent review found the capture-first composition
+far larger than the goal needs, with five defects; one could hang Main after a
+card removal. Capture is now [simplified](research/simple_capture_findings.txt):
+4,020 bytes of code, 12 patch sites and stock packing instead of 29,060 bytes,
+34 sites and an LZ4 loader. Start and stop come from the stock recorder's own
+saved cursors. A storage change revokes the extra file after a bounded wait.
+Twenty-one offline groups pass, including original reset/scatter/startup.
+[Experiment 17](../experiments/17-dormant-boot/README.md) was prepared from the
+superseded payload and should not be staged. Before any trial that runs added
+code before Main, [experiment 18](../experiments/18-recovery-hang/README.md)
+checks whether PLAY/STOP recovery survives an application that hangs at reset.
+All hardware-trial tooling and research is now committed. The full offline
+regression passes 85 suites (922 groups); it now sets its own import path.
+
 The latest independent work adds a [concrete startup witness](research/storage_boot_findings.txt):
 successful initial card setup and a matched USB request, consumption and acknowledgement
 must all precede logical readiness. Nine offline groups pass, including stale replies
@@ -24,7 +38,7 @@ Read selected audio files when needed to answer a specific test question.
 4. **Modified data deployed and restored.** The USB name changed from L6 to T6, then returned to L6 after reinstalling stock firmware.
 5. **Modified instruction deployed and restored.** The USB name changed to ZOOM L6 through a one-instruction patch, then returned to L6 after reinstalling stock firmware. Both marker trials now have verified restoration.
 6. **Added code deployed and restored.** The eight-byte detour trial produced ZOOM L6 after reboot, then stock restoration returned it to L6. USB identifiers, MIDI ports, editor connection and existing pad assignments were checked. All three marker trials now have verified restoration.
-7. **In progress: capture-first integration.** One minimal offline build now combines startup/audio/control hooks, heap-owned control objects and 1024 history slots across eight fixed lane tails. Startup registers the worker and leaves it asleep. Exact offline eight-file recording, wrapping, stalls, stop, failure and rearm pass. Hardware guards have survived recording, playback, transfer and all five effects with extra capture disabled. Physical memory/alias ownership, storage admission/transitions/completion, startup release and measured worker stack/timing remain deployment gates; this buffer geometry is not yet a proven service budget.
+7. **In progress: capture integration.** Now the [simplified design](research/simple_capture_findings.txt); the text below describes the superseded composition. One minimal offline build now combines startup/audio/control hooks, heap-owned control objects and 1024 history slots across eight fixed lane tails. Startup registers the worker and leaves it asleep. Exact offline eight-file recording, wrapping, stalls, stop, failure and rearm pass. Hardware guards have survived recording, playback, transfer and all five effects with extra capture disabled. Physical memory/alias ownership, storage admission/transitions/completion, startup release and measured worker stack/timing remain deployment gates; this buffer geometry is not yet a proven service budget.
 8. **Test progressively on hardware.** Additional stereo capture, automatic pad assignment, then repeated overdubs.
 9. **Validate the complete workflow.** Timing, audio integrity, clean stems, preserved masters and failure handling.
 10. **Package the finished firmware.** A tested image and installation/restoration instructions, once the preceding steps pass.

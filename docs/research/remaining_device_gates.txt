@@ -1,5 +1,17 @@
-Remaining deployment gates — updated 10 October 2026
+Remaining deployment gates — updated 11 October 2026
 ===========================================
+
+Update, 11 October: the simplified capture (simple_capture_findings.txt) removes
+the storage lease, transition executor, Main retention loop, startup witness and
+every SD driver guard. Its extra file opens only after the stock recorder admits
+its streams and goes through the stock filesystem API; storage packets revoke it
+with a bounded Main wait. Gates that remain for it:
+  - early-hang recovery (experiments/18-recovery-hang) before code runs pre-Main
+  - lane-tail and code/global ownership (unchanged evidence)
+  - worker stack and SD service with the extra 384,000 B/s, measured on hardware
+  - stream admission following the start request within the 1.365 s history
+  - filesystem behavior on card removal mid-write (inherited from stock)
+The text below records the superseded composition's gates.
 
 Current boundary
 ----------------

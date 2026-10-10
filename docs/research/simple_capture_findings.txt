@@ -1,0 +1,173 @@
+Simplified pre-compressor capture — 11 October 2026
+====================================================
+
+Result
+------
+The capture-first composition is replaced by a much smaller design that keeps
+the same source (the pre-master mix at 0x202269f8, before master gain and
+dynamics) and the same 1.365-second history in eight shortened lane tails.
+Twenty-one offline groups pass in tests/emulation/verify_simple_capture.py,
+including one through original reset, scatter and startup code. No firmware
+image was built and nothing was installed.
+
+                         earlier composition (exp. 17)   simplified
+  added code             29,060 bytes                    4,020 bytes
+  added globals          288 bytes                       8 bytes
+  patch sites            34                              12
+  packing                LZ4 loader + source reuse       stock decoder, 15,462 spare
+  heap objects           9,896-byte arena                5,407 bytes (one state)
+
+Sources: src/capture/simple/. Build: tools/firmware/build_simple_capture.py.
+Plan: tools/firmware/plan_simple_capture.py (JSON in analysis/).
+
+Why the earlier design was larger than the problem
+--------------------------------------------------
+Most of its layers existed so that an independent worker could keep writing
+while card, USB and mode transitions arrived, and to prove the stock SD driver
+correct. The extra file goes through the same public filesystem API as the
+seven stock files. Tying its lifetime to the stock recording removes the need
+for both. Request attribution existed to recover sample-exact start/stop
+positions; the stock recorder already keeps them.
+
+Design
+------
+Four participants own disjoint fields of one permanent state object:
+
+audio      sc_stage at the DSP tap copies 64 frames (raw words, no FPU work)
+           into history slot (frames/64)&mask; sc_commit after the stock cursor
+           advance publishes them. A missed callback, cursor jump or capacity
+           change starts a new epoch.
+recorder   sc_admit at 0x8000b158 runs once the stock recorder has registered
+           all seven streams. It reads the stock saved start cursor (0x80443154,
+           the first frame of every stock take file) and resolves it to a
+           published frame. sc_stop at the stop-cursor setter 0x80006918 (called
+           only by the two stock recording stop callbacks) resolves the final
+           cursor the same way, but only for the RecStop call (return address
+           0x8004ba4d): PlayStop also calls that setter. Each is a single write
+           per take.
+Main       sc_main_receive wraps the five original receive calls already
+           audited. A storage-changing packet increments revoked, then Main waits
+           at most 500 ticks for the worker to clear file_open, then continues.
+worker     The only filesystem caller. It opens OD_<serial>.TMP after admission,
+           copies frames into a 4,608-byte FIFO, writes whole 4,096-byte chunks,
+           truncates at the stop frame, rewrites the header, closes, then
+           reopens to check the length and header.
+
+There is no lease, generation, transition executor, startup witness, request
+router, control transport, mailbox, session manager, per-slot state, seqlock or
+SD driver guard. Takes are numbered; nothing is re-zeroed between takes.
+
+Review defects and their resolution
+-----------------------------------
+Main could wait forever after a failed close (storage_main.c:34).
+  Main's wait is bounded (SC_WAIT_TICKS=500). Each file gets one close attempt;
+  a failed close is forgotten. Group: storage_packet_waits_at_most_500_ticks...
+  The old behavior would hang that test.
+
+A partial first block misaligned every later write (capture.c:62).
+  The FIFO writes only 4,096-byte chunks, so every payload write starts on a
+  sector boundary whatever the start offset. Groups check unaligned start and
+  stop frames.
+
+The try-lock mailbox cancelled takes when a producer met the worker.
+  Start and stop are single writes by one task, published with release order.
+  A start while the worker is busy is counted as skipped, not an error.
+
+A stop arriving after the worker checked for it cancelled the take.
+  The worker reads the stop only after copying a block: if it is still unknown,
+  it will resolve at or after every frame already published. A test preempts
+  the worker exactly between copy and re-read; the take truncates correctly.
+  Mutation check: moving the stop read before the copy fails this group.
+
+Readback could be satisfied from cache.
+  After the header read the worker cleans and invalidates its own buffer lines
+  (DCCIMVAC). Clean-then-invalidate is correct for both stock read paths: the
+  one-block bounce path leaves CPU-written lines that must reach memory, and a
+  direct DMA read can only meet clean speculative lines, because the driver
+  cleans and invalidates before submission and nothing writes the buffer during
+  the read. Mutation check: removing the maintenance fails this group.
+
+Cancel could not break the publication wait; storage could retire during a
+hold; an emptied exchange dereferenced NULL.
+  Gone with the session manager and handoff latch. Pad handoff is not part of
+  this milestone.
+
+Hooks entered in interrupt context returned silently.
+  sc_admit counts event_faults; sc_stop aborts its take.
+
+Independent review of the new code
+----------------------------------
+A second review found seven issues, all fixed with a test each:
+- Names ran out after 64 files across reboots: the serial restarted at 1 and
+  only .TMP collisions advanced it. The first take after boot now finds a free
+  serial by doubling then bisecting over existing .WAV and .TMP names
+  (O(log n) opens); later takes probe one name.
+- A continuity break while draining after the stop dropped a valid take. The
+  epoch check now applies only until the stop is known.
+- Admission failed after 2^32 frames (24.85 h) of continuous audio: the anchor
+  arithmetic wrapped. The producer now publishes its current cursor and a
+  saturating epoch age; a test spans the frame wrap.
+- Main and the worker now pair revoked/file_open with sequentially consistent
+  fences, and the worker checks revocation while probing names and before
+  reopening a finished file.
+- Sequence re-checks now have acquire fences, so the compiler cannot move the
+  checked reads after them.
+- PlayStop (0x8004b910) also calls the stop setter; the stop adapter now passes
+  the caller address and only RecStop ends a take.
+- The after-copy overwrite check and its exact boundary are now exercised.
+
+Deliberate behavior choices
+---------------------------
+- Verification reads back the length and 512-byte header, not the whole file.
+  A full-file hash of a five-minute take reads about 115 MB after every stop
+  and would delay the next take. Stock files are not read back either.
+- A take is captured only if the worker is idle when the stock recorder admits
+  it. A second admission without an intervening stop aborts the open take
+  rather than guessing where it ended.
+- The size limit (0x7ffff000 bytes, about 93 minutes) finishes a shorter valid
+  file instead of failing the take.
+- Abandoned takes leave a partial .TMP. The stock pad scanner ignores .TMP;
+  cleanup is future work.
+
+Evidence (verify_simple_capture.py, 21 groups)
+----------------------------------------------
+- Plan: 12 byte-checked sites; no displaced instruction reads PC; the
+  direct-branch scan covers the final patch list in MAIN and DSP code.
+- Exact take beside seven byte-identical stock files, using the original record
+  request (start setter), queued start/stop callbacks, DSP windows and the
+  patched tap/commit/stop bytes.
+- Unaligned start/stop, preempted stop, missing stop, history overrun, storage
+  revocation with failed close, revocation before open, timeline break, pad
+  recording, write/header/length failures, cache lines, size limit.
+- Startup: one allocation, worker created before the state is published; on
+  creation failure nothing is published. Original reset/scatter/startup expand
+  the packed build with the stock decoder, allocate from the original native
+  heap and register the worker; global writes stay in the 8-byte range.
+
+Limitations
+-----------
+- Emulation: files are the synchronous in-memory model; worker steps and
+  preemption are explicit test actions. Deep stream registration is modeled,
+  and its checkpoint calls the C entry of the 0x8000b158 adapter.
+- Not yet shown on hardware: the 0x8000b158 admission timing (it must follow
+  the start request within the 1.365-second history, or that take is skipped),
+  SD service with the extra 384,000 B/s, worker stack (16 KiB requested) and
+  scheduling, and filesystem behavior when a card is removed mid-write (the
+  extra file inherits the stock driver's behavior here).
+- Lane-tail and code/global placement carry the same evidence and open
+  ownership questions as before (ram_gap_ownership_findings.txt).
+- Card cleanup can stop the stock recorder directly (0x8000b2a8) without the
+  setter. That path follows a card change, which revokes the take. Any other
+  stop without the setter leaves the take open until the next admission aborts
+  it, a storage event or the size limit; that admission is then skipped.
+- The extra 384,000 B/s is not known to the stock card-space estimate, and the
+  shortened ring reduces stock stall tolerance from 5.0 to 4.648 seconds.
+
+Next
+----
+1. Answer the early-hang recovery question (experiments/18-recovery-hang).
+2. Build a dormant hardware trial from this build: startup, ring-size and DSP
+   tap/commit only, plus a read-only status query of frames/epoch/skipped. It
+   would measure the audio-path cost on hardware without creating files.
+3. Then a capture-only trial: short take, then whole song, checking the extra
+   file against the MASTER timing (allow the 48-frame stock master delay).
