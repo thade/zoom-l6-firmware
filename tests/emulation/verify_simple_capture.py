@@ -36,6 +36,7 @@ class SimpleRig(PlacementRig):
     plan,pack,names=PLAN,PACK,N
     def __init__(self,segments=8,per_segment=128,init=True):
         self.stream=[];self.extra_writes=[];self.delays=0;self.packet=(0,0,0,0)
+        self.posts=[];self.rename_fault=None
         PlacementRig.__init__(self,patched=False,enabled=False)
         m=self.m;PACK,PLAN,N=self.pack,self.plan,self.names;j=PACK['jumps']
         # The earlier composition is loaded by the base harness but never entered.
@@ -49,6 +50,8 @@ class SimpleRig(PlacementRig):
         m.uc.mem_map(STATE,0x200000)
         m.hooks[0x80074158]=self.delay
         m.hooks[0x80020690]=self.receive_packet
+        m.hooks[0x80060a18]=self.rename   # stock same-folder rename (model)
+        m.hooks[0x80020ca0]=lambda a:self.posts.append(tuple(a[:5])) or 0
         layout=struct.unpack('<11I',self.raw(N['sc_layout'],44))
         assert layout[1:]==(OFF['frames'],OFF['take'],OFF['revoked'],OFF['state'],OFF['completed'],
                             PATH,HEADER,FIFO,OFF['limit'],OFF['skipped']),layout
@@ -64,6 +67,14 @@ class SimpleRig(PlacementRig):
             def hook(uc,a,size,u):self.entries.append('sc_admit');uc.reg_write(A.UC_ARM_REG_PC,self.names['sc_admit'])
             self.m.uc.hook_add(UC_HOOK_CODE,hook,begin=address,end=address)
     def delay(self,a):self.delays+=1;return 0
+    def rename(self,a):
+        source,target=getstr(self.m,a[0]),getstr(self.m,a[1]);self.calls.append('rename')
+        when,code=self.rename_fault or (None,0)
+        if when=='before':return code
+        if source not in self.disk:return 0xffffd75a
+        if target in self.disk:return 0xffffd75b
+        self.disk[target]=self.disk.pop(source)
+        return code if when=='after' else 0 # 'after': renamed, then a barrier error
     def receive_packet(self,a):
         self.m.uc.mem_write(a[0],struct.pack('<4I',*self.packet));return 0
     def io_write(self,a):
@@ -89,7 +100,9 @@ class SimpleRig(PlacementRig):
         self.packet=packet;self.delays=0
         return self.m.invoke(self.names['sc_main_receive'],[PACKET])
     def path(self):return getstr(self.m,STATE+PATH)
-    def extra(self):return bytes(self.disk[self.path()])
+    def sealed(self):return self.path()[:-3]+'WAV'
+    def extra(self):
+        path=self.path();return bytes(self.disk[path if path in self.disk else self.sealed()])
     def premaster(self,start,stop):return packed(self.stream[2*start:2*stop])
 
 class SimpleBoot(Boot):

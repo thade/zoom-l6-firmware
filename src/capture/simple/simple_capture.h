@@ -26,6 +26,11 @@ typedef struct {
 enum {SC_IDLE,SC_CAPTURING};
 enum {SC_OK=0,SC_REVOKED=1,SC_TIMELINE=2,SC_OVERRUN=3,SC_ORDER=4,SC_IO=5,
       SC_NAME=6,SC_EVENT=7,SC_VERIFY=8,SC_INVALID=12};
+/* Pad handoff: the finished take becomes pad 1's file. */
+enum {SC_HANDOFF_NONE,SC_HANDOFF_POSTED,SC_HANDOFF_ASSIGNED,SC_HANDOFF_SKIPPED,
+      SC_HANDOFF_FAILED,SC_HANDOFF_LOST};
+#define SC_HANDOFF_EVENT 3u            /* Main category no stock dispatcher handles */
+#define SC_HANDOFF_MAGIC 0x4c364f44u   /* 'L6OD' */
 
 typedef struct {
     /* Audio only. */
@@ -49,8 +54,16 @@ typedef struct {
     /* Main only, in the padding before header: a wait already timed out for
      * the open file, and the last packet that revoked (category<<16|sub<<8|code). */
     uint32_t main_timed_out,revoke_packet;
+    /* Handoff: the worker posts (state, serial); Main assigns and records result. */
+    uint32_t handoff_state,handoff_result,handoff_serial;
     _Alignas(32) uint8_t header[512];
     _Alignas(32) uint8_t fifo[SC_FIFO+SC_FRAMES*8];
+    /* Worker-written before posting, Main-read after: the sealed file. */
+    uint16_t handoff_name[16],handoff_path[40];
+    uint32_t handoff_posts,handoff_posted_at;
+    uint32_t stock_recording;   /* recorder task: a normal stock take is running */
+    uint32_t handoff_handled;   /* Main only: last serial Main finished with */
+    uint32_t handoff_revoked;   /* revocation count when the file was sealed */
 } SimpleCapture;
 
 /* Validate history, initialize a zeroed state and publish it to every hook.

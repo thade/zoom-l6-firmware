@@ -32,6 +32,22 @@ typedef int32_t (*Transfer)(uint32_t,void*,uint32_t,uint32_t*);
 #define CREATE ((int32_t (*)(void (*)(void*),const char*,uint32_t,void*,uint32_t,uint32_t*))0x80076c61u)
 #define ALLOC ((void *(*)(uint32_t))0x8006de79u)
 #define RECEIVE ((int32_t (*)(uint32_t*))0x80020691u)
+/* Stock pad handoff calls, as used by the Editor's select handler 0x80009ba0. */
+#define RENAME ((int32_t (*)(const uint16_t*,const uint16_t*))0x80060a19u)
+#define POST ((void (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t))0x80020ca1u)
+#define LOOKUP ((int32_t (*)(uint32_t,const uint16_t*))0x80008ec1u)
+#define INSERT ((int32_t (*)(uint32_t,const uint16_t*,uint32_t))0x80008dd9u)
+#define PATH_OF ((const uint16_t *(*)(uint32_t,int32_t))0x80008e89u)
+#define COUNT ((uint32_t (*)(uint32_t))0x80008ee9u)
+#define VALIDATE ((uint32_t (*)(const uint16_t*,uint32_t,int32_t))0x80009569u)
+#define PLAYING ((uint32_t (*)(uint32_t))0x80002441u)
+#define STOP_PAD ((void (*)(uint32_t))0x80002d09u)
+#define ASSIGN ((void (*)(uint32_t,const uint16_t*,uint32_t,int32_t,uint32_t,uint32_t))0x80008c69u)
+#define RECORD_TARGET ((uint32_t (*)(void))0x80034da9u)
+#define HANDOFF_PAD 0u          /* SOUND_PAD/PAD1 */
+#define HANDOFF_RETRY_POLLS 40u /* about one second of idle polls */
+#define HANDOFF_POSTS 30u       /* retry window while the recorder is busy */
+#define RECORDER_BUSY W(0x80578ec0u) /* RecPlayCtl is running a callback (e.g. RecStop finalizing) */
 #define NOT_FOUND 0xffffd75au
 #define EXISTS 0xffffd75bu
 #define LIMIT 0x7ffff000u
@@ -117,6 +133,7 @@ KEEP void sc_admit(void) {
     SimpleCapture *g=LD(&sc_state);
     if(!g || !normal_recording())return;
     if(interrupt()){g->event_faults++;return;}
+    ST(&g->stock_recording,1);
     if(g->open_take) {
         /* The previous take never reported a stop; do not guess its end. */
         ST(&g->abort_take,g->open_take);g->open_take=0;
@@ -132,7 +149,9 @@ KEEP void sc_admit(void) {
  * stop_take is released, so the worker never sees a half-written stop. */
 KEEP void sc_stop(uint32_t selected,uint32_t caller) {
     SimpleCapture *g=LD(&sc_state);
-    if(!g || !g->open_take || caller!=REC_STOP_RETURN)return;
+    if(!g || caller!=REC_STOP_RETURN)return;
+    ST(&g->stock_recording,0);
+    if(!g->open_take)return;
     uint32_t t=g->open_take,stop,epoch;g->open_take=0;
     if(interrupt() || !resolve(g,selected,&stop,&epoch) || epoch!=g->take_epoch ||
        (int32_t)(stop-g->start)<=0) {
@@ -141,11 +160,55 @@ KEEP void sc_stop(uint32_t selected,uint32_t caller) {
     g->stop=stop;ST(&g->stop_take,t);
 }
 
+/* ---- Main: make the sealed take pad 1's file, as the Editor's select does ---- */
+static int same16(const uint16_t *a,const uint16_t *b) {
+    for(uint32_t i=0;i<40;i++){if(a[i]!=b[i])return 0;if(!a[i])return 1;}
+    return 0;
+}
+/* Final states are written only from POSTED; a worker LOST or a newer
+ * POSTED is never overwritten. The serial is then never handled again. */
+static void handoff_done(SimpleCapture *g,uint32_t serial,uint32_t state,uint32_t result) {
+    uint32_t posted=SC_HANDOFF_POSTED;
+    g->handoff_handled=serial;g->handoff_result=result;
+    __atomic_compare_exchange_n(&g->handoff_state,&posted,state,0,__ATOMIC_RELEASE,__ATOMIC_RELAXED);
+}
+/* Main task only. Repeats 0x80009ba0's steps after its name check, with our
+ * own exact-name check instead of the MIDI task's received-name buffer. */
+static void handoff(SimpleCapture *g,uint32_t serial) {
+    /* Reposts can deliver a serial more than once; act on each only once. */
+    if((int32_t)(serial-g->handoff_handled)<=0)return;
+    if(LD(&g->handoff_state)!=SC_HANDOFF_POSTED || serial!=g->handoff_serial)return;
+    /* Revocation is incremented on Main only, so this comparison is exact. */
+    if(LD(&g->revoked)!=g->handoff_revoked){handoff_done(g,serial,SC_HANDOFF_SKIPPED,5);return;}
+    /* While a stock take records or RecStop still finalizes, leave it posted:
+     * the worker's reposts bring it back, and a newer take supersedes it. */
+    if(LD(&g->stock_recording) || RECORDER_BUSY)return;
+    if((RECORD_TARGET()&255u)==HANDOFF_PAD){handoff_done(g,serial,SC_HANDOFF_SKIPPED,2);return;}
+    int32_t index=LOOKUP(HANDOFF_PAD,g->handoff_name);
+    if(index<0) {
+        /* Not catalogued until the next rescan; add the name (lookup first:
+         * the stock insert does not reject duplicates). */
+        INSERT(HANDOFF_PAD,g->handoff_name,0);
+        index=LOOKUP(HANDOFF_PAD,g->handoff_name);
+        if(index<0){handoff_done(g,serial,SC_HANDOFF_FAILED,3);return;}
+    }
+    const uint16_t *path=PATH_OF(HANDOFF_PAD,index);
+    if(!same16(path,g->handoff_path)){handoff_done(g,serial,SC_HANDOFF_FAILED,4);return;}
+    uint32_t count=COUNT(HANDOFF_PAD),format=VALIDATE(path,HANDOFF_PAD,index);
+    if(format){handoff_done(g,serial,SC_HANDOFF_FAILED,0x100u|format);return;}
+    if(PLAYING(HANDOFF_PAD))STOP_PAD(HANDOFF_PAD);
+    ASSIGN(0,path,HANDOFF_PAD,index,count,1);
+    /* Queued, not yet loaded: the stock loader can still fail on its task. */
+    handoff_done(g,serial,SC_HANDOFF_ASSIGNED,0);
+}
+
 /* ---- Main: storage-changing packets revoke the extra file ---- */
 /* Five original Main receive calls come here. The stock handler runs after we
  * return; give the worker a bounded chance to close first, then carry on. */
 KEEP int32_t sc_main_receive(uint32_t *packet) {
     int32_t result=RECEIVE(packet);
+    SimpleCapture *h=LD(&sc_state);
+    if(h && packet[0]==SC_HANDOFF_EVENT && packet[1]==SC_HANDOFF_MAGIC)handoff(h,packet[2]);
     uint32_t storage=(packet[0]==0 && packet[2]>=0x32 && packet[2]<=0x35) ||
         (packet[0]==1 && packet[1]==0 && packet[2]<=5) ||
         /* Native category-2 dispatch selects by code alone; subtype is ignored. */
@@ -240,6 +303,32 @@ static uint32_t open_file(SimpleCapture *g) {
     g->serial++;header(g,0);
     return put(g,g->header,512)?SC_OK:SC_IO;
 }
+/* ---- Worker: seal the verified take and ask Main to assign it ---- */
+/* Post (or repost) the current serial. The stock post takes the UI mutex and
+ * sends to Main's 4096-entry queue; Main may preempt the worker inside it. */
+static void post_handoff(SimpleCapture *g) {
+    g->handoff_posts++;g->handoff_posted_at=g->polls;
+    POST(SC_HANDOFF_EVENT,SC_HANDOFF_MAGIC,g->handoff_serial,0,0);
+}
+/* After verification, with the file closed and file_open still set. */
+static void seal(SimpleCapture *g) {
+    ST(&g->handoff_state,SC_HANDOFF_NONE);
+    uint32_t n=0,base=0;
+    while(n<39 && g->path[n]){g->handoff_path[n]=g->path[n];if(g->path[n]=='\\')base=n+1;n++;}
+    g->handoff_path[n]=0;
+    if(n<4 || n-base>15){g->handoff_result=SC_NAME;ST(&g->handoff_state,SC_HANDOFF_FAILED);return;}
+    g->handoff_path[n-3]='W';g->handoff_path[n-2]='A';g->handoff_path[n-1]='V';
+    for(uint32_t i=0;i<=n-base;i++)g->handoff_name[i]=g->handoff_path[base+i];
+    if(revoked(g)){g->handoff_result=SC_REVOKED;ST(&g->handoff_state,SC_HANDOFF_SKIPPED);return;}
+    g->handoff_revoked=LD(&g->revoked);
+    /* No-overwrite same-folder rename. Any error ends the handoff: a metadata
+     * error can leave the cached name changed while the card is not, so the
+     * name visible now does not prove what the card holds. */
+    int32_t renamed=RENAME(g->path,g->handoff_path);
+    if(renamed){g->handoff_result=(uint32_t)renamed;ST(&g->handoff_state,SC_HANDOFF_FAILED);return;}
+    g->handoff_serial++;g->handoff_posts=0;
+    ST(&g->handoff_state,SC_HANDOFF_POSTED);post_handoff(g);
+}
 /* Clean and invalidate our own lines after a read: CPU-copied data reaches
  * memory first, and a stale line cannot hide what DMA wrote. */
 static void coherent(const void *p,uint32_t n) {
@@ -263,6 +352,9 @@ static uint32_t complete(SimpleCapture *g) {
        READ(g->handle,g->fifo,512,&actual) || actual!=512){finish(g,SC_VERIFY);return 1;}
     coherent(g->fifo,512);
     for(uint32_t i=0;i<512;i++)if(g->fifo[i]!=g->header[i]){finish(g,SC_VERIFY);return 1;}
+    h=g->handle;g->handle=0;
+    if(CLOSE(h)){finish(g,SC_IO);return 1;}
+    seal(g);
     finish(g,SC_OK);return 0;
 }
 static uint32_t capture(SimpleCapture *g) {
@@ -309,7 +401,15 @@ KEEP uint32_t sc_worker_step(void) {
     g->polls++;
     if(LD(&g->state)==SC_CAPTURING)return capture(g);
     uint32_t t=LD(&g->take);
-    if(t==g->done)return 0;
+    if(t==g->done) {
+        /* Repost a handoff Main has not handled (its queue may have been full). */
+        if(LD(&g->handoff_state)==SC_HANDOFF_POSTED && g->polls-g->handoff_posted_at>=HANDOFF_RETRY_POLLS) {
+            uint32_t posted=SC_HANDOFF_POSTED;
+            if(g->handoff_posts<HANDOFF_POSTS)post_handoff(g); /* Main ignores handled serials */
+            else __atomic_compare_exchange_n(&g->handoff_state,&posted,SC_HANDOFF_LOST,0,__ATOMIC_RELEASE,__ATOMIC_RELAXED);
+        }
+        return 0;
+    }
     /* Mark the file open before any file call, so Main's wait covers it. */
     __atomic_store_n(&g->file_open,1,__ATOMIC_SEQ_CST);
     __atomic_thread_fence(__ATOMIC_SEQ_CST);

@@ -5,6 +5,8 @@ FIELDS=('schema','marker','startup_status','state','task','frames','epoch','capa
     'last_status','polls','free_bytes','minimum_free_bytes','ticks','ccr',
     'code_start','code_end','globals_start','globals_end')
 TAKE_FIELDS=FIELDS+('stack_used','bytes','start','stop','revoke_packet')   # schema 2 (experiment 20)
+HANDOFF_FIELDS=TAKE_FIELDS+('handoff_state','handoff_result','handoff_serial') # schema 3 (experiment 21)
+HANDOFF_STATES=('none','posted','assigned','skipped','failed','lost')
 HEAP=(0x808e2fe0,0x8095ffd8)
 PAINTED=15*1024
 def request(token=0):
@@ -12,7 +14,7 @@ def request(token=0):
     return bytes((0xf0,0x52,0,0,0x6f,6,token,0xf7))
 def decode(packet):
     if len(packet)<6 or packet[:6]!=bytes((0xf0,0x52,0,0,0x6e,6)):return None
-    fields=TAKE_FIELDS if len(packet)==8+5*len(TAKE_FIELDS) else FIELDS
+    fields={8+5*len(f):f for f in (FIELDS,TAKE_FIELDS,HANDOFF_FIELDS)}.get(len(packet),FIELDS)
     if len(packet)!=8+5*len(fields) or packet[-1]!=0xf7 or any(x>127 for x in packet[6:-1]):
         raise ValueError('invalid status reply length or encoding')
     values=[]
@@ -20,7 +22,8 @@ def decode(packet):
         v=packet[7+5*i:12+5*i]
         if v[4]>15:raise ValueError('status word exceeds 32 bits')
         values.append(sum(b<<(7*j) for j,b in enumerate(v)))
-    if values[:2]!=[1 if fields is FIELDS else 2,0x4c3901]:raise ValueError('unsupported status schema or marker')
+    schema={len(FIELDS):1,len(TAKE_FIELDS):2,len(HANDOFF_FIELDS):3}[len(fields)]
+    if values[:2]!=[schema,0x4c3901]:raise ValueError('unsupported status schema or marker')
     return dict(zip(fields,values),token=packet[6])
 def rate(first,last):
     """Frames published per kernel tick between two samples (48.0 at 1 kHz)."""
@@ -31,8 +34,8 @@ def rate(first,last):
 def validate_samples(rows,manifest):
     """Strict acceptance for two idle samples after a normal boot."""
     if len(rows)!=2:raise ValueError('two observations are required')
-    take=manifest.get('mode')=='take'
-    expected=dict(schema=2 if take else 1,marker=0x4c3901,startup_status=4,capacity=223104,take=0,skipped=0,
+    take=manifest.get('mode') in ('take','handoff')
+    expected=dict(schema={'take':2,'handoff':3}.get(manifest.get('mode'),1),marker=0x4c3901,startup_status=4,capacity=223104,take=0,skipped=0,
         event_faults=0,worker_state=0,file_open=0,completed=0,failed=0,last_status=0)
     # Boot-time card/USB packets may revoke in the take image; no take is open then.
     if not take:expected['revoked']=0

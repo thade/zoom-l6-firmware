@@ -19,10 +19,13 @@ take's seven WAV headers are valid. [Experiment 20](../experiments/20-simple-tak
 is installed and passed: **the pre-compressor capture works on the mixer.** Two
 takes each produced an extra file with exactly the stock take's frames, the pre-master
 mix lagging MASTER by the stock 48-frame delay, with no faults and 1,260 bytes of
-worker stack. File Transfer Mode is now driven over MIDI. The early-hang
+worker stack. File Transfer Mode is now driven over MIDI. The pad handoff is
+implemented and reviewed offline: each verified take is renamed to `.WAV` and
+assigned to pad 1 through the stock Editor select steps.
+[Experiment 21](../experiments/21-simple-handoff/README.md) is prepared. The early-hang
 [recovery check](../experiments/18-recovery-hang/README.md) is parked.
 All hardware-trial tooling and research is now committed. The full offline
-regression passes 87 suites (933 groups); it now sets its own import path.
+regression passes 89 suites (947 groups); it now sets its own import path.
 
 The latest independent work adds a [concrete startup witness](research/storage_boot_findings.txt):
 successful initial card setup and a matched USB request, consumption and acknowledgement

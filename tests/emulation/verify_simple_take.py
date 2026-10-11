@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Exact simplified-capture take trial image (experiment 20), offline only.
+"""Exact simplified-capture trial image with capture (experiments 20 and 21).
+
+Run with no argument for experiment 20 ('take'); verify_simple_handoff_trial.py
+runs it for experiment 21 ('handoff').
 
 Original reset/scatter/startup, DSP windows, stock recording and the Editor
 parser execute. Task creation, scheduling and cache effects are modeled.
@@ -21,10 +24,13 @@ from capture_jump_patches import SCATTER
 from plan_capture_packing import DECOMPRESS,ZERO
 from scatter_codec import expand
 sys.path.insert(0,str(ROOT/'tools/device'))
-from l6_simple_probe import request,decode,validate_samples,validate_take,TAKE_FIELDS,PAINTED
+from l6_simple_probe import request,decode,validate_samples,validate_take,TAKE_FIELDS,HANDOFF_FIELDS,PAINTED
 from analyze_capture_take import analyze
 
-IMAGE20,MANIFEST,T=trial('take');TP=T['pack'];TN=TP['names'];OUT=MODES['take']['out']
+MODE=sys.argv[1] if len(sys.argv)>1 else 'take'
+assert MODE in ('take','handoff')
+IMAGE20,MANIFEST,T=trial(MODE);TP=T['pack'];TN=TP['names'];OUT=MODES[MODE]['out']
+SCHEMA,REPLY_FIELDS={'take':(2,TAKE_FIELDS),'handoff':(3,HANDOFF_FIELDS)}[MODE]
 
 class TakeRig(SimpleRig):
     plan,pack,names=T,TP,TN
@@ -56,12 +62,12 @@ def main():
     cases=[]
     def passed(case,**details):cases.append(dict(case=case,**details))
 
-    assert (OUT/'trial_simple_take/L6.BIN').read_bytes()==IMAGE20;validate(IMAGE20)
+    assert (OUT/MODES[MODE]['image']/'L6.BIN').read_bytes()==IMAGE20;validate(IMAGE20)
     assert len(IMAGE20)==len(IMAGE) and IMAGE20[0x2851f8:]==IMAGE[0x2851f8:]
     adapters=sorted(p.get('adapter','size') for p in MANIFEST['patches'])
     assert len(MANIFEST['patches'])==11 and len(MANIFEST['DSP_patches'])==2 and adapters.count('sc_main_receive')==5
     assert {'sc_admit_hook','sc_stop_hook','health_parser','startup_init_hook','startup_idle_hook','size'}<=set(adapters)
-    assert MANIFEST['files_created'] and MANIFEST['experiment']==20
+    assert MANIFEST['files_created'] and MANIFEST['experiment']==MODES[MODE]['experiment']
     passed('exact_image_has_all_twelve_capture_sites_plus_the_status_query',
            trial_sha256=MANIFEST['trial_sha256'],code_bytes=MANIFEST['code_bytes'],
            globals_bytes=MANIFEST['globals_bytes'],spare_bytes=MANIFEST['spare_bytes'])
@@ -80,12 +86,12 @@ def main():
     replies=[];mm.hooks[0x80031648]=lambda a:replies.append(bytes(mm.uc.mem_read(a[0],a[1]))) or 0
     mm.uc.mem_write(INPUT,struct.pack('<I',8)+request(9)+bytes(16));mm.uc.mem_write(0x80629b60,b'\x02')
     assert mm.invoke(TN['sc_query'],[INPUT])==1;r=decode(replies[-1])
-    assert r['schema']==2 and r['state']==g and r['polls']==3 and 128<=r['stack_used']<1024
-    assert len(replies[-1])==8+5*len(TAKE_FIELDS)
+    assert r['schema']==SCHEMA and r['state']==g and r['polls']==3 and 128<=r['stack_used']<1024
+    assert len(replies[-1])==8+5*len(REPLY_FIELDS)
     sample=dict(r,state=0x808f2000,task=0x808f4000,capacity=223104,epoch=1,ccr=0x30000,revoked=3,
                 free_bytes=140000,minimum_free_bytes=139000,ticks=1000,frames=480000,polls=40)
     assert validate_samples([sample,dict(sample,ticks=2000,frames=528000,polls=80)],MANIFEST)
-    for field,value in (('stack_used',0),('stack_used',PAINTED),('schema',1)):
+    for field,value in (('stack_used',0),('stack_used',PAINTED),('schema',SCHEMA-1)):
         try:validate_samples([sample,dict(sample,ticks=2000,frames=528000,polls=80,**{field:value})],MANIFEST)
         except ValueError:pass
         else:raise AssertionError('host accepted abnormal '+field)
@@ -100,6 +106,9 @@ def main():
     assert t.extra()[512:]==packed(t.expected_extra)==t.premaster(start,stop_)
     result=validate_take(dict(before,stack_used=200),dict(after,stack_used=200))
     assert result['frames']==24*64 and after['completed']==1 and after['bytes']==24*64*8
+    if MODE=='handoff':
+        assert after['handoff_state']==1 and after['handoff_serial']==1 and t.posts[-1][:3]==(3,0x4c364f44,1)
+        assert t.sealed() in t.disk # sealed .WAV; Main assignment is covered by verify_simple_pad_handoff
     for field,value in (('completed',0),('last_status',5),('file_open',1),('bytes',8)):
         try:validate_take(dict(before,stack_used=200),dict(after,stack_used=200,**{field:value}))
         except ValueError:pass
@@ -115,7 +124,7 @@ def main():
     passed('capture_take_beside_byte_identical_stock_files_passes_host_take_check_and_analysis',
            frames=result['frames'],correlation=report['correlation'])
 
-    out=ROOT/'analysis/simple_take_verification.json'
+    out=ROOT/('analysis/simple_take_verification.json' if MODE=='take' else 'analysis/simple_handoff_trial_verification.json')
     out.write_text(json.dumps(dict(passed_groups=len(cases),cases=cases,trial_sha256=MANIFEST['trial_sha256'],
         limitations=MANIFEST['limitations']+['Task creation, scheduling and physical cache effects are modeled.']),indent=2)+'\n')
     print(json.dumps(dict(passed_groups=len(cases),report=str(out))))

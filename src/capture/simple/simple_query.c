@@ -16,7 +16,7 @@ static uint32_t stack_used(void) {
     while(p<high && *p==SC_STACK_PAINT)p++;
     return (uint32_t)high-(uint32_t)p+128u;
 }
-#define SC_SCHEMA 2
+#define SC_SCHEMA 3
 #else
 #define SC_SCHEMA 1
 #endif
@@ -37,6 +37,7 @@ KEEP uint32_t sc_query(const uint8_t *packet) {
         W(0x800a6930u),W(0x800a6930u)+W(0x800a6934u),W(0x800a6940u),W(0x800a6940u)+W(0x800a6944u)
 #ifdef SC_STACK_PAINT
         ,stack_used(),F(g->bytes),F(g->start),F(g->stop),F(g->revoke_packet)
+        ,F(LD(&g->handoff_state)),F(g->handoff_result),F(g->handoff_serial)
 #endif
         };
 #undef F

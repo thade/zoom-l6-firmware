@@ -17,6 +17,7 @@ from scatter_codec import compress,expand
 ELF=ROOT/'src/capture/simple/simple-capture.elf'
 TRIAL_ELF=ROOT/'src/capture/simple/simple-capture-trial.elf'
 TAKE_ELF=ROOT/'src/capture/simple/simple-capture-take.elf'
+HANDOFF_ELF=ROOT/'src/capture/simple/simple-capture-handoff.elf'
 QUERY_SPEC=dict(site=0x800301f0,original='2de9f047',adapter='health_parser',resume=0x800301f4,
                 replay='push.w {r4-r10,lr}',purpose='read-only status query on the Editor parser')
 RECORDER_SPECS=(
@@ -86,7 +87,7 @@ def plan(elf_path=None,trial=False):
     ring size, DSP tap/commit and the status query, no recorder or storage
     hooks); or the take trial ('take': every capture site plus the query)."""
     if trial is True:trial='tap'
-    elf_path=elf_path or {False:ELF,'tap':TRIAL_ELF,'take':TAKE_ELF}[trial]
+    elf_path=elf_path or {False:ELF,'tap':TRIAL_ELF,'take':TAKE_ELF,'handoff':HANDOFF_ELF}[trial]
     stock=SOURCE.read_bytes()
     if hashlib.sha256(stock).hexdigest()!=STOCK_SHA:raise ValueError('unsupported stock firmware')
     validate(stock);names=symbols(elf_path)

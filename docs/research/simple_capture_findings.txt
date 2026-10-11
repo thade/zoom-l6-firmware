@@ -188,6 +188,20 @@ during a take; the worker's deepest stack use was 1,260 of 16,384 bytes. The pad
 scanner ignores .TMP across a rescan and a cold reboot. File Transfer Mode is now
 driven over MIDI (tools/device/l6_transfer_mode.py), without the official Editor.
 
+Pad handoff (11 October, offline): after a verified take the worker renames
+OD_n.TMP to .WAV with the stock same-folder rename and posts a private Main event
+(category 3, which no stock Main loop dispatches). Main's receive hook repeats
+the Editor select handler's steps for pad 1 with its own exact-name check:
+catalogue lookup (insert if missing; the stock insert duplicates names), exact
+path check, WAV validation (only result 0 assigns), stop if playing, then the
+stock assignment 0x80008c68. It waits (stays posted, reposted for 30 s) while a
+stock take records or the recorder task is busy finalizing; skips on a storage
+change after sealing or when pad 1 is the record target; ends on any rename
+error. A Main-owned handled serial makes reposts idempotent. Ten groups in
+tests/emulation/verify_simple_pad_handoff.py run the original catalogue code;
+validation, play/stop and the assignment queue are models. Experiment 21
+(experiments/21-simple-handoff) is prepared for hardware.
+
 1. Experiment 19 (experiments/19-simple-tap), installed and passed: startup, ring size,
    DSP tap/commit and a read-only status query, with no recorder or storage
    hooks. It checks expansion, 48 frames per tick, audio continuity during
