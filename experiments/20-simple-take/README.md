@@ -5,9 +5,35 @@ recording also produces `SOUND_PAD/PAD1/OD_<serial>.TMP`: the pre-master mix
 from the stock start cursor to the stock stop cursor. The stock pad scanner is
 expected to ignore `.TMP`; this trial checks pad assignments after a take and a reboot.
 
-**Prepared locally; not staged or installed.** The mixer runs experiment 19.
-Recovery from an image that fails before Main remains unproven
-([experiment 18](../18-recovery-hang/README.md) is parked).
+**Installed 11 October 2026; both takes passed.** Recovery from an image that
+fails before Main remains unproven ([experiment 18](../18-recovery-hang/README.md) is parked).
+
+## Results
+
+| Check | Take 1 (`261011_130946`) | Take 2 (`261011_133624`) |
+|---|---|---|
+| Length | 79.66 s, 3,823,680 frames | 93.05 s, 4,466,368 frames |
+| Worker | completed, status OK, no skip/fault/revocation | completed, status OK, no skip/fault/revocation |
+| Payload | 30,589,440 bytes = frames × 8 | 35,730,944 bytes = frames × 8 |
+| Frames vs MASTER and all six stems | equal | equal |
+| Lag behind MASTER | 48 frames | 48 frames |
+| Correlation with MASTER | 0.9999999974 | 0.9999999970 |
+| Extra file peak | 0.00016 (noise floor only) | 0.733 (real signal) |
+| Worker stack, deepest use | 1,260 of 16,384 bytes | 1,260 bytes |
+| Minimum free heap | 141,096 bytes | 138,656 bytes |
+
+The extra file is the pre-master mix, sample-aligned with the stock take: it
+starts and ends on the stock files' frames and differs from MASTER only by the
+stock master body's 48-frame delay (master dynamics were neutral in these takes).
+Audio continuity held throughout (epoch 1), including several USB
+re-enumerations. One revocation at boot came from the card-ready packet
+(`0x000835`) while no take was open; transfer-mode cycles added more, never
+during a take.
+
+Pad names and counts were unchanged after a transfer-mode rescan and after a
+cold reboot with `OD_00000001.TMP` on the card, so the stock pad scanner ignores
+`.TMP`. Staging verified the image by readback with settings and 163 file entries
+unchanged. Evidence stays in `deployment/20_simple_take/`.
 
 ## What it answers
 

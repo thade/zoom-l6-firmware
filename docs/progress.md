@@ -15,8 +15,11 @@ replaces it: the simplified tap and worker without recorder or storage hooks.
 It is installed and passed on hardware: 27 minutes with no missed audio callback,
 including pad playback and an ordinary recording, and 22,008 bytes of heap.
 The stock recorder does not restart the audio ring at record start or stop, and the
-take's seven WAV headers are valid. [Experiment 20](../experiments/20-simple-take/README.md),
-the first trial that writes the extra file, is prepared locally. The early-hang
+take's seven WAV headers are valid. [Experiment 20](../experiments/20-simple-take/README.md)
+is installed and passed: **the pre-compressor capture works on the mixer.** Two
+takes each produced an extra file with exactly the stock take's frames, the pre-master
+mix lagging MASTER by the stock 48-frame delay, with no faults and 1,260 bytes of
+worker stack. File Transfer Mode is now driven over MIDI. The early-hang
 [recovery check](../experiments/18-recovery-hang/README.md) is parked.
 All hardware-trial tooling and research is now committed. The full offline
 regression passes 87 suites (933 groups); it now sets its own import path.

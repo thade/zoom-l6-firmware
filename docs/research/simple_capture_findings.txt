@@ -180,6 +180,14 @@ so no audio callback was missed, and the stock recorder does not restart the
 audio ring at record start or stop. Heap use was 22,008 bytes; free heap stayed
 141,096 bytes throughout.
 
+Hardware result (experiment 20, 11 October): the first capture takes. Two takes
+(79.7 s near-silent and 93.0 s with real signal) each produced an extra file with
+exactly as many frames as MASTER and all six stems, lagging MASTER by exactly 48
+frames with correlation above 0.99999999. No skip, fault, overrun or revocation
+during a take; the worker's deepest stack use was 1,260 of 16,384 bytes. The pad
+scanner ignores .TMP across a rescan and a cold reboot. File Transfer Mode is now
+driven over MIDI (tools/device/l6_transfer_mode.py), without the official Editor.
+
 1. Experiment 19 (experiments/19-simple-tap), installed and passed: startup, ring size,
    DSP tap/commit and a read-only status query, with no recorder or storage
    hooks. It checks expansion, 48 frames per tick, audio continuity during
