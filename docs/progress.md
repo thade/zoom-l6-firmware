@@ -30,10 +30,17 @@ measured the cause: single writes block for up to 1.28 s over a whole song,
 behind a stock file writer at priority 28 versus the worker's 1.
 [Experiment 23](../experiments/23-simple-buffer/README.md) doubles the history
 to 2.73 s, writes 16 KiB at a time and raises the worker's priority.
-The early-hang
+It helped (ordinary lag about 0.4 s) but the first take after boot still
+overran. **Direction change:** pad 1 now references the take's stock
+`MASTER.WAV` in place, accepting the baked-in master compressor. There is no
+real-time path, only 10 patch sites and about 3.6 KB of code; a permanent
+silent `PAD1\MASTER.WAV` anchor keeps stock reload from replacing the
+reference ([findings](research/master_reference_findings.txt)).
+[Experiment 24](../experiments/24-master-ref/README.md) is prepared and passes
+18 offline groups. The early-hang
 [recovery check](../experiments/18-recovery-hang/README.md) is parked.
 All hardware-trial tooling and research is now committed. The full offline
-regression passes 91 suites (974 groups); it now sets its own import path.
+regression passes 93 suites (992 groups); it now sets its own import path.
 
 The latest independent work adds a [concrete startup witness](research/storage_boot_findings.txt):
 successful initial card setup and a matched USB request, consumption and acknowledgement

@@ -21,7 +21,7 @@ MODES=dict(tap=dict(experiment=19,out=OUT,image='trial_simple_tap',files_created
            take=dict(experiment=20,out=ROOT/'deployment/20_simple_take',image='trial_simple_take',files_created=True,pin='6fcf24a'),
            handoff=dict(experiment=21,out=ROOT/'deployment/21_simple_handoff',image='trial_simple_handoff',files_created=True,pin='acc0539'),
            diag=dict(experiment=22,out=ROOT/'deployment/22_simple_diag',image='trial_simple_diag',files_created=True,pin='4bdc66a'),
-           buffer=dict(experiment=23,out=ROOT/'deployment/23_simple_buffer',image='trial_simple_buffer',files_created=True))
+           buffer=dict(experiment=23,out=ROOT/'deployment/23_simple_buffer',image='trial_simple_buffer',files_created=True,pin='ccfcfd5'))
 
 def require(condition,message):
     if not condition:raise ValueError(message)
@@ -32,12 +32,9 @@ def pinned_build(mode,commit):
         tarfile.open(fileobj=io.BytesIO(archive)).extractall(tree,filter='data')
         return build(trial=mode,root=Path(tree))
 
-def trial(mode='tap'):
-    m=MODES[mode]
-    stock=SOURCE.read_bytes();require(digest(stock)==STOCK_SHA,'unsupported stock firmware')
-    validate(stock);elf=pinned_build(mode,m['pin']) if 'pin' in m else build(trial=mode)
-    t=plan(elf,trial=mode);p=t['pack']
-    source,dest,length,_=SCATTER;data=bytearray(stock)
+def assemble(stock,t):
+    """Stock image plus the planned scatter span, edits and patches; checked."""
+    p=t['pack'];source,dest,length,_=SCATTER;data=bytearray(stock)
     span=bytearray(b'\xff'*length);span[:len(p['packed_dsp'])]=p['packed_dsp']
     at=p['code_source']-source;span[at:at+len(p['packed_code'])]=p['packed_code']
     data[source-BIAS:source-BIAS+length]=span
@@ -53,6 +50,13 @@ def trial(mode='tap'):
     require(len(data)==len(stock) and data[0x2851f8:]==stock[0x2851f8:],'panel/voice regions changed')
     require(all(any(a<=i<b for a,b in allowed) for i,(x,y) in enumerate(zip(data,stock)) if x!=y),
             'a byte changed outside the planned spans')
+    return data
+
+def trial(mode='tap'):
+    m=MODES[mode]
+    stock=SOURCE.read_bytes();require(digest(stock)==STOCK_SHA,'unsupported stock firmware')
+    validate(stock);elf=pinned_build(mode,m['pin']) if 'pin' in m else build(trial=mode)
+    t=plan(elf,trial=mode);p=t['pack'];data=assemble(stock,t)
     names=p['names'];at=names['sc_layout']-names['placement_code_start']
     state_bytes=struct.unpack_from('<I',p['code'],at)[0]
     report=dict(experiment=m['experiment'],mode=mode,status='prepared_locally_not_staged',trial_sha256=digest(data),

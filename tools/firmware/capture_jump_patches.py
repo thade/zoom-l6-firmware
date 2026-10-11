@@ -45,14 +45,16 @@ def make_patch(stock,spec,target,*,code_interval=(0x800b6b00,0x801f5400)):
                 literal_address=literal,patch=patch.hex(),
                 decoded_original=[f'{i.mnemonic} {i.op_str}' for i in instructions])
 
-def plan(elf_path=ELF,*,source_reuse=False):
+def plan(elf_path=ELF,*,source_reuse=False,dsp=True):
+    """dsp=False: a build with no DSP hooks; the DSP code is left stock."""
     stock=SOURCE.read_bytes()
     if hashlib.sha256(stock).hexdigest()!=STOCK_SHA:raise ValueError('unsupported stock firmware')
     validate(stock)
     assert struct.unpack_from('<4I',stock,0x800a691c-BIAS)==SCATTER
     from capture_source_reuse_layout import CODE_INTERVAL,GLOBALS_START,GLOBALS_LIMIT
     interval=CODE_INTERVAL if source_reuse else (0x800b6b00,0x801f5400)
-    names=symbols(elf_path);patches=[make_patch(stock,s,names[s['adapter']],code_interval=interval) for s in SPECS]
+    names=symbols(elf_path)
+    patches=[make_patch(stock,s,names[s['adapter']],code_interval=interval) for s in (SPECS if dsp else ())]
     start=names['placement_code_start'];end=names['placement_load_end']
     assert all(start<=p['target']<end for p in patches)
     if source_reuse:

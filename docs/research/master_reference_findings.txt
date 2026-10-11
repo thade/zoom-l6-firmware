@@ -1,0 +1,86 @@
+Master reference findings (stock v1.10)
+=======================================
+
+Goal: after each ordinary take, pad 1 plays that take's stock master
+A:\RECORDER\<take>\MASTER.WAV in place, with no extra recording. Static
+analysis plus emulation of original instructions; nothing here is hardware
+evidence. Implementation: src/capture/master/; checks:
+tests/emulation/verify_master_ref.py and verify_master_trial.py.
+
+1. Where the take path lives
+Record start (callback 0x80034f40 -> 0x80002df8) formats yymmdd_hhmmss from the
+clock (0x800485b0), creates the folder (mkdir 0x8005f3d0; on "exists" it bumps
+the time via 0x8000be30 and retries), catalogues and selects it (0x80008848),
+then copies "A:\RECORDER\<take>" through 0x8000ae00 -> 0x80004430 ->
+0x80022de0 into 0x8060ff80 (UTF-16, at most 0x100 units, NUL forced at
+0x8061017e). No trailing backslash. The only other writer chain is
+0x80002d30 (boot/SD project load, and a pad-target branch at 0x800035bc);
+recorder init 0x80022ce8 zeroes it. Finalize, postprocess and re-arm leave it
+alone, so it is valid at and after RecStop until the next record start.
+Emulated: naming with a collision bump, the copy into 0x8060ff80, and
+0x80022c80(10,1) = "<folder>\MASTER.WAV", (10,2) = "<folder>\MASTER_01.WAV".
+Per-stream paths are rebuilt on demand into the shared scratch 0x8060fd80;
+the recorder writes "<folder>\Work\MASTER.WAV" (0x80023640) and postprocess
+renames it.
+
+2. When the master is final
+RecStop 0x8004ba40 calls the stop cursor setter 0x80006918 (LR 0x8004ba4d),
+then 0x8000b698: finalize and close streams 0..11, postprocess 0x800032b0 at
+0x8000b978 (rename Work\ files to final names, rewrite headers; then remove
+Work), re-arm. All of it is synchronous inside the one RecPlayCtl callback,
+during which RecPlayCtl's busy word 0x80578ec0 stays 1 (worker 0x80034bc8).
+So once 0x80578ec0 reads 0 after a stop observed inside that callback, the
+master is closed and renamed. A failed master close still reaches postprocess,
+so the file is checked independently (open read-only, size).
+
+3. Splitting
+The producer 0x80038e60 splits a stream when its bytes reach the per-stream
+threshold (about 2 GiB, set at 0x8060fd80+0x43c by 0x80022ce8). At 48 kHz
+stereo: 93.2 min in 32-bit float, 124.3 min in 24-bit, 186.4 min in 16-bit.
+Part 2 is MASTER_01.WAV. A split take is refused rather than assigning only
+its first part.
+
+4. Assignment and why an anchor is needed
+0x80008c68(mode 0, path, pad, index, count, 1) queues the path pointer to
+SamplerFileAssign (callback 0x80049d60 -> 0x8004b760). 0x8004b760 validates
+the catalogue entry at index (0x80009568) and only the passed path's extension;
+it stores the full path at 0x80440dc8+0x798+pad*0x20a (up to 0x104 units) and
+loads it (0x800092a0). Settings save and load copy that path raw.
+Reload (callback 0x80049da0, boot and File Transfer Mode exit) looks the saved
+path's basename up in the pad's folder catalogue. Found: it loads the saved
+full path. Not found: it assigns the first valid file in the folder and saves
+that, losing the reference (an empty folder keeps the configured path but
+loads it only at the UI's load-all). Emulated outcomes after save, cold boot
+and reload with the reference A:\RECORDER\...\MASTER.WAV:
+  PAD1 = {MASTER.WAV}                 reference kept and loaded
+  PAD1 = {BACKING.WAV, MASTER.WAV}    reference kept and loaded
+  PAD1 = {BACKING.WAV}                replaced by BACKING.WAV
+Hence a permanent anchor A:\SOUND_PAD\PAD1\MASTER.WAV. The validator judges
+the anchor's format, not the master's: a 44.1 kHz anchor routes to sample-rate
+conversion, so the anchor is 48 kHz. The master itself is parsed by the loader.
+The Editor's pad-name query (46 02) for a loaded path whose basename is not
+catalogued reads a NULL name (address 0); the anchor avoids that too.
+
+5. Design
+Recorder task: admission (0x8000b158) marks an ordinary take; RecStop's
+setter call copies 0x8060ff80 (bounded to 63 units, must start A:\RECORDER\)
+and appends \MASTER.WAV, then releases a stop counter. Worker (priority 1):
+copies the path under that counter, waits for 0x80578ec0 == 0 and no new take,
+reads the first 1 KiB of MASTER.WAV (stock layout: fmt at 12, PAD chunk, data
+at 902, file ending exactly at the data's end) and requires 48 kHz stereo and
+that exact size, checks MASTER_01.WAV is absent, then posts a category-3 Main
+event with reposts. The validator answers from the anchor for every take, so
+the master's own rate is checked here. A storage change between admission and
+RecStop refuses the take; any admission closes a take that ended without the
+setter (card cleanup). Main: looks up the anchor (no insert), checks its catalogue path,
+validates, stops pad 1 if playing and queues the assignment from a buffer it
+keeps until the next assignment, copied only after rechecking the serial,
+since the stock calls can block and let the worker supersede it. A newer stop
+supersedes an unhandled post; storage changes before assignment skip it.
+Emulation runs RecStop through the original RecPlayCtl dispatch: the stock
+finalize call happens after the stop is published and with 0x80578ec0 set.
+
+6. Open on hardware
+Pad playback of a large 32-bit float master in place; playback from RECORDER
+while the next take records to the same card; behaviour when the referenced
+folder is deleted over USB; exact catalogue case handling for MASTER.WAV.

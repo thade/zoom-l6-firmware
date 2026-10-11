@@ -4,9 +4,25 @@ Experiment 22 found the overrun's cause: single file writes block for up to
 1.28 s over a whole song, more than the 1.365-second history can absorb. This
 trial applies three changes together and repeats the measurements.
 
-**Prepared locally; not staged or installed.** The mixer runs experiment 22.
-Recovery from an image that fails before Main remains unproven
-([experiment 18](../18-recovery-hang/README.md) is parked).
+**Installed 11 October 2026; the first take after boot still overran.** The
+capture approach is set aside for [experiment 24](../24-master-ref/README.md),
+which references the stock master instead. Recovery from an image that fails
+before Main remains unproven ([experiment 18](../18-recovery-hang/README.md) is parked).
+
+## Results
+
+| Take | Length | Result | `lag_max` | `write_max` | `write_long` | `gap_max` |
+|---|---|---|---|---|---|---|
+| 1, first after boot | about 5.5 s captured | `OVERRUN` (2,113,536 bytes written) | 2.929 s | 1,117 ms | 5 | 1,208 ms |
+| 2 | 66.8 s | completed, handed off (serial 1) | 0.397 s | 363 ms | 7 | 377 ms |
+
+Priority 10 and 16-KiB writes cut ordinary lag to about 0.4 s, but the first
+take after boot met a 1.1-second write and a 1.2-second step gap early on and
+still exceeded the doubled 2.73-second history. The stalls sit in the stock
+filesystem and card path, outside the capture's control; more history would
+need a still shorter stock ring. Worker stack peaked at 1,700 bytes; minimum
+free heap 128,648 bytes. Stock files and pads were unaffected. Evidence stays
+in `deployment/23_simple_buffer/`.
 
 ## Changes
 

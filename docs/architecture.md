@@ -43,7 +43,27 @@ exclude read-only users, DMA activity or physical/cache aliases.
 
 ## Current design
 
-The extra file exists only for a stock recording. It is the
+Pad 1 references the last ordinary take's stock master in place: the
+[master reference](research/master_reference_findings.txt) in
+`src/capture/master/`, about 3.6 KB of code and 10 patch sites, packed the
+same way as below. Nothing is recorded or written; the DSP code and stock ring
+size stay stock. The master compressor is part of that file.
+
+| Participant | Entry | Owns |
+|---|---|---|
+| Stock recorder task | Stream admission `0x8000b158`, stop setter `0x80006918` | The stopped take's master path (from `0x8060ff80`) |
+| Worker task (priority 1) | Polling loop | Waits for RecStop's callback to end; read-only check of the master |
+| Main | Five original receive calls | Pad 1 assignment via the PAD1 anchor `MASTER.WAV`; a revocation counter |
+
+Stock reload keeps the reference only while `A:\SOUND_PAD\PAD1\MASTER.WAV`
+exists, so that small silent file is a permanent anchor. Hardware trial:
+[experiment 24](../experiments/24-master-ref/README.md).
+
+## Pre-compressor capture (set aside)
+
+Experiments 19–23 proved a pre-compressor copy on the mixer, but whole-song
+takes still overran when stock file writes stalled for over a second. The
+design is kept for reference. The extra file exists only for a stock recording. It is the
 [simplified capture](research/simple_capture_findings.txt) in `src/capture/simple/`:
 4,024 bytes of code, 8 bytes of globals and 12 patch sites, packed with the stock
 decoder into the consumed DSP source span that experiment 16 ran from.
