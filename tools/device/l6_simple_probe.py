@@ -79,7 +79,12 @@ def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output',type=Path,required=True)
     p.add_argument('--manifest',type=Path,help='Strictly validate two idle samples against this manifest')
     p.add_argument('--before-take',type=Path,help='Earlier log: validate one finished take since its last sample')
+    p.add_argument('--session',action='store_true',
+                   help='Open an editor session first (use only while the official Editor is closed)')
     a=p.parse_args();a.output.parent.mkdir(parents=True,exist_ok=True)
+    if a.session:
+        from l6_transfer_mode import session
+        if not session([])['session']:raise SystemExit('No editor session: is the L6 connected and out of transfer mode?')
     tokens=iter((41,42))
     rows=sample(a.output,query_builder=lambda k,t:request(t),reply_decoder=decode,kinds=(6,6),
                 reply_matcher=lambda d,k,t:d['token']==t,token_builder=lambda k:next(tokens),interval_s=1)

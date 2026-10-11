@@ -39,6 +39,14 @@ Recovery from an image that fails before Main remains unproven
 Staging uses `deployment/20_simple_take/stage20.py` with the steps `precheck`,
 `stage`, `eject` and `exit-check`, as for experiment 19.
 
+File Transfer Mode no longer needs the Editor. With the official Editor closed,
+`tools/device/l6_transfer_mode.py enter|exit|session` drives the stock editor
+session over MIDI: identity, editor open, then `31 09 01|00` (sequence from
+philmillman/zoom-l6-companion, MIT). Each change is confirmed by the card volume
+and by the editor-open reply's mode byte, not by the acknowledgement alone.
+`exit` refuses while the card is mounted. Without the Editor's heartbeats the
+session lapses, so status queries use `l6_simple_probe.py --session`.
+
 1. With the mixer idle, run `precheck`, enter File Transfer Mode, `stage`, `eject`,
    exit File Transfer Mode, then `exit-check`.
 2. PLAY/STOP-held update, wait for rapid green, reboot normally and leave idle.
