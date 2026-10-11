@@ -51,6 +51,7 @@ typedef int32_t (*Transfer)(uint32_t,void*,uint32_t,uint32_t*);
 #define NOT_FOUND 0xffffd75au
 #define EXISTS 0xffffd75bu
 #define LIMIT 0x7ffff000u
+#define TICKS W(0x801f9050u)   /* kernel tick count (1 ms) */
 
 KEEP SimpleCapture *sc_state;
 KEEP uint32_t sc_startup_status;
@@ -241,7 +242,12 @@ static void header(SimpleCapture *g,uint32_t bytes) {
     tag(h+36,"JUNK");u32(h+40,460);tag(h+504,"data");u32(h+508,bytes);
 }
 static int put(SimpleCapture *g,const void *p,uint32_t n) {
-    uint32_t actual=0;return WRITE(g->handle,(void*)p,n,&actual)==0 && actual==n;
+    uint32_t actual=0,t0=TICKS;
+    int ok=WRITE(g->handle,(void*)p,n,&actual)==0 && actual==n;
+    uint32_t dt=TICKS-t0;
+    if(dt>g->diag_write_max)g->diag_write_max=dt;
+    if(dt>=250u)g->diag_write_long++;
+    g->diag_writes++;return ok;
 }
 static void finish(SimpleCapture *g,uint32_t status) {
     /* One close attempt. A failed close is forgotten, never retried or waited on. */
@@ -358,7 +364,9 @@ static uint32_t complete(SimpleCapture *g) {
     finish(g,SC_OK);return 0;
 }
 static uint32_t capture(SimpleCapture *g) {
-    uint32_t t=g->done,history=g->mask*SC_FRAMES;
+    uint32_t t=g->done,history=g->mask*SC_FRAMES,now=TICKS;
+    if(now-g->diag_last_step>g->diag_gap_max)g->diag_gap_max=now-g->diag_last_step;
+    g->diag_last_step=now;
     for(uint32_t writes=0;writes<4;) {
         if(revoked(g)){finish(g,SC_REVOKED);return 1;}
         if(LD(&g->abort_take)==t){finish(g,SC_EVENT);return 1;}
@@ -370,6 +378,7 @@ static uint32_t capture(SimpleCapture *g) {
         uint32_t base=g->cursor&~(SC_FRAMES-1u),offset=g->cursor-base;
         uint32_t f=LD(&g->frames);
         if((int32_t)(f-base)<(int32_t)SC_FRAMES)return 10; /* not yet committed */
+        if(f-base>g->diag_lag_max)g->diag_lag_max=f-base;
         if(f-base>history){finish(g,SC_OVERRUN);return 1;}
         ScBlock *b=block(g,base);float *out=(float*)(g->fifo+g->fifo_used);
         for(uint32_t i=offset;i<SC_FRAMES;i++){*out++=b->left[i]*0x1p-31f;*out++=b->right[i]*0x1p-31f;}
@@ -415,6 +424,8 @@ KEEP uint32_t sc_worker_step(void) {
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
     ST(&g->state,SC_CAPTURING);ST(&g->done,t);
     g->cursor=g->start;g->fifo_used=0;g->bytes=0;
+    g->diag_lag_max=g->diag_write_max=g->diag_write_long=g->diag_gap_max=g->diag_writes=0;
+    g->diag_last_step=TICKS;
     if(revoked(g)){finish(g,SC_REVOKED);return 1;}
     uint32_t s=open_file(g);
     if(s){finish(g,s);return 1;}

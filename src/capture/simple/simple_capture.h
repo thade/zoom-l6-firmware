@@ -64,6 +64,12 @@ typedef struct {
     uint32_t stock_recording;   /* recorder task: a normal stock take is running */
     uint32_t handoff_handled;   /* Main only: last serial Main finished with */
     uint32_t handoff_revoked;   /* revocation count when the file was sealed */
+    /* Worker service diagnostics for the current or last take (ticks = 1 ms). */
+    uint32_t diag_lag_max;      /* frames: largest distance behind the tap */
+    uint32_t diag_write_max;    /* ticks: longest WRITE, including lock waits */
+    uint32_t diag_write_long;   /* WRITE calls of 250 ticks or more */
+    uint32_t diag_gap_max;      /* ticks: longest interval between capture steps */
+    uint32_t diag_writes,diag_last_step;
 } SimpleCapture;
 
 /* Validate history, initialize a zeroed state and publish it to every hook.

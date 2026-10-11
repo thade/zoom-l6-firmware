@@ -16,7 +16,11 @@ static uint32_t stack_used(void) {
     while(p<high && *p==SC_STACK_PAINT)p++;
     return (uint32_t)high-(uint32_t)p+128u;
 }
-#define SC_SCHEMA 3
+#define SC_SCHEMA 4
+/* Runtime priority (TCB +0x2c) of a task handle; only aligned SDRAM handles
+ * are read, so a diagnostic can never fault on an unexpected value. */
+static uint32_t tcb_priority(uint32_t t){return (t&3u) || t<0x80000000u || t>=0x82000000u-0x30u?0xffffffffu:W(t+0x2cu);}
+static uint32_t priority(uint32_t slot){return tcb_priority(W(slot));}
 #else
 #define SC_SCHEMA 1
 #endif
@@ -38,6 +42,10 @@ KEEP uint32_t sc_query(const uint8_t *packet) {
 #ifdef SC_STACK_PAINT
         ,stack_used(),F(g->bytes),F(g->start),F(g->stop),F(g->revoke_packet)
         ,F(LD(&g->handoff_state)),F(g->handoff_result),F(g->handoff_serial)
+        ,F(g->diag_lag_max),F(g->diag_write_max),F(g->diag_write_long),F(g->diag_gap_max),F(g->diag_writes)
+        /* StreamFileAccess, StreamUpdateRecStream, RecPlayCtl, SamplerFileAssign, Main, worker */
+        ,priority(0x80446dd4u),priority(0x80446de0u),priority(0x80446dc0u),priority(0x80446dc8u),
+        priority(0x80446da4u),g?tcb_priority(g->task):0xffffffffu
 #endif
         };
 #undef F

@@ -25,11 +25,13 @@ assigned to pad 1 through the stock Editor select steps.
 [Experiment 21](../experiments/21-simple-handoff/README.md) passed on the mixer:
 **the overdub loop works.** Each verified take became pad 1's sound, a pass
 recorded over it replaced it, and the assignment survived a reboot. One take of
-five across experiments 20–21 overran 10 s in; SD service under load is next.
+five across experiments 20–21 overran 10 s in; SD service under load is next. [Experiment 22](../experiments/22-simple-diag/README.md)
+adds per-take worker lag, write-time and step-gap counters and reads the stock
+task priorities, to find the cause before choosing a fix.
 The early-hang
 [recovery check](../experiments/18-recovery-hang/README.md) is parked.
 All hardware-trial tooling and research is now committed. The full offline
-regression passes 89 suites (947 groups); it now sets its own import path.
+regression passes 90 suites (951 groups); it now sets its own import path.
 
 The latest independent work adds a [concrete startup witness](research/storage_boot_findings.txt):
 successful initial card setup and a matched USB request, consumption and acknowledgement

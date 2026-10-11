@@ -19,7 +19,8 @@ PINNED_SOURCES=('src/capture/simple','src/capture/hook_macros.inc','src/capture/
                 'src/diagnostics/health_hooks.S','tests/fixtures/capture_source_reuse.ld')
 MODES=dict(tap=dict(experiment=19,out=OUT,image='trial_simple_tap',files_created=False,pin='045b3ce'),
            take=dict(experiment=20,out=ROOT/'deployment/20_simple_take',image='trial_simple_take',files_created=True,pin='6fcf24a'),
-           handoff=dict(experiment=21,out=ROOT/'deployment/21_simple_handoff',image='trial_simple_handoff',files_created=True))
+           handoff=dict(experiment=21,out=ROOT/'deployment/21_simple_handoff',image='trial_simple_handoff',files_created=True,pin='acc0539'),
+           diag=dict(experiment=22,out=ROOT/'deployment/22_simple_diag',image='trial_simple_diag',files_created=True))
 
 def require(condition,message):
     if not condition:raise ValueError(message)
@@ -61,7 +62,7 @@ def trial(mode='tap'):
         globals_start=names['placement_globals_start'],globals_end=names['placement_globals_end'],
         code_source=p['code_source'],state_bytes=state_bytes,state_allocation_bytes=state_bytes+31,worker_stack_words=4096,
         native_capacity_frames=223104,files_created=m['files_created'],
-        protocol='6F/6E kind6 schema%d; fixed capture/worker/heap/publication words'%{'tap':1,'take':2,'handoff':3}[mode],
+        protocol='6F/6E kind6 schema%d; fixed capture/worker/heap/publication words'%{'tap':1,'take':2,'handoff':3,'diag':4}[mode],
         unchanged=(['Stock recorder start/stop, Main receive and SD paths'] if mode=='tap' else
                    ['Stock SD driver, stock recording files and stock pad assignment'])+
                   ['MAIN length, container descriptors, PANEL and AUDIOGUIDE regions'],
@@ -75,6 +76,9 @@ def trial(mode='tap'):
              'Worker stack is measured by painting 15 KiB below its entry frame'] if mode=='take' else
             ['First hardware run of the pad handoff: rename to .WAV and stock pad 1 assignment after each take',
              'Assignment while pad 1 plays stops it first, as the Editor select does',
+             'Worker stack is measured by painting 15 KiB below its entry frame'] if mode=='handoff' else
+            ['Diagnostic build of the experiment 21 behavior: per-take worker lag, write time and step gaps',
+             'Task priorities are read from task control blocks (+0x2c); the offset is taken from stock 0x80074440',
              'Worker stack is measured by painting 15 KiB below its entry frame'])+
             ['Early-hang recovery (experiment 18) is parked and unproven',
              'No installation, staging or installed-flash readback is performed by this builder'])
