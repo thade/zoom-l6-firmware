@@ -36,8 +36,9 @@ def rate(first,last):
 def validate_samples(rows,manifest):
     """Strict acceptance for two idle samples after a normal boot."""
     if len(rows)!=2:raise ValueError('two observations are required')
-    take=manifest.get('mode') in ('take','handoff','diag')
-    expected=dict(schema={'take':2,'handoff':3,'diag':4}.get(manifest.get('mode'),1),marker=0x4c3901,startup_status=4,capacity=223104,take=0,skipped=0,
+    take=manifest.get('mode') in ('take','handoff','diag','buffer')
+    expected=dict(schema={'take':2,'handoff':3,'diag':4,'buffer':4}.get(manifest.get('mode'),1),marker=0x4c3901,startup_status=4,
+        capacity=manifest.get('native_capacity_frames',223104),take=0,skipped=0,
         event_faults=0,worker_state=0,file_open=0,completed=0,failed=0,last_status=0)
     # Boot-time card/USB packets may revoke in the take image; no take is open then.
     if not take:expected['revoked']=0

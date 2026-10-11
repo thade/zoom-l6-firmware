@@ -12,6 +12,7 @@ TRIAL=ROOT/'src/capture/simple/simple-capture-trial.elf'
 TAKE=ROOT/'src/capture/simple/simple-capture-take.elf'
 HANDOFF=ROOT/'src/capture/simple/simple-capture-handoff.elf'
 DIAG=ROOT/'src/capture/simple/simple-capture-diag.elf'
+BUFFER=ROOT/'src/capture/simple/simple-capture-buffer.elf'
 QUERY=['src/capture/simple/simple_query.c','src/diagnostics/health_hooks.S',
        '-DHEALTH_QUERY_CALLBACK=sc_query','-Wl,-u,health_parser']
 env=dict(os.environ,ZIG_LOCAL_CACHE_DIR='/tmp/l6-zig-local',ZIG_GLOBAL_CACHE_DIR='/tmp/l6-zig-global')
@@ -20,8 +21,8 @@ def build(trial=False,root=ROOT):
     """trial: False (capture only), 'tap' or True (experiment 19: capture code
     plus query), 'take' (experiment 20: plus the worker stack measurement),
     'handoff' (experiment 21: the same build options as 'take')."""
-    output={False:OUTPUT,True:TRIAL,'tap':TRIAL,'take':TAKE,'handoff':HANDOFF,'diag':DIAG}[trial]
-    extra=QUERY+['-DSC_STACK_PAINT=0x5ca1ab1eu'] if trial in ('take','handoff','diag') else QUERY if trial else []
+    output={False:OUTPUT,True:TRIAL,'tap':TRIAL,'take':TAKE,'handoff':HANDOFF,'diag':DIAG,'buffer':BUFFER}[trial]
+    extra=QUERY+['-DSC_STACK_PAINT=0x5ca1ab1eu'] if trial in ('take','handoff','diag','buffer') else QUERY if trial else []
     subprocess.run([sys.executable,'-m','ziglang','cc','-target','thumb-freestanding-eabihf',
         '-mcpu=cortex_m7+fp_armv8d16sp','-mfpu=fpv5-d16','-mfloat-abi=hard','-Os','-g','-ffreestanding',
         '-fno-builtin','-fno-stack-protector','-nostdlib','-Wall','-Wextra','-Werror',
@@ -32,4 +33,4 @@ def build(trial=False,root=ROOT):
         '-o',str(output)],cwd=root,env=env,check=True)
     return output
 
-if __name__=='__main__':print(build(),build(trial='diag'))
+if __name__=='__main__':print(build(),build(trial='buffer'))

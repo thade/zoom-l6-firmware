@@ -21,6 +21,11 @@ from build_simple_capture import build
 from plan_simple_capture import plan,ELF
 
 build();PLAN=plan();PACK=PLAN['pack'];N=symbols(ELF)
+RING_FRAMES=PACK['ring_frames']
+def fifo_bytes(names=N,pack=PACK):
+    """Payload write size, the 12th sc_layout word (4096 in builds before it)."""
+    at=names['sc_layout']-names['placement_code_start']
+    return struct.unpack_from('<I',pack['code'],at+44)[0] if pack.get('ring_frames',223104)!=223104 else 4096
 STATE=0x23000000;DESC=0x23001800;PACKET=0x23001900;HISTORY=0x23100000
 FIELDS=('expected capacity staged frames epoch published_cursor age published_capacity '
         'take open_take stop_take abort_take start stop take_epoch take_revoked skipped event_faults '
@@ -142,7 +147,7 @@ def valid_wav(data,frames):
 def sector_writes(r):
     """Every payload write is 4 KiB at a 512-aligned offset, except the last."""
     payload=[(pos,n) for pos,n in r.extra_writes if pos>=512]
-    assert all(pos%512==0 and n==4096 for pos,n in payload[:-1]),payload
+    assert all(pos%512==0 and n==fifo_bytes(r.names,r.pack) for pos,n in payload[:-1]),payload
     assert payload[-1][0]%512==0
     return payload
 
@@ -173,7 +178,7 @@ def main():
     for _ in range(6):r.audio_call()
     put32(r.m,0x80443154,(word(r.m,B+0x53e4)-100)%256)
     r.m.invoke(N['sc_admit'],[]);assert r.field('take')==1
-    for i in range(40):
+    for i in range(100): # several whole payload writes
         r.audio_call()
         if i%3==2:r.step()
     r.stop((word(r.m,B+0x53e4)-37)%256);r.settle()
@@ -397,18 +402,18 @@ def main():
         m.hooks[0x80076c60]=created
         m.invoke(N['startup_register'],[]);assert word(m,N['sc_state'])==0 and not made
         m.invoke(N['startup_observe'],[0,0]);m.invoke(N['startup_register'],[])
-        assert made==[(N['sc_worker_entry'],b'L6Capture\0',4096,1)] and word(m,N['sc_startup_status'])==status
+        assert made==[(N['sc_worker_entry'],b'L6Capture\0',4096,10)] and word(m,N['sc_startup_status'])==status
         assert word(m,N['sc_state'])==(STATE+32 if create else 0)
         if create:
             tails=struct.unpack('<8I',r.raw(STATE+32+HIST,32))
-            assert tails==tuple(0x81429800+i*960000+223104*4 for i in range(8))
+            assert tails==tuple(0x81429800+i*960000+RING_FRAMES*4 for i in range(8))
     passed('startup_allocates_once_and_publishes_only_after_worker_creation')
 
     b=SimpleBoot();b.boot()
     g=b.word(N['sc_state']);j=PACK['jumps']
     assert b.created==[b'L6Capture\0'] and b.word(N['sc_startup_status'])==4 and g and g%32==0
     assert b.added_writes and all(j['globals_start']<=a and a+n<=j['globals_end'] for a,n in b.added_writes)
-    assert struct.unpack('<2I',bytes(b.m.uc.mem_read(g+HIST+32,8)))==(8,128)
+    assert struct.unpack('<2I',bytes(b.m.uc.mem_read(g+HIST+32,8)))==(8,256) # 2,048 blocks: 2.731 s
     passed('original_reset_scatter_and_startup_expand_the_build_and_register_the_worker',
            state=hex(g),state_bytes=r.size)
 

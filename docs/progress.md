@@ -26,12 +26,14 @@ assigned to pad 1 through the stock Editor select steps.
 **the overdub loop works.** Each verified take became pad 1's sound, a pass
 recorded over it replaced it, and the assignment survived a reboot. One take of
 five across experiments 20–21 overran 10 s in; SD service under load is next. [Experiment 22](../experiments/22-simple-diag/README.md)
-adds per-take worker lag, write-time and step-gap counters and reads the stock
-task priorities, to find the cause before choosing a fix.
+measured the cause: single writes block for up to 1.28 s over a whole song,
+behind a stock file writer at priority 28 versus the worker's 1.
+[Experiment 23](../experiments/23-simple-buffer/README.md) doubles the history
+to 2.73 s, writes 16 KiB at a time and raises the worker's priority.
 The early-hang
 [recovery check](../experiments/18-recovery-hang/README.md) is parked.
 All hardware-trial tooling and research is now committed. The full offline
-regression passes 90 suites (951 groups); it now sets its own import path.
+regression passes 91 suites (974 groups); it now sets its own import path.
 
 The latest independent work adds a [concrete startup witness](research/storage_boot_findings.txt):
 successful initial card setup and a matched USB request, consumption and acknowledgement

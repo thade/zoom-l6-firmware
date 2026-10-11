@@ -6,7 +6,7 @@ WAV validation, pad play/stop and the assignment queue are recorded models;
 rename is the in-memory filesystem model. No device or card access.
 """
 import json,struct
-from verify_simple_capture import SimpleRig,STATE,OFF,B,PATH,FIFO,take,build,plan,symbols
+from verify_simple_capture import SimpleRig,STATE,OFF,B,PATH,FIFO,take,build,plan,symbols,fifo_bytes
 from verify_capture_integration import IntegrationRig,record
 from verify_record_catalogue import putstr,getstr,BASE
 from verify_record_scheduler import word
@@ -18,7 +18,7 @@ ELF=build(trial='handoff');PLAN=plan(trial='handoff');PACK=PLAN['pack'];N=symbol
 MAGIC=0x4c364f44
 NONE,POSTED,ASSIGNED,SKIPPED,FAILED,LOST=range(6)
 H_STATE,H_RESULT,H_SERIAL=PATH+88,PATH+92,PATH+96   # padding words after path
-H_NAME=FIFO+4096+512;H_PATH=H_NAME+32;H_POSTS=H_PATH+80;H_AT=H_POSTS+4;STOCK_REC=H_AT+4;H_HANDLED=STOCK_REC+4
+H_NAME=FIFO+fifo_bytes(N,PACK)+512;H_PATH=H_NAME+32;H_POSTS=H_PATH+80;H_AT=H_POSTS+4;STOCK_REC=H_AT+4;H_HANDLED=STOCK_REC+4
 RECORDER_BUSY=0x80578ec0
 
 class HandoffRig(SimpleRig):

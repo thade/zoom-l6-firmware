@@ -188,6 +188,15 @@ during a take; the worker's deepest stack use was 1,260 of 16,384 bytes. The pad
 scanner ignores .TMP across a rescan and a cold reboot. File Transfer Mode is now
 driven over MIDI (tools/device/l6_transfer_mode.py), without the official Editor.
 
+Hardware result (experiment 22, 11 October): the overrun's cause. Runtime
+priorities: stock file writer 28, Main 13, RecPlayCtl 12, stream update 11,
+SamplerFileAssign 9, capture worker 1. Single 4-KiB writes block for about
+0.4 s every few seconds and once for 1.28 s over a whole song (card latency or
+lock waits behind the stock writer), with about 0.3 s of extra CPU starvation;
+the whole-song take overran at 237 s with a 1.56 s lag. Experiment 23 doubles
+the history to 2.731 s (stock ring 207,232 frames, 4.317 s), writes 16 KiB at a
+time and raises the worker to priority 10.
+
 Hardware result (experiment 21, 11 October): the overdub loop works. Two takes
 were handed off: pad 1 became OD_00000004.WAV, then, after a pass recorded over
 it, OD_00000005.WAV, which persisted across a cold reboot. The stock rename,

@@ -13,7 +13,7 @@ from verify_firmware_workflow import put32,get32
 from verify_pad_protocol import ROOT,IMAGE
 
 STOCK_CAP=240000
-CAPACITIES=(231552,223104)
+CAPACITIES=(231552,223104,207232) # 207232: experiment 23, 2.731 s of history
 SOURCE=0x21030000
 OUTPUT=0x21031000
 CANARY=b'\xa5'
@@ -126,11 +126,15 @@ def main():
         r.window(0x8000ad7a,0x8000ad96)
         assert get32(r.m,C+0x50)==get32(r.m,C+0x1e94)==cap
         passed(f'original_recorder_configuration_caches_both_reduced_capacities_{cap}',capacity=cap)
-        # 512/1024 current 528-byte slots fit exactly in eight fixed tails.
-        slots_per_tail=(STOCK_CAP-cap)*4//528
-        assert slots_per_tail in (64,128) and slots_per_tail*528==(STOCK_CAP-cap)*4
+        # Eight fixed tails hold whole history slots exactly: 528-byte slots of the
+        # earlier composition (64/128 per tail), or the simplified capture's
+        # 512-byte blocks (256 per tail at 207232 frames).
+        tail=(STOCK_CAP-cap)*4
+        slot=528 if tail in (64*528,128*528) else 512
+        slots_per_tail=tail//slot
+        assert slots_per_tail*slot==tail and (slot,slots_per_tail) in ((528,64),(528,128),(512,256))
         spans=[(RING+lane*STRIDE+cap*4,RING+(lane+1)*STRIDE) for lane in range(8)]
-        assert all(start%32==0 and end-start==slots_per_tail*528 for start,end in spans)
+        assert all(start%32==0 and end-start==tail for start,end in spans)
         assert all(a[1]<=b[0] for a,b in zip(spans,spans[1:]))
         passed(f'fixed_eight_tail_arithmetic_{slots_per_tail*8}_slots',ordinary_frames=cap,ordinary_seconds=cap/48000,
                slots=slots_per_tail*8,retained_seconds=slots_per_tail*8*64/48000,

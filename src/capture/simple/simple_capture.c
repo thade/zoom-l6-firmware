@@ -58,7 +58,7 @@ KEEP uint32_t sc_startup_status;
 KEEP const uint32_t sc_layout[]={sizeof(SimpleCapture),offsetof(SimpleCapture,frames),
     offsetof(SimpleCapture,take),offsetof(SimpleCapture,revoked),offsetof(SimpleCapture,state),
     offsetof(SimpleCapture,completed),offsetof(SimpleCapture,path),offsetof(SimpleCapture,header),
-    offsetof(SimpleCapture,fifo),offsetof(SimpleCapture,limit),offsetof(SimpleCapture,skipped)};
+    offsetof(SimpleCapture,fifo),offsetof(SimpleCapture,limit),offsetof(SimpleCapture,skipped),SC_FIFO};
 
 static uint32_t interrupt(void) {uint32_t v;__asm__ volatile("mrs %0, ipsr":"=r"(v));return v;}
 static ScBlock *block(SimpleCapture *g,uint32_t frame) {
@@ -395,7 +395,8 @@ static uint32_t capture(SimpleCapture *g) {
         }
         g->cursor+=n;g->fifo_used+=n*8u;
         if(g->fifo_used>=SC_FIFO) {
-            /* Whole 4-KiB writes keep every payload write sector-aligned. */
+            /* Whole 16-KiB writes keep payload writes sector-aligned and take
+             * the filesystem lock a quarter as often as 4-KiB writes. */
             if(!put(g,g->fifo,SC_FIFO)){finish(g,SC_IO);return 1;}
             g->bytes+=SC_FIFO;g->fifo_used-=SC_FIFO;
             uint32_t *to=(uint32_t*)g->fifo;const uint32_t *from=(const uint32_t*)(g->fifo+SC_FIFO);
@@ -450,8 +451,10 @@ KEEP __attribute__((noreturn)) void sc_worker_entry(void *unused) {
 /* ---- Startup: two original startup sites ---- */
 #define RING 0x81429800u
 #define STRIDE 960000u
-#define RING_FRAMES 223104u   /* shortened by the ring-size patch */
-#define TAIL_BLOCKS 128u
+#define RING_FRAMES 207232u   /* stock ring 4.317 s, shortened by the ring-size patch */
+#define TAIL_BLOCKS 256u      /* 8 x 256 blocks: 2.731 s of history */
+#define WORKER_PRIORITY 10u   /* above SamplerFileAssign (9), below RecPlayCtl (12) and Main (13) */
+KEEP const uint32_t sc_ring_frames=RING_FRAMES; /* read by the patch planner */
 _Static_assert(RING_FRAMES*4u+TAIL_BLOCKS*sizeof(ScBlock)<=STRIDE,"history must fit each lane tail");
 KEEP void startup_observe(uint32_t unused,uint32_t first_result) {
     (void)unused;
@@ -467,6 +470,6 @@ KEEP void startup_register(void) {
     ScHistory h={.segments=SC_MAX_SEGMENTS,.per_segment=TAIL_BLOCKS};
     for(uint32_t i=0;i<SC_MAX_SEGMENTS;i++)h.segment[i]=(ScBlock*)(RING+i*STRIDE+RING_FRAMES*4u);
     /* Create the worker first: without it, no hook should start a take. */
-    if(CREATE(sc_worker_entry,"L6Capture",4096,0,1,&g->task)!=1 || !g->task)return;
+    if(CREATE(sc_worker_entry,"L6Capture",4096,0,WORKER_PRIORITY,&g->task)!=1 || !g->task)return;
     if(!sc_init(g,&h,1))sc_startup_status=4;
 }

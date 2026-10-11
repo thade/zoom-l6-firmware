@@ -5,9 +5,27 @@ worker fell more than 1.365 seconds behind the tap. This trial measures why,
 before choosing a fix. Behavior is the same as experiment 21 (capture plus pad
 handoff); only measurements are added.
 
-**Prepared locally; not staged or installed.** The mixer runs experiment 21.
-Recovery from an image that fails before Main remains unproven
-([experiment 18](../18-recovery-hang/README.md) is parked).
+**Installed 11 October 2026; the measurements found the cause.** Recovery from
+an image that fails before Main remains unproven ([experiment 18](../18-recovery-hang/README.md) is parked).
+
+## Results
+
+Runtime priorities: StreamFileAccess 28, Main 13, RecPlayCtl 12,
+StreamUpdateRecStream 11, SamplerFileAssign 9, capture worker 1.
+
+| Take | Length | Result | `lag_max` | `write_max` | `write_long` | `gap_max` |
+|---|---|---|---|---|---|---|
+| 1 | 49.3 s | completed, handed off | 0.468 s | 411 ms | 9 | 432 ms |
+| 2 | 52.8 s | completed, handed off | 0.401 s | 368 ms | 8 | 386 ms |
+| 3, whole song | 338.6 s | `OVERRUN` at 237.4 s | 1.564 s | 1,276 ms | 35 | 1,596 ms |
+
+Single 4-KiB writes regularly block for about 0.4 s and, over a whole song,
+once for 1.28 s: card latency or waits for the filesystem lock behind the
+priority-28 stock writer. The step gap exceeding the longest write by about
+320 ms adds some CPU starvation of the priority-1 worker. The 1.365-second
+history cannot cover that; the stock recorder rides it out on its 4.6-second
+ring. Stock files, pads and handoffs were unaffected. Experiment 23 doubles the
+history, writes 16 KiB at a time and raises the worker to priority 10.
 
 ## Measurements (per take, reset when a take starts)
 

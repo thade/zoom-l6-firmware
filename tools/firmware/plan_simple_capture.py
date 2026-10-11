@@ -19,6 +19,7 @@ TRIAL_ELF=ROOT/'src/capture/simple/simple-capture-trial.elf'
 TAKE_ELF=ROOT/'src/capture/simple/simple-capture-take.elf'
 HANDOFF_ELF=ROOT/'src/capture/simple/simple-capture-handoff.elf'
 DIAG_ELF=ROOT/'src/capture/simple/simple-capture-diag.elf'
+BUFFER_ELF=ROOT/'src/capture/simple/simple-capture-buffer.elf'
 QUERY_SPEC=dict(site=0x800301f0,original='2de9f047',adapter='health_parser',resume=0x800301f4,
                 replay='push.w {r4-r10,lr}',purpose='read-only status query on the Editor parser')
 RECORDER_SPECS=(
@@ -26,8 +27,19 @@ RECORDER_SPECS=(
          replay='movw r0,#0x201',purpose='stock recorder admitted its seven streams'),
     dict(site=0x80006918,original='40f6c852',adapter='sc_stop_hook',resume=0x8000691c,
          replay='movw r2,#0xdc8',purpose='stock stop cursor setter, r0 = final cursor'))
-SIZE_PATCH=dict(site=SIZE_SITE,original='4af68011',patch='46f28071',bytes=4,
-    purpose='native ring capacity 223104 frames, freeing eight 67,584-byte lane tails')
+LEGACY_RING_FRAMES=223104 # builds before sc_ring_frames (experiments 19-22)
+
+def movw_r1(imm16):
+    i=(imm16>>11)&1;imm4=imm16>>12;imm3=(imm16>>8)&7;imm8=imm16&255
+    return struct.pack('<2H',0xf240|i<<10|imm4,imm3<<12|1<<8|imm8)
+
+def size_patch(frames):
+    """Replace the low half of the stock 240,000-frame capacity (MOVW r1); the
+    existing MOVT keeps the high half, so it must stay 3."""
+    if frames>>16!=3 or frames%64 or not frames<240000:raise ValueError('unsupported ring capacity')
+    return dict(site=SIZE_SITE,original='4af68011',patch=movw_r1(frames&0xffff).hex(),bytes=4,
+        purpose=f'native ring capacity {frames} frames ({frames/48000:.3f} s), freeing eight '
+                f'{960000-frames*4:,}-byte lane tails')
 
 def align4(n):return (n+3)&~3
 
@@ -88,11 +100,16 @@ def plan(elf_path=None,trial=False):
     ring size, DSP tap/commit and the status query, no recorder or storage
     hooks); or the take trial ('take': every capture site plus the query)."""
     if trial is True:trial='tap'
-    elf_path=elf_path or {False:ELF,'tap':TRIAL_ELF,'take':TAKE_ELF,'handoff':HANDOFF_ELF,'diag':DIAG_ELF}[trial]
+    elf_path=elf_path or {False:ELF,'tap':TRIAL_ELF,'take':TAKE_ELF,'handoff':HANDOFF_ELF,'diag':DIAG_ELF,'buffer':BUFFER_ELF}[trial]
     stock=SOURCE.read_bytes()
     if hashlib.sha256(stock).hexdigest()!=STOCK_SHA:raise ValueError('unsupported stock firmware')
     validate(stock);names=symbols(elf_path)
     p=reuse_packing(elf_path);p['names']=names;at=dict(code_interval=CODE_INTERVAL)
+    if 'sc_ring_frames' in names:
+        at_ring=names['sc_ring_frames']-names['placement_code_start']
+        frames=struct.unpack_from('<I',p['code'],at_ring)[0]
+    else:frames=LEGACY_RING_FRAMES
+    p['ring_frames']=frames;SIZE_PATCH=size_patch(frames)
     patches=[startup_patch(stock,s,names[s['adapter']],**at) for s in STARTUP_SPECS]
     if stock[SIZE_SITE-BIAS:SIZE_SITE-BIAS+4]!=bytes.fromhex(SIZE_PATCH['original']):
         raise ValueError('stock ring capacity instruction differs')

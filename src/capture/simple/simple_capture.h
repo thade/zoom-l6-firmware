@@ -14,7 +14,7 @@
 
 #define SC_FRAMES 64u
 #define SC_MAX_SEGMENTS 8u
-#define SC_FIFO 4096u          /* every payload write except the last */
+#define SC_FIFO 16384u         /* every payload write except the last */
 #define SC_WAIT_TICKS 500u     /* Main's bound on waiting for the worker */
 
 typedef struct {float left[SC_FRAMES],right[SC_FRAMES];} ScBlock;
