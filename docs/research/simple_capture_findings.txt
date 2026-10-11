@@ -188,6 +188,13 @@ during a take; the worker's deepest stack use was 1,260 of 16,384 bytes. The pad
 scanner ignores .TMP across a rescan and a cold reboot. File Transfer Mode is now
 driven over MIDI (tools/device/l6_transfer_mode.py), without the official Editor.
 
+Hardware result (experiment 21, 11 October): the overdub loop works. Two takes
+were handed off: pad 1 became OD_00000004.WAV, then, after a pass recorded over
+it, OD_00000005.WAV, which persisted across a cold reboot. The stock rename,
+validator and loader accept the extra file; pads 2-4 were unchanged. One take
+overran after 10.4 s (worker more than 1.365 s behind) with no user action
+noticed; SD service under load is the open risk.
+
 Pad handoff (11 October, offline): after a verified take the worker renames
 OD_n.TMP to .WAV with the stock same-folder rename and posts a private Main event
 (category 3, which no stock Main loop dispatches). Main's receive hook repeats

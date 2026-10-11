@@ -4,9 +4,32 @@ After each verified take, the extra file becomes pad 1's sound, so the next
 overdub pass can play it as the backing. This is the first trial of the full
 capture-to-pad loop on the mixer.
 
-**Prepared locally; not staged or installed.** The mixer runs experiment 20.
-Recovery from an image that fails before Main remains unproven
-([experiment 18](../18-recovery-hang/README.md) is parked).
+**Installed 11 October 2026; the overdub loop works on the mixer.** One take
+failed with an overrun (below). Recovery from an image that fails before Main
+remains unproven ([experiment 18](../18-recovery-hang/README.md) is parked).
+
+## Results
+
+| Take | Length | Capture | Handoff | Pad 1 afterwards |
+|---|---|---|---|---|
+| 1 | about 18 s | `OVERRUN` after 10.4 s (3,985,408 bytes written) | none (no verified file) | unchanged, `OD_261002_181142.WAV` |
+| 2 | 63.3 s | completed | assigned (serial 1) | `OD_00000004.WAV`; plays the take correctly |
+| 3, over pad 1 | 50.7 s | completed, no storage packets during the take | assigned (serial 2) | `OD_00000005.WAV` |
+| after cold reboot | | capture restarted cleanly | | still `OD_00000005.WAV` |
+
+The stock rename works on the card, the stock validator and loader accept the
+extra file's header, and float audio plays correctly from pad 1 (user check).
+Pad 1's play mode was kept. The assignment persisted across a cold reboot, and
+pads 2–4 were unchanged throughout. Worker stack peaked at 1,708 bytes with the
+handoff; free heap stayed 140,936 bytes. Take 3 recorded over pad 1's backing,
+so its file holds both layers: one complete overdub iteration.
+
+Take 1's overrun is unexplained: the worker fell more than 1.365 s behind about
+10 s into the take, with no user action noticed. Experiments 20 and 21 have
+now captured five takes with one overrun. The abandoned partial file remains as
+`OD_00000003.TMP`. Next: measure worker lag and write time on hardware, then
+choose between larger writes, a higher worker priority and more history.
+Evidence stays in `deployment/21_simple_handoff/`.
 
 ## How the handoff works
 

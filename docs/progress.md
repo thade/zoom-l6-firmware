@@ -22,7 +22,11 @@ mix lagging MASTER by the stock 48-frame delay, with no faults and 1,260 bytes o
 worker stack. File Transfer Mode is now driven over MIDI. The pad handoff is
 implemented and reviewed offline: each verified take is renamed to `.WAV` and
 assigned to pad 1 through the stock Editor select steps.
-[Experiment 21](../experiments/21-simple-handoff/README.md) is prepared. The early-hang
+[Experiment 21](../experiments/21-simple-handoff/README.md) passed on the mixer:
+**the overdub loop works.** Each verified take became pad 1's sound, a pass
+recorded over it replaced it, and the assignment survived a reboot. One take of
+five across experiments 20–21 overran 10 s in; SD service under load is next.
+The early-hang
 [recovery check](../experiments/18-recovery-hang/README.md) is parked.
 All hardware-trial tooling and research is now committed. The full offline
 regression passes 89 suites (947 groups); it now sets its own import path.
