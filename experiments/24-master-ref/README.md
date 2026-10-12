@@ -7,9 +7,34 @@ assigned the stock master the take just wrote,
 `A:\RECORDER\<take>\MASTER.WAV`, in place. The master compressor is baked into
 that file, so overdub with the master compressor off.
 
-**Prepared locally; not staged or installed.** The mixer runs experiment 23.
-Recovery from an image that fails before Main remains unproven
-([experiment 18](../18-recovery-hang/README.md) is parked).
+**Installed 12 October 2026; passed. The overdub loop works with the stock
+master, with no real-time capture.** Recovery from an image that fails before
+Main remains unproven ([experiment 18](../18-recovery-hang/README.md) is parked).
+
+## Results
+
+| Step | Take folder | Master | Worker check | Pad 1 afterwards |
+|---|---|---|---|---|
+| Takes 1–2 (two recordings) | `261012_150924` (second) | 18,681,230 bytes, about 49 s | ok, ok | that take; plays correctly (user check) |
+| Take 3, overdub with pad 1 playing | `261012_153024` | 16,611,726 bytes, about 43 s | ok, no storage packets | that take; both layers play (user check) |
+| Cold reboot | | | | still `261012_153024`, both layers |
+| File Transfer Mode cycle | | | | still `261012_153024`, both layers |
+
+Every take was checked and assigned on the first post (`handoff_posts` 1), with
+no refusals or stop faults. `L6PADSETTING.ZST` saved pad 1 as
+`A:\RECORDER\261012_153024\MASTER.WAV`; pads 2–4 were unchanged. The take
+folder held its seven stock files and no `Work` folder. The anchor was intact,
+and the pad name shows `MASTER.WAV` (catalogue index 4 of 11), as designed.
+Pad 1 played the previous master from `A:\RECORDER` while the next take
+recorded to the same card. Worker stack peaked at 2,356 of 8,192 bytes, and
+free heap stayed at 154,736 bytes, 26 KB more than experiment 23.
+
+Staging finding: writing the anchor from macOS made an AppleDouble companion
+`._MASTER.WAV` in PAD1. The staging script now removes the one it creates
+(older `._` files elsewhere on the card were already present and harmless).
+Evidence stays in `deployment/24_master_ref/`.
+
+Untested: deleting the referenced take folder, and takes long enough to split.
 
 ## How it works
 

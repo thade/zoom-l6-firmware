@@ -56,8 +56,8 @@ size stay stock. The master compressor is part of that file.
 | Main | Five original receive calls | Pad 1 assignment via the PAD1 anchor `MASTER.WAV`; a revocation counter |
 
 Stock reload keeps the reference only while `A:\SOUND_PAD\PAD1\MASTER.WAV`
-exists, so that small silent file is a permanent anchor. Hardware trial:
-[experiment 24](../experiments/24-master-ref/README.md).
+exists, so that small silent file is a permanent anchor. It passed on the
+mixer in [experiment 24](../experiments/24-master-ref/README.md).
 
 ## Pre-compressor capture (set aside)
 

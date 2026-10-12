@@ -80,7 +80,10 @@ supersedes an unhandled post; storage changes before assignment skip it.
 Emulation runs RecStop through the original RecPlayCtl dispatch: the stock
 finalize call happens after the stop is published and with 0x80578ec0 set.
 
-6. Open on hardware
-Pad playback of a large 32-bit float master in place; playback from RECORDER
-while the next take records to the same card; behaviour when the referenced
-folder is deleted over USB; exact catalogue case handling for MASTER.WAV.
+6. Hardware (experiment 24, 12 October 2026)
+Confirmed: 32-bit float masters play in place from RECORDER; pad 1 plays the
+previous master while the next take records to the same card; the reference
+survives a cold reboot and a File Transfer Mode cycle with the anchor present
+(saved path read back from L6PADSETTING.ZST); the anchor is catalogued as
+MASTER.WAV. Still open: behaviour when the referenced folder is deleted over
+USB, and split takes.

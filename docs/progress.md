@@ -36,8 +36,10 @@ overran. **Direction change:** pad 1 now references the take's stock
 real-time path, only 10 patch sites and about 3.6 KB of code; a permanent
 silent `PAD1\MASTER.WAV` anchor keeps stock reload from replacing the
 reference ([findings](research/master_reference_findings.txt)).
-[Experiment 24](../experiments/24-master-ref/README.md) is prepared and passes
-18 offline groups. The early-hang
+[Experiment 24](../experiments/24-master-ref/README.md) passed on the mixer:
+**the overdub loop works with the stock master.** Each take became pad 1's
+sound, an overdub recorded with pad 1 playing produced both layers, and the
+reference survived a reboot and a File Transfer Mode cycle. The early-hang
 [recovery check](../experiments/18-recovery-hang/README.md) is parked.
 All hardware-trial tooling and research is now committed. The full offline
 regression passes 93 suites (992 groups); it now sets its own import path.
