@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Read the master-reference trial's fixed status words; no control writes."""
+"""Read the master-reference trials' fixed status words; no control writes.
+
+Schema 1 (experiment 24): pad 1's assigned path. Schema 2 (experiment 25):
+the chain mask and each pad's saved take folder ('#' and a file name for a
+sound that is not a take)."""
 FIELDS=('schema','marker','startup_status','task','admitted','stopped','stock_recording','stop_faults',
     'revoked','revoke_packet','file_open','polls','checked','refused','last_status','master_bytes',
     'handoff_state','handoff_result','handoff_serial','handoff_posts','stack_used',
     'free_bytes','minimum_free_bytes','ticks','ccr','code_start','code_end','globals_start','globals_end',
     'recorder_busy')
+CHAIN_FIELDS=FIELDS+('chain_mask',)
 PATH_WORDS=16
 STATUS=('ok','revoked','missing','split','io','format')
 HANDOFF_STATES=('none','posted','assigned','skipped','failed','lost','superseded')
@@ -15,24 +20,28 @@ def request(token=0):
     return bytes((0xf0,0x52,0,0,0x6f,7,token,0xf7))
 def decode(packet):
     if len(packet)<6 or packet[:6]!=bytes((0xf0,0x52,0,0,0x6e,7)):return None
-    words=len(FIELDS)+PATH_WORDS
-    if len(packet)!=8+5*words or packet[-1]!=0xf7 or any(x>127 for x in packet[6:-1]):
+    fields={8+5*(len(f)+PATH_WORDS):f for f in (FIELDS,CHAIN_FIELDS)}.get(len(packet))
+    if not fields or packet[-1]!=0xf7 or any(x>127 for x in packet[6:-1]):
         raise ValueError('invalid status reply length or encoding')
     values=[]
-    for i in range(words):
+    for i in range(len(fields)+PATH_WORDS):
         v=packet[7+5*i:12+5*i]
         if v[4]>15:raise ValueError('status word exceeds 32 bits')
         values.append(sum(b<<(7*j) for j,b in enumerate(v)))
-    if values[:2]!=[1,0x4c4d01]:raise ValueError('unsupported status schema or marker')
-    chars=[(w>>(7*k))&127 for w in values[len(FIELDS):] for k in range(4)]
-    path=bytes(chars).split(b'\0')[0].decode('ascii')
-    return dict(zip(FIELDS,values),assigned_path=path,token=packet[6])
+    schema=1 if fields is FIELDS else 2
+    if values[:2]!=[schema,0x4c4d01]:raise ValueError('unsupported status schema or marker')
+    text=lambda words:bytes((w>>(7*k))&127 for w in words for k in range(4)).split(b'\0')[0].decode('ascii')
+    row=dict(zip(fields,values),token=packet[6])
+    if schema==1:row['assigned_path']=text(values[len(fields):])
+    else:row['pads']=[text(values[len(fields)+4*p:len(fields)+4*p+4]) for p in range(4)]
+    return row
 def validate_samples(rows,manifest):
     """Strict acceptance for two idle samples after a normal boot."""
     if len(rows)!=2:raise ValueError('two observations are required')
-    expected=dict(schema=1,marker=0x4c4d01,startup_status=4,admitted=0,stopped=0,stock_recording=0,
+    expected=dict(schema=2 if 'pads' in rows[0] else 1,marker=0x4c4d01,startup_status=4,admitted=0,stopped=0,stock_recording=0,
         stop_faults=0,file_open=0,checked=0,refused=0,handoff_state=0,handoff_serial=0,recorder_busy=0)
     expected.update({n:manifest[n] for n in ('code_start','code_end','globals_start','globals_end')})
+    if 'pads' in rows[0]:expected['chain_mask']=0
     for row in rows:
         for n,v in expected.items():
             if row[n]!=v:raise ValueError(f'{n}: observed {row[n]}, expected {v}')
@@ -49,8 +58,10 @@ def validate_samples(rows,manifest):
     return dict(normal_boot=True,ticks=ticks,worker_polls=polls,free_bytes=last['free_bytes'],
         minimum_free_bytes=last['minimum_free_bytes'],worker_stack_bytes=last['stack_used'],
         files_created=False,installed_flash_readback=False)
+def is_take(name):return bool(name) and not name.startswith('#')
 def validate_take(before,after):
-    """One ordinary take between two samples, checked and assigned to pad 1."""
+    """One ordinary take between two samples, checked and assigned to pad 1
+    (schema 2: and the chain moved one pad along)."""
     if before['task']!=after['task']:raise ValueError('worker task changed across the take')
     for n in ('admitted','stopped','checked'):
         if after[n]!=before[n]+1:raise ValueError(f'expected exactly one take: {n} {before[n]} -> {after[n]}')
@@ -60,13 +71,26 @@ def validate_take(before,after):
     state=HANDOFF_STATES[after['handoff_state']] if after['handoff_state']<len(HANDOFF_STATES) else after['handoff_state']
     if state!='assigned' or after['handoff_serial']!=before['handoff_serial']+1:
         raise ValueError(f"handoff {state}, result {after['handoff_result']:#x}")
-    path=after['assigned_path']
-    if not (path.startswith('A:\\RECORDER\\') and path.endswith('\\MASTER.WAV')) or path==before['assigned_path']:
-        raise ValueError(f'unexpected assigned path {path!r}')
+    if 'pads' in after:
+        b,a=before['pads'],after['pads']
+        if not is_take(a[0]) or a[0]==b[0]:raise ValueError(f'pad 1 holds {a[0]!r}, not a new take')
+        # The new take, then the earlier takes in pad order without repeats;
+        # pads past the end keep their sound.
+        chain=[a[0]]
+        for x in b:
+            if is_take(x) and x not in chain and len(chain)<4:chain.append(x)
+        want=chain+b[len(chain):]
+        mask=1|sum(1<<k for k in range(1,len(chain)) if chain[k]!=b[k])
+        if a!=want or after['chain_mask']!=mask:raise ValueError(f'chain {a} (mask {after["chain_mask"]:#x}), expected {want} (mask {mask:#x})')
+        path='A:\\RECORDER\\'+a[0]+'\\MASTER.WAV'
+    else:
+        path=after['assigned_path']
+        if not (path.startswith('A:\\RECORDER\\') and path.endswith('\\MASTER.WAV')) or path==before['assigned_path']:
+            raise ValueError(f'unexpected assigned path {path!r}')
     if after['file_open'] or after['stock_recording'] or after['master_bytes']<4096:
         raise ValueError('worker not idle or master too short')
     if not 128<=after['stack_used']<PAINTED:raise ValueError('worker stack measurement out of range')
-    return dict(take_assigned=True,assigned_path=path,take_folder=path.split('\\')[2],
+    return dict(take_assigned=True,assigned_path=path,take_folder=path.split('\\')[2],pads=after.get('pads'),
         master_bytes=after['master_bytes'],seconds_if_32bit_float=after['master_bytes']/384000,
         storage_packets_during_take=(after['revoked']-before['revoked'])&0xffffffff,
         worker_stack_bytes=after['stack_used'],minimum_free_bytes=after['minimum_free_bytes'])

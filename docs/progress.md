@@ -39,10 +39,13 @@ reference ([findings](research/master_reference_findings.txt)).
 [Experiment 24](../experiments/24-master-ref/README.md) passed on the mixer:
 **the overdub loop works with the stock master.** Each take became pad 1's
 sound, an overdub recorded with pad 1 playing produced both layers, and the
-reference survived a reboot and a File Transfer Mode cycle. The early-hang
+reference survived a reboot and a File Transfer Mode cycle.
+[Experiment 25](../experiments/25-take-chain/README.md) extends it to a chain:
+pads 1–4 hold the last four takes, newest on pad 1, moving one pad along per
+take from the stock saved pad paths. It is prepared and passes 21 offline groups. The early-hang
 [recovery check](../experiments/18-recovery-hang/README.md) is parked.
 All hardware-trial tooling and research is now committed. The full offline
-regression passes 93 suites (992 groups); it now sets its own import path.
+regression passes 93 suites (995 groups); it now sets its own import path.
 
 The latest independent work adds a [concrete startup witness](research/storage_boot_findings.txt):
 successful initial card setup and a matched USB request, consumption and acknowledgement

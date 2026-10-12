@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Master reference: pad 1 plays the last take's stock MASTER.WAV in place.
+"""Take chain: pads 1-4 play the last four takes' stock MASTER.WAV in place.
 
 Original take naming, stock record request/stop callbacks and the seven stock
 writers execute through the patched admission and stop sites; original
@@ -14,7 +14,7 @@ from verify_capture_placement import PlacementRig
 from verify_capture_integration import IntegrationRig,record
 from verify_capture_startup import Boot
 from verify_pad_protocol import ROOT,IMAGE,Machine
-from verify_record_catalogue import putstr,getstr,BASE
+from verify_record_catalogue import putstr,getstr,BASE,STRIDE
 from verify_record_scheduler import word
 from verify_firmware_workflow import put32
 from verify_stock_pad_adapter import CONFIG,SETTINGS
@@ -26,13 +26,17 @@ from plan_master_ref import plan,TRIAL_ELF
 build(trial=True);PLAN=plan(trial=True);PACK=PLAN['pack'];N=symbols(TRIAL_ELF)
 FIELDS=('admitted stopped stock_recording open_take stop_faults stop_revoked admit_revoked revoked revoke_packet main_timed_out handled '
         'task polls seen pending file_open take_revoked checked refused last_status master_bytes '
-        'handoff_state handoff_result handoff_serial handoff_posts handoff_posted_at handoff_revoked').split()
-OFF={n:4*i for i,n in enumerate(FIELDS)};STOP_PATH=4*len(FIELDS);PATH=STOP_PATH+160;POSTED=PATH+160;ASSIGNED=POSTED+160
+        'handoff_state handoff_result handoff_serial handoff_posts handoff_posted_at handoff_revoked chain_mask').split()
+OFF={n:4*i for i,n in enumerate(FIELDS)};STOP_PATH=4*len(FIELDS);PATH=STOP_PATH+160;POSTED=PATH+160
+NEXT=POSTED+160;ASSIGNED=NEXT+4*160
+STATE=0x23010000   # stands in for the heap allocation made at startup
 OK,REVOKED,MISSING,SPLIT,IO,FORMAT=range(6)
 NONE,H_POSTED,H_ASSIGNED,H_SKIPPED,H_FAILED,H_LOST,H_SUPERSEDED=range(7)
 MAGIC=0x4c364d52;REC_STOP=0x8004ba4d;PLAY_STOP=0x8004b91d
 TAKE_DIR=0x8060ff80;RECORDER_BUSY=0x80578ec0;PACKET=0x23001900
 FOLDER='A:\\RECORDER\\261011_130947';MASTER=FOLDER+'\\MASTER.WAV'
+def take_master(n):return f'A:\\RECORDER\\261011_14{n:04d}\\MASTER.WAV'
+def config(p):return CONFIG+0x798+p*0x20a
 NOT_FOUND,EXISTS=0xffffd75a,0xffffd75b
 
 def stock_master(data_bytes,rate=48000,channels=2,tag=3,stale=False):
@@ -42,12 +46,14 @@ def stock_master(data_bytes,rate=48000,channels=2,tag=3,stale=False):
     h+=b'PAD '+struct.pack('<I',858)+bytes(858)+b'data'+struct.pack('<I',0 if stale else data_bytes)
     assert len(h)==910;return (910+data_bytes,bytes(h)+bytes(1024))
 
-def load(m):
-    """Place the packed build's code and zeroed globals as the scatter would."""
+def load(m,state=STATE):
+    """Place the packed build's code and zeroed globals as the scatter would,
+    and publish a zeroed state as startup_register does."""
     j=PACK['jumps'];m.uc.mem_write(j['candidate_code_start'],PACK['code'])
     m.uc.mem_write(j['globals_start'],bytes(j['globals_end']-j['globals_start']))
-    layout=struct.unpack('<8I',bytes(m.uc.mem_read(N['mr_layout'],32)))
-    assert layout[1:]==(OFF['revoked'],OFF['task'],OFF['handoff_state'],STOP_PATH,PATH,POSTED,ASSIGNED),layout
+    layout=struct.unpack('<9I',bytes(m.uc.mem_read(N['mr_layout'],36)))
+    assert layout[1:]==(OFF['revoked'],OFF['task'],OFF['handoff_state'],STOP_PATH,PATH,POSTED,NEXT,ASSIGNED),layout
+    m.uc.mem_write(state,bytes(layout[0]));put32(m,N['mr_state'],state)
     return layout[0]
 def normal_recording_state(m):
     m.uc.mem_write(0x801f5f00,b'\xff');put32(m,0x8077ce70,0x557)
@@ -55,15 +61,14 @@ def normal_recording_state(m):
 
 class MasterRig(PlacementRig):
     """Stock-only integration harness plus the master-reference build."""
-    def __init__(self,catalogue=('BACKING.WAV','MASTER.WAV'),card=None):
+    def __init__(self,catalogue=('BACKING.WAV','MASTER.WAV'),card=None,anchors=(1,2,3)):
         self.posts=[];self.delays=0;self.packet=(0,0,0,0);self.probes=[];self.faults={}
         self.card={MASTER:stock_master(20_000_000)} if card is None else card
         self.finalizing=[]
         PlacementRig.__init__(self,patched=False,enabled=False)
-        m=self.m;self.size=load(m)
+        m=self.m;m.uc.mem_map(0x23000000,0x100000);self.size=load(m)
         for p in PLAN['patches']:
             if p.get('adapter') in ('mr_admit_hook','mr_stop_hook'):m.uc.mem_write(p['site'],bytes.fromhex(p['patch']))
-        m.uc.mem_map(0x23000000,0x100000)
         putstr(m,TAKE_DIR,FOLDER)
         self.open_probes={};self.next_probe=900
         m.hooks.update({0x80074158:self.delay,0x80020690:self.receive_packet,
@@ -93,18 +98,28 @@ class MasterRig(PlacementRig):
             if a[0] not in self.open_probes:return close_stock(a)
             del self.open_probes[a[0]];return 0
         m.hooks.update({0x8005ffe8:open_,0x8005ef40:info,0x8005c1f8:close})
-        # Main side: original catalogue code for PAD1; models for the rest.
-        self.assigned=[];self.stopped=[];self.validated=[];self.validate_result=0;self.playing=0
-        for fn in (0x8002a2e0,0x8002a428,0x8002a2c8):m.invoke(fn,[BASE])
-        putstr(m,BASE+0x14,'A:\\SOUND_PAD\\PAD1');m.hooks[0x80008f00]=lambda a:0
-        for name in catalogue:
-            putstr(m,0x23001a00,name);assert m.invoke(0x80008dd8,[0,0x23001a00,0])==0
+        # Main side: original catalogue code for PAD1-4; models for the rest.
+        # Pad 1 lists `catalogue`; pads in `anchors` (0-based) list the anchor.
+        self.assigned=[];self.stopped=[];self.validated=[];self.validate_result={};self.playing=set()
+        m.hooks[0x80008f00]=lambda a:0
+        for pad in range(4):
+            for fn in (0x8002a2e0,0x8002a428,0x8002a2c8):m.invoke(fn,[BASE+pad*STRIDE])
+            putstr(m,BASE+pad*STRIDE+0x14,f'A:\\SOUND_PAD\\PAD{pad+1}')
+            for name in catalogue if pad==0 else ('MASTER.WAV',) if pad in anchors else ():
+                putstr(m,0x23001a00,name);assert m.invoke(0x80008dd8,[pad,0x23001a00,0])==0
+            putstr(m,config(pad),'NO ASSIGN')
         self.pad_before=self.raw(BASE,0xb10) # takes must still leave the catalogue alone
-        def validate(a):self.validated.append((getstr(m,a[0]),a[1],a[2]));return self.validate_result
+        def validate(a):self.validated.append((getstr(m,a[0]),a[1],a[2]));return self.validate_result.get(a[1],0)
+        # The stock loader saves the path later, on its task; by default the
+        # load completes at once. With deferred loads the pending flag stays set
+        # until complete_loads(), as Main's completion handler clears it.
+        self.deferred=None
         def assign(a):
             self.assigned.append(dict(mode=a[0],path=getstr(m,a[1]),pointer=a[1],pad=a[2],index=a[3],count=a[4],option=a[5]))
+            if self.deferred is None:putstr(m,config(a[2]),getstr(m,a[1]))
+            else:self.deferred.append((a[2],getstr(m,a[1])));m.uc.mem_write(0x8044337f+a[2],b'\x01')
             return 0
-        m.hooks.update({0x80009568:validate,0x80002440:lambda a:self.playing,
+        m.hooks.update({0x80009568:validate,0x80002440:lambda a:int(a[0] in self.playing),
                         0x80002d08:lambda a:self.stopped.append(a[0]) or 0,0x80008c68:assign})
     def redirect(self,address,name,always=False):
         # Deep stream registration is modeled; its checkpoint calls mr_admit,
@@ -114,9 +129,17 @@ class MasterRig(PlacementRig):
             self.m.uc.hook_add(UC_HOOK_CODE,hook,begin=address,end=address)
     def delay(self,a):self.delays+=1;return 0
     def receive_packet(self,a):self.m.uc.mem_write(a[0],struct.pack('<4I',*self.packet));return 0
-    def field(self,name):return word(self.m,N['mr_state']+OFF[name])
-    def set(self,name,value):put32(self.m,N['mr_state']+OFF[name],value)
-    def text(self,offset):return getstr(self.m,N['mr_state']+offset)
+    def field(self,name):return word(self.m,STATE+OFF[name])
+    def set(self,name,value):put32(self.m,STATE+OFF[name],value)
+    def text(self,offset):return getstr(self.m,STATE+offset)
+    def pads(self):return [getstr(self.m,config(p)) for p in range(4)]
+    def complete_loads(self):
+        for pad,path in self.deferred:putstr(self.m,config(pad),path);self.m.uc.mem_write(0x8044337f+pad,b'\x00')
+        self.deferred=[]
+    def chain_take(self,path):
+        """One later take with its master on the card, checked and delivered."""
+        self.card[path]=stock_master(10**6);self.quick_take(path[:-len('\\MASTER.WAV')])
+        self.settle();self.deliver();assert self.field('handoff_state')==H_ASSIGNED
     def step(self):return self.m.invoke(N['mr_worker_step'],[])
     def main_receive(self,*packet):
         self.packet=packet;self.delays=0
@@ -124,7 +147,7 @@ class MasterRig(PlacementRig):
     def deliver(self,serial=None):
         _,magic,posted,_,_=self.posts[-1]
         self.main_receive(3,magic,posted if serial is None else serial,0)
-    def count(self):return self.m.invoke(0x80008ee8,[0])
+    def count(self,pad=0):return self.m.invoke(0x80008ee8,[pad])
     def take(self,folder=FOLDER,blocks=6,busy_after=False):
         """One ordinary stock take; the worker polls during it."""
         putstr(self.m,TAKE_DIR,folder)
@@ -190,7 +213,7 @@ def main():
     assert made==['261011_130946','261011_130947'] and getstr(m,TAKE_DIR)==FOLDER
     recorder_master=getstr(m,m.invoke(0x80022c80,[10,1]));stock_second=getstr(m,m.invoke(0x80022c80,[10,2]))
     # This machine is not M-profile (no IPSR), so admission is set directly.
-    load(m);state=N['mr_state'];put32(m,state+OFF['open_take'],1)
+    state=0x80f00000;load(m,state);put32(m,state+OFF['open_take'],1)
     m.invoke(N['mr_stop'],[0,REC_STOP])
     assert getstr(m,state+STOP_PATH)==recorder_master==MASTER and word(m,state+OFF['stopped'])==1
     assert stock_second==FOLDER+'\\MASTER_01.WAV'
@@ -216,15 +239,52 @@ def main():
     r.deliver()
     assert r.field('handoff_state')==H_ASSIGNED and r.field('handoff_result')==0 and r.count()==before
     a=r.assigned[0];assert (a['mode'],a['path'],a['pad'],a['index'],a['count'],a['option'])==(0,MASTER,0,1,2,1)
-    assert a['pointer']==N['mr_state']+ASSIGNED and r.validated==[(MASTER,0,1)] and not r.stopped
+    assert a['pointer']==STATE+ASSIGNED and r.validated==[(MASTER,0,1)] and not r.stopped and len(r.assigned)==1
+    assert r.field('chain_mask')==1 and r.pads()==[MASTER,'NO ASSIGN','NO ASSIGN','NO ASSIGN']
     passed('ordinary_take_assigns_its_stock_master_to_pad_1_through_the_anchor_entry',assignment=dict(a,pointer=hex(a['pointer'])))
 
     # Repeats and stale serials do nothing; a second take replaces the first.
     r.deliver();r.deliver(serial=0);assert len(r.assigned)==1
     second='A:\\RECORDER\\261011_131500';r.card[second+'\\MASTER.WAV']=stock_master(5_000_000)
     r.quick_take(second);r.settle();r.deliver()
-    assert [x['path'] for x in r.assigned]==[MASTER,second+'\\MASTER.WAV'] and r.field('handoff_serial')==2
-    passed('repeated_events_are_ignored_and_each_new_take_reassigns_pad_1')
+    assert [(x['pad'],x['path'],x['index'],x['count']) for x in r.assigned[1:]]==[(1,MASTER,0,1),(0,second+'\\MASTER.WAV',1,2)]
+    assert r.assigned[1]['pointer']==STATE+ASSIGNED+160 and r.field('handoff_serial')==2 and r.field('chain_mask')==3
+    passed('repeated_events_are_ignored_and_a_new_take_moves_the_previous_one_to_pad_2')
+
+    # The chain over five takes from hand-picked pads: each take moves one pad
+    # along; a hand-picked sound is overwritten, never carried; the oldest
+    # take drops off pad 4.
+    r=MasterRig();hand=['A:\\SOUND_PAD\\PAD1\\GLORY_BOX.WAV','A:\\SOUND_PAD\\PAD2\\OD_X.WAV','A:\\SOUND_PAD\\PAD3\\OD_Y.WAV','NO ASSIGN']
+    for p,path in enumerate(hand):putstr(r.m,config(p),path)
+    t=[take_master(n) for n in range(1,6)];history=[]
+    for n in range(5):
+        r.chain_take(t[n]);history.append((r.pads(),r.field('chain_mask')))
+    assert history==[([t[0],hand[1],hand[2],hand[3]],1),([t[1],t[0],hand[2],hand[3]],3),
+                     ([t[2],t[1],t[0],hand[3]],7),([t[3],t[2],t[1],t[0]],15),([t[4],t[3],t[2],t[1]],15)],history
+    assert [x['pad'] for x in r.assigned[-4:]]==[3,2,1,0]   # oldest first
+    # A hand-picked pad between takes is overwritten; no take repeats or is
+    # lost. Repeated takes collapse; pads already right are left alone.
+    cases_after={}
+    for label,before,new,after,mask in (
+            ('hand_on_pad_1',['A:\\SOUND_PAD\\PAD1\\H.WAV',t[2],t[1],t[0]],t[4],[t[4],t[2],t[1],t[0]],0b1),
+            ('hand_on_pad_2',[t[3],'A:\\SOUND_PAD\\PAD2\\H.WAV',t[1],t[0]],t[4],[t[4],t[3],t[1],t[0]],0b11),
+            ('repeat',[t[0],t[0],'NO ASSIGN','NO ASSIGN'],t[1],[t[1],t[0],'NO ASSIGN','NO ASSIGN'],0b1)):
+        r=MasterRig()
+        for p,path in enumerate(before):putstr(r.m,config(p),path)
+        r.chain_take(new);assert r.pads()==after and r.field('chain_mask')==mask,(label,r.pads())
+        cases_after[label]=r.pads()
+    passed('takes_move_one_pad_along_per_take_overwriting_hand_picked_pads_and_dropping_the_oldest',
+           pads_after_each_take=[h[0] for h in history],other_cases=cases_after)
+
+    # An earlier shift still loading (its paths not yet saved) defers the next
+    # one until Main has handled every completion.
+    r=MasterRig();r.deferred=[];r.card[t[0]]=stock_master(10**6);r.quick_take(t[0][:-11]);r.settle();r.deliver()
+    assert r.pads()[0]=='NO ASSIGN' and len(r.assigned)==1
+    r.card[t[1]]=stock_master(10**6);r.quick_take(t[1][:-11]);r.settle();r.deliver()
+    assert r.field('handoff_state')==H_POSTED and len(r.assigned)==1
+    r.complete_loads();r.deliver()
+    assert r.field('handoff_state')==H_ASSIGNED and [(x['pad'],x['path']) for x in r.assigned[1:]]==[(1,t[0]),(0,t[1])]
+    passed('a_shift_waits_while_earlier_assignments_are_still_loading')
 
     # PlayStop and pad-record takes are not ordinary takes.
     r=MasterRig();r.audio_call();r.begin_recording(2);r.audio_call()
@@ -277,24 +337,36 @@ def main():
     assert r.field('handoff_state')==H_FAILED and r.field('handoff_result')==3 and not r.assigned and r.count()==1
     r=MasterRig();putstr(r.m,BASE+0x14,'A:\\SOUND_PAD\\PAD2');r.pad_before=r.raw(BASE,0xb10);r.take();r.settle();r.deliver()
     assert r.field('handoff_result')==4 and not r.assigned
-    r=MasterRig();r.validate_result=4;r.take();r.settle();r.deliver()
+    r=MasterRig();r.validate_result={0:4};r.take();r.settle();r.deliver()
     assert r.field('handoff_state')==H_FAILED and r.field('handoff_result')==0x104 and not r.assigned
-    passed('missing_or_misplaced_anchor_and_unsupported_format_are_refused_without_assigning')
+    # The chain ends at the first pad without an anchor (only PAD1's: pad 1
+    # alone, as experiment 24). A format problem on any pad refuses the shift.
+    r=MasterRig(anchors=(1,2));putstr(r.m,config(0),MASTER);putstr(r.m,config(1),take_master(9));putstr(r.m,config(2),take_master(8))
+    r.chain_take(take_master(1));assert r.pads()==[take_master(1),MASTER,take_master(9),'NO ASSIGN']
+    r=MasterRig(anchors=());putstr(r.m,config(0),MASTER);r.chain_take(take_master(1))
+    assert r.pads()==[take_master(1),'NO ASSIGN','NO ASSIGN','NO ASSIGN'] and r.field('chain_mask')==1
+    r=MasterRig();putstr(r.m,config(0),MASTER);putstr(r.m,config(1),take_master(9));r.validate_result={2:4}
+    r.card[take_master(1)]=stock_master(10**6);r.quick_take(take_master(1)[:-11]);r.settle();r.deliver()
+    assert r.field('handoff_result')==0x2104 and not r.assigned and r.pads()[:3]==[MASTER,take_master(9),'NO ASSIGN']
+    passed('the_chain_ends_at_the_first_pad_without_an_anchor_and_any_format_problem_refuses_the_shift')
     r=MasterRig();r.take();r.settle()
     r.set('stock_recording',1);r.deliver();assert r.field('handoff_state')==H_POSTED
     r.set('stock_recording',0);put32(r.m,RECORDER_BUSY,1);r.deliver();assert r.field('handoff_state')==H_POSTED
-    put32(r.m,RECORDER_BUSY,0);r.playing=1;r.deliver()
-    assert r.field('handoff_state')==H_ASSIGNED and r.stopped==[0] and len(r.assigned)==1
-    r=MasterRig();r.take();r.settle();r.m.uc.mem_write(0x801f5f00,b'\x00');r.deliver()
-    assert r.field('handoff_state')==H_SKIPPED and r.field('handoff_result')==2 and not r.assigned
+    put32(r.m,RECORDER_BUSY,0);r.playing={0,3};r.deliver()
+    assert r.field('handoff_state')==H_ASSIGNED and r.stopped==[0] and len(r.assigned)==1  # pad 4 is not reassigned
+    r=MasterRig();putstr(r.m,config(0),take_master(9));r.playing={0,1,2};r.take();r.settle();r.deliver()
+    assert r.stopped==[0,1] and [x['pad'] for x in r.assigned]==[1,0]
+    for target in (b'\x00',b'\x03'):
+        r=MasterRig();r.take();r.settle();r.m.uc.mem_write(0x801f5f00,target);r.deliver()
+        assert r.field('handoff_state')==H_SKIPPED and r.field('handoff_result')==2 and not r.assigned
     r=MasterRig();r.take();r.settle();r.main_receive(1,0,3,0);r.deliver()
     assert r.field('handoff_state')==H_SKIPPED and r.field('handoff_result')==5 and not r.assigned
-    passed('handoff_waits_for_the_recorder_stops_a_playing_pad_and_skips_target_or_storage_change')
+    passed('handoff_waits_for_the_recorder_stops_reassigned_playing_pads_and_skips_target_or_storage_change')
     # Main blocks in the validator (it reads the anchor); meanwhile the worker
     # supersedes and posts serial 2. Serial 1 is dropped without touching 2.
     r=MasterRig();r.take();r.settle()
     def validate(a):
-        r.set('handoff_serial',2);putstr(r.m,N['mr_state']+POSTED,'A:\\RECORDER\\261011_131500\\MASTER.WAV');return 0
+        r.set('handoff_serial',2);putstr(r.m,STATE+POSTED,'A:\\RECORDER\\261011_131500\\MASTER.WAV');return 0
     r.m.hooks[0x80009568]=validate;r.main_receive(3,MAGIC,1,0)
     assert not r.assigned and r.field('handoff_state')==H_POSTED and r.field('handled')==1
     r.m.hooks[0x80009568]=lambda a:0;r.main_receive(3,MAGIC,2,0)
@@ -340,13 +412,26 @@ def main():
         r.run();r.consume();outcomes['+'.join(names)]=r.paths()[0]
     assert outcomes=={'MASTER.WAV':MASTER,'BACKING.WAV+MASTER.WAV':MASTER,
                       'BACKING.WAV':'A:\\SOUND_PAD\\PAD1\\BACKING.WAV'}
-    passed('anchor_keeps_the_reference_through_assignment_save_cold_boot_and_reload',after_reload=outcomes)
+    # All four pads referencing takes, with an anchor in each folder.
+    r=reload_rig(['BACKING.WAV','MASTER.WAV'],t[3]);m=r.m
+    for p in range(1,4):
+        putstr(m,0x21005000,'MASTER.WAV');assert m.invoke(0x80008dd8,[p,0x21005000,0])==0
+        r.files[f'A:\\SOUND_PAD\\PAD{p+1}\\MASTER.WAV']=bytearray(r.files[MASTER])
+    for p in range(4):r.files[t[3-p]]=bytearray(r.files[MASTER]);putstr(m,config(p),t[3-p])
+    m.uc.mem_write(0x80445524,bytes(0xc34));assert m.invoke(0x80006b18,[])==0
+    saved=[bytes(r.files[SETTINGS][96+p*0x20a:96+(p+1)*0x20a]).decode('utf-16le').split('\0')[0] for p in range(4)]
+    for p in range(4):putstr(m,config(p),'NO ASSIGN')
+    m.uc.mem_write(0x807348d0,bytes(0x22c*4));del m.hooks[0x80006410]
+    r.run();r.consume()
+    assert saved==[t[3],t[2],t[1],t[0]]==r.paths()[:4],(saved,r.paths())
+    passed('anchors_keep_the_references_through_assignment_save_cold_boot_and_reload',after_reload=outcomes,chain=r.paths()[:4])
 
-    b=MasterBoot();b.boot();j=PACK['jumps']
-    assert b.created==[(b'L6PadRef\0',2048,1)] and b.word(N['mr_startup_status'])==4
-    assert b.added_writes and all(j['globals_start']<=a and a+n<=j['globals_end'] for a,n in b.added_writes)
-    passed('original_reset_scatter_and_startup_expand_the_build_and_register_the_worker',
-           state_bytes=MasterRig().size)
+    b=MasterBoot();b.boot();j=PACK['jumps'];size=MasterRig().size
+    g=b.word(N['mr_state']);assert b.created==[(b'L6PadRef\0',2048,1)] and b.word(N['mr_startup_status'])==4
+    assert 0x808e2fe0<=g<0x8095ffd8 and bytes(b.m.uc.mem_read(g,size))==bytes(OFF['task'])+struct.pack('<I',0x7f00)+bytes(size-OFF['task']-4)
+    assert b.added_writes and all(j['globals_start']<=a and a+n<=j['globals_end'] or g<=a and a+n<=g+size for a,n in b.added_writes)
+    passed('original_startup_allocates_zeroed_state_on_the_native_heap_and_registers_the_worker',
+           state=hex(g),state_bytes=size)
 
     result=dict(passed=True,groups=len(cases),results=cases,firmware_sha256=hashlib.sha256(IMAGE).hexdigest(),
         elf_sha256=PLAN['elf_sha256'],limitations=PLAN['limitations']+[

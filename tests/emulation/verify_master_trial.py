@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Exact master-reference trial image and anchor file (experiment 24).
+"""Exact take-chain trial image and anchor file (experiment 25).
+
+Experiment 24's installed image must still rebuild byte for byte.
 
 Original reset and scatter expand the image; the stock DSP code and ring size
 are unchanged. The status query runs on the trial build after an emulated take
@@ -7,10 +9,12 @@ and is decoded by the device probe. No device or card access.
 """
 import json,struct,sys
 from unicorn import UC_HOOK_CODE
-from verify_master_ref import MasterRig,MasterBoot,MASTER,H_ASSIGNED
+from verify_master_ref import MasterRig,MasterBoot,MASTER,H_ASSIGNED,config,take_master
 from verify_pad_protocol import ROOT,IMAGE,BIAS,INPUT
 import verify_health_probe as health
-from build_master_trial import trial,OUT,ANCHOR_FRAMES
+from build_deployment_probe import digest
+from build_master_trial import trial,MODES,ANCHOR_FRAMES
+from verify_record_catalogue import putstr
 from build_deployment_probe import validate
 from capture_jump_patches import SCATTER
 from plan_capture_composed import SIZE_SITE
@@ -19,7 +23,8 @@ from scatter_codec import expand
 sys.path.insert(0,str(ROOT/'tools/device'))
 from l6_padref_probe import request,decode,validate_samples,validate_take
 
-IMAGE24,ANCHOR,MANIFEST,T=trial();TP=T['pack'];TN=TP['names']
+IMAGE24,ANCHOR,MANIFEST,T=trial('chain');TP=T['pack'];TN=TP['names'];OUT=MODES['chain']['out']
+EXPERIMENT24='cb6d34fd9d5f576469e89d440d8affad40345d62611d87a1c36e2b7705d72574'
 
 def boot():
     m=health.machine(False);u=m.uc
@@ -48,13 +53,15 @@ def main():
     cases=[]
     def passed(case,**details):cases.append(dict(case=case,**details))
 
-    assert (OUT/'trial_master_ref/L6.BIN').read_bytes()==IMAGE24 and (OUT/'anchor/MASTER.WAV').read_bytes()==ANCHOR
+    old=trial('reference')[0];assert digest(old)==EXPERIMENT24==digest((MODES['reference']['out']/'trial_master_ref/L6.BIN').read_bytes())
+    passed('experiment_24_installed_image_rebuilds_byte_for_byte_from_its_pinned_sources',trial_sha256=EXPERIMENT24)
+    assert (OUT/'trial_take_chain/L6.BIN').read_bytes()==IMAGE24 and (OUT/'anchor/MASTER.WAV').read_bytes()==ANCHOR
     validate(IMAGE24);assert len(IMAGE24)==len(IMAGE) and IMAGE24[0x2851f8:]==IMAGE[0x2851f8:]
     adapters=sorted(p['adapter'] for p in MANIFEST['patches'])
     assert len(adapters)==10 and adapters.count('mr_main_receive')==5 and not MANIFEST['DSP_patches']
     assert {'mr_admit_hook','mr_stop_hook','health_parser','startup_init_hook','startup_idle_hook'}<=set(adapters)
     assert IMAGE24[SIZE_SITE-BIAS:SIZE_SITE-BIAS+4]==IMAGE[SIZE_SITE-BIAS:SIZE_SITE-BIAS+4]==bytes.fromhex('4af68011')
-    assert MANIFEST['experiment']==24 and not MANIFEST['files_created'] and MANIFEST['native_capacity_frames']==240000
+    assert MANIFEST['experiment']==25 and len(MANIFEST['anchor']['card_paths'])==4 and not MANIFEST['files_created'] and MANIFEST['native_capacity_frames']==240000
     # The query's bounds words read the scatter records that place the code.
     words=struct.unpack_from('<IIII',IMAGE24,0x800a6930-BIAS)[:2]+struct.unpack_from('<II',IMAGE24,0x800a6940-BIAS)
     assert (words[0],words[0]+words[1],words[2],words[2]+words[3])==tuple(
@@ -87,16 +94,24 @@ def main():
                    globals_start=MANIFEST['globals_start'],globals_end=MANIFEST['globals_end'])
     later=dict(idle[0],ticks=idle[0]['ticks']+1000,polls=idle[0]['polls']+30)
     validate_samples([idle[0],later],MANIFEST)
-    before=r.query();r.take();r.settle();r.deliver();assert r.field('handoff_state')==H_ASSIGNED
+    hand=[take_master(9),'A:\\SOUND_PAD\\PAD2\\GLORY_BOX.WAV',take_master(8),'A:\\RECORDER\\261011_140007\\MASTER_01.WAV']
+    for p,path in enumerate(hand):putstr(r.m,config(p),path)
+    before=r.query();assert before['pads']==['261011_140009','#GLORY_BOX.WAV','261011_140008','#MASTER_01.WAV'],before['pads']
+    r.take();r.settle();r.deliver();assert r.field('handoff_state')==H_ASSIGNED
     after=r.query();after.update(stack_used=1024,minimum_free_bytes=140000)
     before.update(stack_used=1024)
     take=validate_take(before,after)
     assert take['assigned_path']==MASTER and take['take_folder']=='261011_130947' and take['master_bytes']==20_000_910
-    for bad in (dict(last_status=4),dict(handoff_state=4),dict(stop_faults=1),dict(assigned_path=before['assigned_path'])):
+    # Pad 2's hand-picked sound is overwritten; pad 3 already holds its take;
+    # pad 4's non-take keeps its place past the end of the chain.
+    assert after['pads']==['261011_130947','261011_140009','261011_140008','#MASTER_01.WAV'] and after['chain_mask']==0b11
+    for bad in (dict(last_status=4),dict(handoff_state=4),dict(stop_faults=1),dict(chain_mask=1),
+                dict(pads=[after['pads'][0],'#GLORY_BOX.WAV']+after['pads'][2:]),
+                dict(pads=after['pads'][:3]+['261011_140008']),dict(pads=before['pads'])):
         try:validate_take(before,dict(after,**bad))
         except ValueError:continue
         raise AssertionError(f'probe accepted {bad}')
-    passed('status_query_reports_the_assigned_master_and_the_probe_validates_it',take=take)
+    passed('status_query_reports_each_pads_saved_take_and_the_probe_validates_the_shift',take=take)
 
     result=dict(passed=True,passed_groups=len(cases),results=cases,trial_sha256=MANIFEST['trial_sha256'],
         limitations=['Query fields that depend on hardware (heap, caches, stack) are supplied in the probe check',

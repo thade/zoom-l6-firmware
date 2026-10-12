@@ -87,3 +87,24 @@ survives a cold reboot and a File Transfer Mode cycle with the anchor present
 (saved path read back from L6PADSETTING.ZST); the anchor is catalogued as
 MASTER.WAV. Still open: behaviour when the referenced folder is deleted over
 USB, and split takes.
+
+7. Take chain (experiment 25)
+All four pads hold the last takes, newest on pad 1. The stock saved pad paths
+(0x80440dc8+0x798+pad*0x20a, written by SamplerFileAssign when it loads) are
+the only record. After each verified take, Main builds the chain: the new
+master, then the take masters saved on the chain pads in pad order, skipping
+hand-picked or empty pads and repeats, cut to the chain length; pads past its
+end keep their sound and pads already right are skipped. The chain covers
+pads 1..n up to the first without an anchor PADn\MASTER.WAV. All formats are
+checked before any assignment is queued, oldest pad first (completions save
+in order, so an interrupted shift repeats a take rather than losing one).
+0x80008c68 (mode 0) sets a per-pad pending byte (0x8044337f+pad, getter
+0x800060d0); the assignment callback 0x80049d60 posts Main event {1, 4,
+0x1c, pad} after 0x8004b760 on every path, and Main's handler calls
+0x80008b00, which clears the byte on success and failure (and may save the
+settings via 0x80006b18). A shift waits while any byte is set, so it never
+reads a path an earlier assignment has not saved. The assignment queue holds
+512 messages of 32 bytes and its sender blocks rather than drops. Emulated
+with the original catalogue for all four pads, and with the original save,
+cold-boot load and reload keeping all four references. The state moved to one
+native-heap allocation published after the worker is created.

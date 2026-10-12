@@ -53,11 +53,13 @@ size stay stock. The master compressor is part of that file.
 |---|---|---|
 | Stock recorder task | Stream admission `0x8000b158`, stop setter `0x80006918` | The stopped take's master path (from `0x8060ff80`) |
 | Worker task (priority 1) | Polling loop | Waits for RecStop's callback to end; read-only check of the master |
-| Main | Five original receive calls | Pad 1 assignment via the PAD1 anchor `MASTER.WAV`; a revocation counter |
+| Main | Five original receive calls | The chain shift on pads 1–4 via each folder's anchor `MASTER.WAV`; a revocation counter |
 
 Stock reload keeps the reference only while `A:\SOUND_PAD\PAD1\MASTER.WAV`
 exists, so that small silent file is a permanent anchor. It passed on the
-mixer in [experiment 24](../experiments/24-master-ref/README.md).
+mixer in [experiment 24](../experiments/24-master-ref/README.md);
+[experiment 25](../experiments/25-take-chain/README.md) chains the last four
+takes across pads 1–4, and moves the state to the native heap.
 
 ## Pre-compressor capture (set aside)
 

@@ -22,6 +22,7 @@ typedef int32_t (*Open)(uint32_t*,const uint16_t*,uint32_t,uint32_t);
 #define CLOSE ((int32_t (*)(uint32_t))0x8005c1f9u)
 #define INFO ((int32_t (*)(uint32_t,uint32_t*))0x8005ef41u)
 #define DELAY ((void (*)(uint32_t))0x80074159u)
+#define ALLOC ((void *(*)(uint32_t))0x8006de79u)
 #define CREATE ((int32_t (*)(void (*)(void*),const char*,uint32_t,void*,uint32_t,uint32_t*))0x80076c61u)
 #define RECEIVE ((int32_t (*)(uint32_t*))0x80020691u)
 /* Stock pad calls, as used by the Editor's select handler 0x80009ba0. */
@@ -34,23 +35,25 @@ typedef int32_t (*Open)(uint32_t*,const uint16_t*,uint32_t,uint32_t);
 #define STOP_PAD ((void (*)(uint32_t))0x80002d09u)
 #define ASSIGN ((void (*)(uint32_t,const uint16_t*,uint32_t,int32_t,uint32_t,uint32_t))0x80008c69u)
 #define RECORD_TARGET ((uint32_t (*)(void))0x80034da9u)
-#define PAD 0u                  /* SOUND_PAD/PAD1 */
+#define CONFIG_PATH(p) ((const volatile uint16_t *)(0x80440dc8u+0x798u+(p)*0x20au)) /* saved pad paths */
+#define PENDING(p) B8(0x8044337fu+(p))  /* assignment queued, completion not yet handled (0x800060d0) */
 #define RETRY_POLLS 40u         /* about one second of worker polls */
 #define POSTS 30u
 #define READ ((int32_t (*)(uint32_t,void*,uint32_t,uint32_t*))0x80060621u)
 #define NOT_FOUND 0xffffd75au
 #define HEAD 1024u              /* stock masters: fmt at 12, PAD, data at 902 */
 
-KEEP MasterRef mr_state;
+KEEP MasterRef *mr_state;    /* heap; published once the worker exists */
 KEEP uint32_t mr_startup_status;
 KEEP const uint32_t mr_layout[]={sizeof(MasterRef),offsetof(MasterRef,revoked),offsetof(MasterRef,task),
     offsetof(MasterRef,handoff_state),offsetof(MasterRef,stop_path),offsetof(MasterRef,path),
-    offsetof(MasterRef,posted_path),offsetof(MasterRef,assigned_path)};
+    offsetof(MasterRef,posted_path),offsetof(MasterRef,next),offsetof(MasterRef,assigned)};
 static const uint16_t RECORDER[]=u"A:\\RECORDER\\";
 static const uint16_t MASTER[]=u"\\MASTER.WAV";
 static const uint16_t SPLIT[]=u"\\MASTER_01.WAV";   /* the second part of a split take */
 static const uint16_t ANCHOR[]=u"MASTER.WAV";
 static const uint16_t ANCHOR_PATH[]=u"A:\\SOUND_PAD\\PAD1\\MASTER.WAV";
+#define ANCHOR_DIGIT 16u        /* index of the pad digit in ANCHOR_PATH */
 
 static uint32_t interrupt(void) {uint32_t v;__asm__ volatile("mrs %0, ipsr":"=r"(v));return v;}
 /* Equal strings of at most n units including the NUL. */
@@ -81,7 +84,7 @@ static int normal_recording(void) {
 /* Stock recorder start, after all seven streams are registered (0x8000b158).
  * Pad-record takes (a pad record target) are not ordinary takes. */
 KEEP void mr_admit(void) {
-    MasterRef *g=&mr_state;
+    MasterRef *g=LD(&mr_state);if(!g)return;
     /* Any admission ends a take whose stop never reached the setter (card
      * cleanup finalizes without it). */
     g->open_take=0;
@@ -94,7 +97,7 @@ KEEP void mr_admit(void) {
  * files are finalized. Only RecStop's call ends a take. */
 KEEP void mr_stop(uint32_t selected,uint32_t caller) {
     (void)selected;
-    MasterRef *g=&mr_state;
+    MasterRef *g=LD(&mr_state);if(!g)return;
     if(caller!=REC_STOP_RETURN)return;
     ST(&g->stock_recording,0);
     if(!g->open_take)return;
@@ -121,6 +124,20 @@ static void handoff_done(MasterRef *g,uint32_t serial,uint32_t state,uint32_t re
     g->handoff_result=result;
     __atomic_compare_exchange_n(&g->handoff_state,&posted,state,0,__ATOMIC_RELEASE,__ATOMIC_RELAXED);
 }
+/* A saved pad path the chain carries: a take master that fits our buffers. */
+static int carried(uint16_t *dst,uint32_t pad) {
+    const volatile uint16_t *src=CONFIG_PATH(pad);
+    uint32_t n=0;
+    while(n<MR_PATH && (dst[n]=src[n]))n++;
+    if(n>=MR_PATH || !prefix16(dst,RECORDER))return 0;
+    uint32_t tail=sizeof(MASTER)/2-1;
+    return n>tail && same16(dst+n-tail,MASTER,tail+1);
+}
+static int saved_as(uint32_t pad,const uint16_t *path) {
+    const volatile uint16_t *src=CONFIG_PATH(pad);
+    for(uint32_t i=0;i<MR_PATH;i++){if(src[i]!=path[i])return 0;if(!path[i])return 1;}
+    return 0;
+}
 /* Main task only (priority 13). The stock calls below can block on the card,
  * letting the worker run and supersede this serial meanwhile. */
 static void handoff(MasterRef *g,uint32_t serial) {
@@ -130,30 +147,61 @@ static void handoff(MasterRef *g,uint32_t serial) {
     if(LD(&g->revoked)!=g->handoff_revoked){handoff_done(g,serial,MR_HANDOFF_SKIPPED,5);return;}
     /* A new take or any RecPlayCtl callback: leave it posted for a repost. */
     if(LD(&g->stock_recording) || RECORDER_BUSY)return;
-    if((RECORD_TARGET()&255u)==PAD){handoff_done(g,serial,MR_HANDOFF_SKIPPED,2);return;}
-    /* The anchor's catalogue entry stands in for the master: stock reload
-     * keeps the assigned path only while PAD1 lists this basename. */
-    int32_t index=LOOKUP(PAD,ANCHOR);
-    if(index<0){handoff_done(g,serial,MR_HANDOFF_FAILED,3);return;}
-    if(!same16(PATH_OF(PAD,index),ANCHOR_PATH,sizeof(ANCHOR_PATH)/2)){handoff_done(g,serial,MR_HANDOFF_FAILED,4);return;}
-    /* Format is judged from the catalogue entry, i.e. the anchor (48 kHz);
-     * of the path only the extension is read. */
-    uint32_t format=VALIDATE(g->posted_path,PAD,index);
-    if(format){handoff_done(g,serial,MR_HANDOFF_FAILED,0x100u|format);return;}
-    if(PLAYING(PAD))STOP_PAD(PAD);
+    /* An assignment still loading has not saved its path yet: wait for its
+     * completion (Main clears the flag on success and on failure alike). */
+    for(uint32_t p=0;p<MR_PADS;p++)if(PENDING(p))return;
+    if((RECORD_TARGET()&255u)<MR_PADS){handoff_done(g,serial,MR_HANDOFF_SKIPPED,2);return;}
+    /* Each pad's anchor entry stands in for its master: stock reload keeps
+     * an assigned path only while the pad's folder lists this basename. The
+     * chain covers the pads from pad 1 up to the first without an anchor. */
+    int32_t index[MR_PADS];
+    uint16_t anchor[sizeof(ANCHOR_PATH)/2];
+    uint32_t pads=0;
+    for(uint32_t i=0;i<sizeof(ANCHOR_PATH)/2;i++)anchor[i]=ANCHOR_PATH[i];
+    for(;pads<MR_PADS;pads++) {
+        anchor[ANCHOR_DIGIT]=(uint16_t)('1'+pads);
+        if((index[pads]=LOOKUP(pads,ANCHOR))<0)break;
+        if(!same16(PATH_OF(pads,index[pads]),anchor,sizeof(anchor)/2)){handoff_done(g,serial,MR_HANDOFF_FAILED,4|pads<<12);return;}
+    }
+    if(!pads){handoff_done(g,serial,MR_HANDOFF_FAILED,3);return;}
+    /* The new chain: the new take, then the takes now saved on the chain pads
+     * in order, skipping hand-picked or empty pads and repeats. Pads past its
+     * end keep their sound; pads already holding their entry are skipped. */
+    uint32_t length=1,mask=1;
+    for(uint32_t i=0;i<MR_PATH;i++)g->next[0][i]=g->posted_path[i];
+    for(uint32_t p=0;p<pads && length<pads;p++) {
+        if(!carried(g->next[length],p))continue;
+        uint32_t repeat=0;
+        for(uint32_t q=0;q<length;q++)repeat|=same16(g->next[q],g->next[length],MR_PATH);
+        if(!repeat)length++;
+    }
+    for(uint32_t p=1;p<length;p++)if(!saved_as(p,g->next[p]))mask|=1u<<p;
+    /* Format is judged from each pad's anchor entry (48 kHz); of the path only
+     * the extension is read. Every pad is checked before any is assigned. */
+    for(uint32_t p=0;p<MR_PADS;p++) {
+        if(!(mask>>p&1))continue;
+        uint32_t format=VALIDATE(g->next[p],p,index[p]);
+        if(format){handoff_done(g,serial,MR_HANDOFF_FAILED,0x100u|format|p<<12);return;}
+    }
+    for(uint32_t p=0;p<MR_PADS;p++)if((mask>>p&1) && PLAYING(p))STOP_PAD(p);
     if(LD(&g->handoff_state)!=MR_HANDOFF_POSTED || serial!=g->handoff_serial){g->handled=serial;return;}
-    /* The stock assignment queues the path pointer: keep it until the next one. */
-    for(uint32_t i=0;i<MR_PATH;i++)g->assigned_path[i]=g->posted_path[i];
-    uint32_t count=COUNT(PAD);
-    ASSIGN(0,g->assigned_path,PAD,index,count,1);
-    /* Queued, not yet loaded: the stock loader opens the master on its task. */
+    /* Queued oldest first: the assignments complete (and save) in order, so a
+     * shift cut short repeats a take rather than losing one. The stock
+     * assignment queues the path pointer: keep it until the next one. */
+    for(uint32_t p=MR_PADS;p-->0;) {
+        if(!(mask>>p&1))continue;
+        for(uint32_t i=0;i<MR_PATH;i++)g->assigned[p][i]=g->next[p][i];
+        ASSIGN(0,g->assigned[p],p,index[p],COUNT(p),1);
+    }
+    /* Queued, not yet loaded: the stock loader opens each master on its task. */
+    g->chain_mask=mask;
     handoff_done(g,serial,MR_HANDOFF_ASSIGNED,0);
 }
 
 /* ---- Main: five original receive calls ---- */
 KEEP int32_t mr_main_receive(uint32_t *packet) {
     int32_t result=RECEIVE(packet);
-    MasterRef *g=&mr_state;
+    MasterRef *g=LD(&mr_state);if(!g)return result;
     if(packet[0]==MR_HANDOFF_EVENT && packet[1]==MR_HANDOFF_MAGIC)handoff(g,packet[2]);
     uint32_t storage=(packet[0]==0 && packet[2]>=0x32 && packet[2]<=0x35) ||
         (packet[0]==1 && packet[1]==0 && packet[2]<=5) ||
@@ -244,7 +292,7 @@ static uint32_t check(MasterRef *g) {
     return playable(head,got,bytes)?MR_OK:MR_FORMAT;
 }
 KEEP uint32_t mr_worker_step(void) {
-    MasterRef *g=&mr_state;
+    MasterRef *g=LD(&mr_state);if(!g)return 0;
     g->polls++;
     uint32_t s=LD(&g->stopped);
     if(s!=g->seen) {
@@ -301,10 +349,13 @@ KEEP void startup_observe(uint32_t unused,uint32_t first_result) {
     (void)unused;
     if(!mr_startup_status)mr_startup_status=first_result?2:1;
 }
-/* After stock idle-task creation. One attempt; the worker stays until reboot. */
+/* After stock idle-task creation. One attempt; state and worker stay until
+ * reboot. Hooks do nothing until the state is published, after the worker. */
 KEEP void startup_register(void) {
     if(mr_startup_status!=1)return;
     mr_startup_status=3;
-    if(CREATE(mr_worker_entry,"L6PadRef",WORKER_WORDS,0,WORKER_PRIORITY,&mr_state.task)!=1 || !mr_state.task)return;
-    mr_startup_status=4;
+    MasterRef *g=ALLOC(sizeof(MasterRef));if(!g)return;
+    for(uint32_t i=0;i<sizeof(*g);i++)((uint8_t*)g)[i]=0;
+    if(CREATE(mr_worker_entry,"L6PadRef",WORKER_WORDS,0,WORKER_PRIORITY,&g->task)!=1 || !g->task)return;
+    ST(&mr_state,g);mr_startup_status=4;
 }
