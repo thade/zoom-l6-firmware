@@ -4,7 +4,19 @@ Experiment 25's chain worked, but an accidental quick start and stop of the
 recorder (0.25 s) took a pad like any real take. This trial leaves takes
 shorter than 2 seconds off the pads; they are recorded normally.
 
-**Prepared locally; not staged or installed.** The mixer runs experiment 25.
+**Installed 13 October 2026; passed.**
+
+## Results
+
+| Take | Result | Pads afterwards |
+|---|---|---|
+| about 1 s | refused (`refused` 1, no handoff) | unchanged (user check) |
+| about 5.8 s (`261013_182040`) | assigned on the first post, all four pads | `182040`, `165450`, `165447`, `165438`; `165012` dropped off |
+
+Only the latest status code is kept, so `short` itself was not read back; the
+one refusal with the pads untouched is consistent with it. Worker stack
+2,356 bytes; minimum free heap 152,848 bytes. Evidence stays in
+`deployment/26_short_takes/`.
 
 ## Change
 

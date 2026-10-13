@@ -45,7 +45,8 @@ pads 1–4 hold the last four takes, newest on pad 1, moving one pad along per
 take from the stock saved pad paths. It passed on the mixer, through a reboot
 and a File Transfer Mode cycle; the brief record lockout after each stop is the
 stock recorder finalizing its files. [Experiment 26](../experiments/26-short-takes/README.md)
-leaves takes under 2 seconds off the pads. The early-hang
+leaves takes under 2 seconds off the pads; it passed on the mixer and is the
+current image. The early-hang
 [recovery check](../experiments/18-recovery-hang/README.md) is parked.
 All hardware-trial tooling and research is now committed. The full offline
 regression passes 93 suites (995 groups); it now sets its own import path.
