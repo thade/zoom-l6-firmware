@@ -21,9 +21,12 @@ from verify_stock_pad_adapter import CONFIG,SETTINGS
 import verify_pad_reload as V
 from capture_jump_patches import symbols
 from build_master_ref import build
-from plan_master_ref import plan,TRIAL_ELF
+from plan_master_ref import plan,TRIAL_ELF,ELF
+import sys
 
-build(trial=True);PLAN=plan(trial=True);PACK=PLAN['pack'];N=symbols(TRIAL_ELF)
+# 'everyday' runs every group on the clean build (no status query or stack paint).
+EVERYDAY=__name__=='__main__' and sys.argv[1:]==['everyday']
+build(trial=not EVERYDAY);PLAN=plan(trial=not EVERYDAY);PACK=PLAN['pack'];N=symbols(ELF if EVERYDAY else TRIAL_ELF)
 FIELDS=('admitted stopped stock_recording open_take stop_faults stop_revoked admit_revoked revoked revoke_packet main_timed_out handled '
         'task polls seen pending file_open take_revoked checked refused last_status master_bytes '
         'handoff_state handoff_result handoff_serial handoff_posts handoff_posted_at handoff_revoked chain_mask').split()
@@ -445,6 +448,7 @@ def main():
             'Probed files, the queued call validator, pad play/stop and the assignment queue are models in the take groups',
             'Worker steps and task preemption are explicit test actions, not RTOS scheduling',
             'The loader, RIFF parsing of a real master and pad playback are not executed'])
-    (ROOT/'analysis/master_ref_verification.json').write_text(json.dumps(result,indent=2)+'\n')
+    result['build']='everyday' if EVERYDAY else 'trial'
+    (ROOT/('analysis/master_ref_everyday_verification.json' if EVERYDAY else 'analysis/master_ref_verification.json')).write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps(dict(passed=True,groups=len(cases))))
 if __name__=='__main__':main()
