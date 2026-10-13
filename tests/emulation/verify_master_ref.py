@@ -32,6 +32,14 @@ FIELDS=('admitted stopped stock_recording open_take stop_faults stop_revoked adm
         'handoff_state handoff_result handoff_serial handoff_posts handoff_posted_at handoff_revoked chain_mask').split()
 OFF={n:4*i for i,n in enumerate(FIELDS)};STOP_PATH=4*len(FIELDS);PATH=STOP_PATH+160;POSTED=PATH+160
 NEXT=POSTED+160;ASSIGNED=NEXT+4*160
+HFIELDS=('played_open played_count played_overflow played_gen history_pending history_defer unwritten_next '
+         'stop_played_count stop_played_overflow work_count work_overflow '
+         'history_written history_failed history_status history_entries history_truncated').split()
+PLAYED_OPEN=ASSIGNED+4*160;OFF.update({n:PLAYED_OPEN+4*i for i,n in enumerate(HFIELDS)})
+PLAYED=PLAYED_OPEN+4*len(HFIELDS);ENTRY=528;STOP_PLAYED=PLAYED+8*ENTRY
+HISTORY_BUF=(PLAYED+3*8*ENTRY+8*64*2+31)&~31
+H_OK,H_REVOKED,H_CREATE,H_WRITE,H_CLOSE,H_RENAME,H_NAME,H_PENDING=range(8)
+ACTIVE=0x20015e4c
 STATE=0x23010000   # stands in for the heap allocation made at startup
 OK,REVOKED,MISSING,SPLIT,IO,FORMAT,SHORT=range(7)
 NONE,H_POSTED,H_ASSIGNED,H_SKIPPED,H_FAILED,H_LOST,H_SUPERSEDED=range(7)
@@ -54,10 +62,16 @@ def load(m,state=STATE):
     and publish a zeroed state as startup_register does."""
     j=PACK['jumps'];m.uc.mem_write(j['candidate_code_start'],PACK['code'])
     m.uc.mem_write(j['globals_start'],bytes(j['globals_end']-j['globals_start']))
-    layout=struct.unpack('<9I',bytes(m.uc.mem_read(N['mr_layout'],36)))
-    assert layout[1:]==(OFF['revoked'],OFF['task'],OFF['handoff_state'],STOP_PATH,PATH,POSTED,NEXT,ASSIGNED),layout
+    layout=struct.unpack('<13I',bytes(m.uc.mem_read(N['mr_layout'],52)))
+    assert layout[1:12]==(OFF['revoked'],OFF['task'],OFF['handoff_state'],STOP_PATH,PATH,POSTED,NEXT,ASSIGNED,
+                          PLAYED_OPEN,PLAYED,HISTORY_BUF) and layout[12]==ENTRY,layout
     m.uc.mem_write(state,bytes(layout[0]));put32(m,N['mr_state'],state)
     return layout[0]
+def history_text(*entries,truncated=False):
+    return ('L6 HISTORY 1\n'+''.join(e+'\n' for e in entries)+('TRUNCATED\n' if truncated else '')+
+            f'END {len(entries)}\n').encode()
+def take_folder(path):return path[:-len('\\MASTER.WAV')]
+def entry(path):return take_folder(path)[3:].replace('\\','/')
 def normal_recording_state(m):
     m.uc.mem_write(0x801f5f00,b'\xff');put32(m,0x8077ce70,0x557)
     for ch in (0,1,2,4,6,8,10):put32(m,0x8077e87c+ch*4,0x1000+ch)
@@ -71,17 +85,23 @@ class MasterRig(PlacementRig):
         PlacementRig.__init__(self,patched=False,enabled=False)
         m=self.m;m.uc.mem_map(0x23000000,0x100000);self.size=load(m)
         for p in PLAN['patches']:
-            if p.get('adapter') in ('mr_admit_hook','mr_stop_hook'):m.uc.mem_write(p['site'],bytes.fromhex(p['patch']))
+            if p.get('adapter') in ('mr_admit_hook','mr_stop_hook','mr_play_hook'):m.uc.mem_write(p['site'],bytes.fromhex(p['patch']))
         putstr(m,TAKE_DIR,FOLDER)
-        self.open_probes={};self.next_probe=900
+        self.open_probes={};self.next_probe=900;self.writing={};self.write_fault=None;self.on_write=None
         m.hooks.update({0x80074158:self.delay,0x80020690:self.receive_packet,
             0x80020ca0:lambda a:self.posts.append(tuple(a[:5])) or 0})
         open_stock,info_stock,close_stock=m.hooks[0x8005ffe8],m.hooks[0x8005ef40],m.hooks[0x8005c1f8]
         def open_(a):
             path=getstr(m,a[1])
             if not path.startswith('A:\\RECORDER\\'):return open_stock(a)
-            assert (a[2],a[3])==(0,0x100),'read-only probe expected';self.probes.append(path)
             put32(m,a[0],0)
+            if 'HISTORY' in path:assert self.field('file_open')==1,('file_open',path)
+            if (a[2],a[3])==(0x501,0x80):   # create new (history temp file)
+                assert path.endswith('\\HISTORY.TMP'),path;self.calls.append(('create',path))
+                if path in self.faults:return self.faults[path]
+                if path in self.card:return EXISTS
+                h=self.next_probe;self.next_probe+=1;self.writing[h]=[path,bytearray()];put32(m,a[0],h);return 0
+            assert (a[2],a[3])==(0,0x100),'read-only probe expected';self.probes.append(path)
             if path in self.faults:return self.faults[path]
             if path not in self.card:return NOT_FOUND
             h=self.next_probe;self.next_probe+=1;self.open_probes[h]=path;put32(m,a[0],h);return 0
@@ -98,9 +118,30 @@ class MasterRig(PlacementRig):
         def finalize(a):self.finalizing.append((word(m,RECORDER_BUSY),self.field('stopped')));return 0
         m.hooks.update({0x80060620:read,0x8000b698:finalize})
         def close(a):
+            if a[0] in self.writing:
+                path,data=self.writing.pop(a[0]);self.card[path]=(len(data),bytes(data));return 0
             if a[0] not in self.open_probes:return close_stock(a)
             del self.open_probes[a[0]];return 0
-        m.hooks.update({0x8005ffe8:open_,0x8005ef40:info,0x8005c1f8:close})
+        write_stock=m.hooks[0x800622b0]
+        def write(a):
+            if a[0] not in self.writing:return write_stock(a)
+            data=bytes(m.uc.mem_read(a[1],a[2]))
+            if self.on_write:self.on_write()
+            if self.write_fault=='short':data=data[:-1]
+            self.writing[a[0]][1].extend(data);put32(m,a[3],len(data));return 0
+        def rename(a):
+            source,target=getstr(m,a[0]),getstr(m,a[1]);self.calls.append(('rename',source,target))
+            assert self.field('file_open')==1
+            if source not in self.card:return NOT_FOUND
+            if target in self.card:return EXISTS
+            self.card[target]=self.card.pop(source);return 0
+        def unlink(a):
+            path=getstr(m,a[0]);self.calls.append(('unlink',path))
+            assert self.field('file_open')==1
+            if path not in self.card:return NOT_FOUND
+            del self.card[path];return 0
+        m.hooks.update({0x8005ffe8:open_,0x8005ef40:info,0x8005c1f8:close,0x800622b0:write,
+                        0x80060a18:rename,0x80061f78:unlink})
         # Main side: original catalogue code for PAD1-4; models for the rest.
         # Pad 1 lists `catalogue`; pads in `anchors` (0-based) list the anchor.
         self.assigned=[];self.stopped=[];self.validated=[];self.validate_result={};self.playing=set()
@@ -133,15 +174,24 @@ class MasterRig(PlacementRig):
     def delay(self,a):self.delays+=1;return 0
     def receive_packet(self,a):self.m.uc.mem_write(a[0],struct.pack('<4I',*self.packet));return 0
     def field(self,name):return word(self.m,STATE+OFF[name])
+    def play(self,pad):
+        """The stock pad start 0x80018310, as every trigger reaches it."""
+        self.m.invoke(0x80018310,[pad])
+    def silence(self):
+        for p in range(4):put32(self.m,ACTIVE+p*0x3c,0)
+    def stop_played(self):
+        return [getstr(self.m,STATE+STOP_PLAYED+i*ENTRY+4) for i in range(self.field('stop_played_count'))]
+    def history(self,path):
+        h=take_folder(path)+'\\HISTORY.TXT';return self.card[h][1] if h in self.card else None
     def set(self,name,value):put32(self.m,STATE+OFF[name],value)
     def text(self,offset):return getstr(self.m,STATE+offset)
     def pads(self):return [getstr(self.m,config(p)) for p in range(4)]
     def complete_loads(self):
         for pad,path in self.deferred:putstr(self.m,config(pad),path);self.m.uc.mem_write(0x8044337f+pad,b'\x00')
         self.deferred=[]
-    def chain_take(self,path):
+    def chain_take(self,path,during=()):
         """One later take with its master on the card, checked and delivered."""
-        self.card[path]=stock_master(10**6);self.quick_take(path[:-len('\\MASTER.WAV')])
+        self.card[path]=stock_master(10**6);self.quick_take(path[:-len('\\MASTER.WAV')],during)
         self.settle();self.deliver();assert self.field('handoff_state')==H_ASSIGNED
     def step(self):return self.m.invoke(N['mr_worker_step'],[])
     def main_receive(self,*packet):
@@ -151,20 +201,25 @@ class MasterRig(PlacementRig):
         _,magic,posted,_,_=self.posts[-1]
         self.main_receive(3,magic,posted if serial is None else serial,0)
     def count(self,pad=0):return self.m.invoke(0x80008ee8,[pad])
-    def take(self,folder=FOLDER,blocks=6,busy_after=False):
+    def take(self,folder=FOLDER,blocks=6,busy_after=False,during=()):
         """One ordinary stock take; the worker polls during it."""
         putstr(self.m,TAKE_DIR,folder)
         self.audio_call();self.begin_recording(2);probes=len(self.probes)
+        # The rig has no pad sample buffers to render; the start is recorded.
+        for pad in during:self.play(pad)
+        self.silence()
         for _ in range(blocks):
             self.audio_call();assert self.step() in (0,10) and len(self.probes)==probes
         data=self.stop_recording()
         if busy_after:put32(self.m,RECORDER_BUSY,1)
         self.assert_ordinary();return {h:bytes(self.files[h]) for h in range(1,8)}
-    def quick_take(self,folder):
-        """A later take through the adapter C entries (the stock rig records once)."""
+    def quick_take(self,folder,during=()):
+        """A later take through the adapter C entries (the stock rig records
+        once), starting the given pads while it records."""
         normal_recording_state(self.m);putstr(self.m,TAKE_DIR,folder)
         self.m.invoke(N['mr_admit'],[]);assert self.field('stock_recording')==1
-        self.m.invoke(N['mr_stop'],[0,REC_STOP])
+        for pad in during:self.play(pad)
+        self.m.invoke(N['mr_stop'],[0,REC_STOP]);self.silence()
     def settle(self,limit=4):
         for _ in range(limit):
             if self.step()!=10:return
@@ -403,6 +458,136 @@ def main():
     r.set('file_open',0);r.main_receive(2,0,0xa2,0);assert r.delays==0 and r.field('main_timed_out')==0
     assert r.field('revoked')==3 and r.field('revoke_packet')==0x200a2
     passed('storage_packets_revoke_and_wait_boundedly_for_an_open_probe')
+
+    # ---- Take history ----
+    # The play hook at the stock pad start records the saved path of each pad
+    # file started during an open take; pads already playing at admission are
+    # seeded; restarts and unassigned pads add nothing; starts after RecStop
+    # and the stock bounds check (pad > 3) never reach the record.
+    r=MasterRig();t=[take_master(n) for n in range(1,10)]
+    hand='A:\\SOUND_PAD\\PAD2\\GLORY_BOX.WAV'
+    for p,path in enumerate((t[0],hand,'NO ASSIGN',t[1])):putstr(r.m,config(p),path)
+    r.play(0);assert r.field('played_open')==0 and word(r.m,ACTIVE)==1   # before the take
+    normal_recording_state(r.m);putstr(r.m,TAKE_DIR,take_folder(t[2]));r.m.invoke(N['mr_admit'],[])
+    assert r.field('played_count')==1                                     # seeded from the playing flag
+    r.play(1);r.play(1);r.play(2);r.play(5);assert r.field('played_count')==2
+    r.m.invoke(N['mr_stop'],[0,REC_STOP]);r.play(3)
+    assert r.stop_played()==[t[0],hand] and r.field('played_open')==0 and r.field('stop_played_overflow')==0
+    passed('the_stock_pad_start_hook_records_each_pad_file_started_during_a_take',played=r.stop_played())
+
+    # The design's branch example: A, then B over A, C over B, then D over A.
+    # Each take's history lists every recording folder it includes, and no
+    # other; B and C keep theirs.
+    r=MasterRig();A,B,C,D=t[0],t[1],t[2],t[3]
+    r.chain_take(A);r.chain_take(B,during=[0]);r.chain_take(C,during=[0])
+    assert r.pads()[:3]==[C,B,A]
+    r.chain_take(D,during=[2])
+    files={k:r.history(v) for k,v in dict(A=A,B=B,C=C,D=D).items()}
+    assert files==dict(A=history_text(),B=history_text(entry(A)),C=history_text(entry(A),entry(B)),
+                       D=history_text(entry(A))),files
+    assert r.field('history_written')==4 and r.field('history_failed')==0
+    assert not any(k.endswith('HISTORY.TMP') for k in r.card)
+    passed('histories_follow_the_backing_actually_played_including_a_branch',
+           histories={k:v.decode() for k,v in files.items()})
+
+    # Several pads: their entries combined without repeats; a hand-picked
+    # sound is listed (UTF-8); a take without history adds just its folder;
+    # an unreadable history is flagged TRUNCATED.
+    r=MasterRig();sound='A:\\SOUND_PAD\\PAD2\\GLÖRY BOX.WAV'
+    r.card[take_folder(t[1])+'\\HISTORY.TXT']=(lambda b:(len(b),b))(history_text(entry(t[0])))
+    for p,path in enumerate((t[1],sound,t[0],t[5])):putstr(r.m,config(p),path)
+    r.chain_take(t[6],during=[0,1,2,3])
+    assert r.history(t[6])==history_text(entry(t[0]),entry(t[1]),'SOUND SOUND_PAD/PAD2/GLÖRY BOX.WAV',entry(t[5]))
+    for label,content in (('bad_count',b'L6 HISTORY 1\nRECORDER/X\nEND 5\n'),('bad_header',b'HISTORY\nEND 0\n')):
+        r=MasterRig();putstr(r.m,config(0),t[1]);r.card[take_folder(t[1])+'\\HISTORY.TXT']=(len(content),content)
+        r.chain_take(t[6],during=[0])
+        want=(entry(t[1]),) if label=='bad_header' else ('RECORDER/X',entry(t[1]))
+        assert r.history(t[6])==history_text(*want,truncated=True),(label,r.history(t[6]))
+    passed('several_pads_combine_without_repeats_sounds_are_listed_and_incomplete_lineage_is_flagged')
+
+    # Short and split takes still get a history; a take whose master is
+    # missing (or revoked) gets none.
+    for label,card,has in (('short',{t[4]:stock_master(1000)},True),('missing',{},False),
+                           ('split',{t[4]:stock_master(10**6),take_folder(t[4])+'\\MASTER_01.WAV':stock_master(10**6)},True)):
+        r=MasterRig(card=dict(card));r.quick_take(take_folder(t[4]));r.settle()
+        assert (r.history(t[4])==history_text())==has and r.field('history_written')==int(has),label
+    passed('every_take_with_its_master_gets_a_history_even_short_or_split_ones')
+
+    # Write procedure: temp file, one write, close, same-folder rename. A left
+    # temp file is replaced; a failed create, a short write, an existing
+    # HISTORY.TXT or a storage change leaves no partial HISTORY.TXT.
+    r=MasterRig();tmp=take_folder(t[4])+'\\HISTORY.TMP';final=take_folder(t[4])+'\\HISTORY.TXT'
+    r.card[tmp]=(3,b'old');r.chain_take(t[4])
+    assert r.history(t[4])==history_text() and tmp not in r.card and ('unlink',tmp) in r.calls
+    outcomes={}
+    for label,setup,status in (('create',lambda r:r.faults.__setitem__(tmp,0xffffd825),H_CREATE),
+                               ('short_write',lambda r:setattr(r,'write_fault','short'),H_WRITE),
+                               ('exists',lambda r:r.card.__setitem__(final,(4,b'mine')),H_RENAME),
+                               ('revoked',lambda r:setattr(r,'on_write',lambda:r.set('revoked',r.field('revoked')+1)),H_REVOKED)):
+        r=MasterRig();setup(r);r.card[t[4]]=stock_master(10**6);r.quick_take(take_folder(t[4]));r.settle()
+        # After a storage change no further call is made, so the temp file stays.
+        assert r.field('history_status')==status and r.field('history_failed')==1,label
+        assert (tmp in r.card)==(label=='revoked') and r.field('history_pending')==0,label
+        assert r.card.get(final)==((4,b'mine') if label=='exists' else None),label
+        outcomes[label]=status
+    passed('history_is_written_through_a_temp_file_and_failures_leave_no_partial_file',outcomes=outcomes)
+
+    # A take whose history was not written (remembered, or a temp file left on
+    # the card) makes the takes that include it incomplete, not silently short.
+    r=MasterRig();tb=take_folder(t[1])+'\\HISTORY.TMP'
+    r.faults[tb]=0xffffd825;r.chain_take(t[1]);assert r.field('history_status')==H_CREATE
+    r.chain_take(t[2],during=[0])
+    assert r.history(t[2])==history_text(entry(t[1]),truncated=True)
+    r=MasterRig();putstr(r.m,config(0),t[1]);r.card[tb]=(3,b'old');r.chain_take(t[2],during=[0])
+    assert r.history(t[2])==history_text(entry(t[1]),truncated=True)
+    passed('a_take_whose_history_failed_makes_later_histories_say_TRUNCATED')
+
+    # A take starting during the history write: the write waits (no file call
+    # while recording or finalizing), the next take waits behind it, and both
+    # histories are written once the recorder is idle, in order.
+    r=MasterRig();putstr(r.m,config(0),t[1])
+    r.card[take_folder(t[1])+'\\HISTORY.TXT']=(lambda b:(len(b),b))(history_text(entry(t[0])))
+    original=r.m.hooks[0x8005ffe8]
+    def busy_on_read(a):
+        if getstr(r.m,a[1]).endswith('140002\\HISTORY.TXT'):put32(r.m,RECORDER_BUSY,1)
+        return original(a)
+    r.m.hooks[0x8005ffe8]=busy_on_read
+    r.card[t[2]]=stock_master(10**6);r.quick_take(take_folder(t[2]),during=[0]);r.step()
+    assert r.field('history_pending')==1 and r.field('history_status')==H_PENDING and r.history(t[2]) is None
+    r.m.hooks[0x8005ffe8]=original
+    r.card[t[3]]=stock_master(10**6);r.quick_take(take_folder(t[3]))     # the next take, recorded meanwhile
+    for _ in range(3):r.step()
+    assert r.field('history_pending')==1 and r.field('checked')==1        # still waiting; take 2 untouched
+    put32(r.m,RECORDER_BUSY,0);r.step()
+    assert r.history(t[2])==history_text(entry(t[0]),entry(t[1])) and r.field('checked')==1
+    r.settle();assert r.history(t[3])==history_text() and r.field('history_written')==2
+    passed('a_history_write_waits_while_a_new_take_records_and_takes_stay_in_order')
+
+    # A pad whose reassignment is still loading is flagged, not guessed.
+    r=MasterRig();putstr(r.m,config(0),t[1]);r.m.uc.mem_write(0x8044337f,b'\x01')
+    normal_recording_state(r.m);putstr(r.m,TAKE_DIR,take_folder(t[4]));r.m.invoke(N['mr_admit'],[])
+    r.play(0);r.m.invoke(N['mr_stop'],[0,REC_STOP]);r.silence();r.m.uc.mem_write(0x8044337f,b'\x00')
+    r.card[t[4]]=stock_master(10**6);r.settle()
+    assert r.history(t[4])==history_text(truncated=True)
+    passed('a_pad_started_mid_reassignment_is_flagged_TRUNCATED')
+
+    # Bounded size: a long inherited list stops at 4 KiB with TRUNCATED and a
+    # consistent END count; more than eight pad files in one take is flagged.
+    r=MasterRig();long=[f'RECORDER/LAYER_{i:04d}_XXXXXXXXXX' for i in range(131)]
+    big=history_text(*long);assert len(big)<4096
+    r.card[take_folder(t[1])+'\\HISTORY.TXT']=(len(big),big);putstr(r.m,config(0),t[1]);r.chain_take(t[6],during=[0])
+    out=r.history(t[6]).decode().split('\n');count=int(out[-2].split()[1])
+    # Lines that fit are kept in order (the take's own shorter folder line still
+    # fits after a longer inherited one did not).
+    kept=out[1:1+count]
+    assert len(r.history(t[6]))<=4096 and out[-3]=='TRUNCATED' and count==len(out)-4
+    assert kept[:-1]==long[:count-1] and kept[-1]==entry(t[1])
+    r=MasterRig();normal_recording_state(r.m);putstr(r.m,TAKE_DIR,take_folder(t[4]));r.m.invoke(N['mr_admit'],[])
+    for i in range(9):putstr(r.m,config(0),f'A:\\SOUND_PAD\\PAD1\\S{i}.WAV');r.play(0)
+    r.m.invoke(N['mr_stop'],[0,REC_STOP]);r.silence();r.card[t[4]]=stock_master(10**6);r.settle()
+    lines=r.history(t[4]).decode().split('\n')
+    assert r.field('stop_played_overflow')==1 and len(lines)==8+4 and lines[-3]=='TRUNCATED'
+    passed('history_size_and_pad_file_count_are_bounded_and_flagged',kept_entries=count)
 
     # Original reload, assignment and settings code: with the anchor the
     # reference survives the queued assignment, a save, a cold-boot load and

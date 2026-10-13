@@ -24,6 +24,8 @@ RECORDER_SPECS=(
          replay='movw r0,#0x201',purpose='stock recorder admitted its seven streams'),
     dict(site=0x80006918,original='40f6c852',adapter='mr_stop_hook',resume=0x8000691c,
          replay='movw r2,#0xdc8',purpose='stock stop cursor setter; RecStop notes the take folder'))
+PLAY_SPEC=dict(site=0x80018316,original='10b50446',adapter='mr_play_hook',resume=0x8001831a,
+               replay='push {r4,lr}; mov r4,r0',purpose='stock pad start (every trigger, on Main): take history')
 
 def plan(elf_path=None,trial=False):
     elf_path=elf_path or (TRIAL_ELF if trial else ELF)
@@ -36,6 +38,7 @@ def plan(elf_path=None,trial=False):
     patches=[startup_patch(stock,s,names[s['adapter']],**at) for s in STARTUP_SPECS]
     if trial:patches.append(main_patch(stock,QUERY_SPEC,names['health_parser'],**at))
     patches+=[main_patch(stock,s,names[s['adapter']],**at) for s in RECORDER_SPECS]
+    if 'mr_play_hook' in names:patches.append(main_patch(stock,PLAY_SPEC,names['mr_play_hook'],**at))
     patches+=[receive_patch(stock,site,old,names['mr_main_receive'],adapter='mr_main_receive',**at)
               for site,old in RECEIVERS]
     ordered=sorted(patches,key=lambda x:x['site'])

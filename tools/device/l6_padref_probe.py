@@ -10,6 +10,8 @@ FIELDS=('schema','marker','startup_status','task','admitted','stopped','stock_re
     'free_bytes','minimum_free_bytes','ticks','ccr','code_start','code_end','globals_start','globals_end',
     'recorder_busy')
 CHAIN_FIELDS=FIELDS+('chain_mask',)
+HISTORY_FIELDS=CHAIN_FIELDS+('history_written','history_failed','history_status','history_entries','played') # schema 3
+HISTORY_STATUS=('ok','revoked','create','write','close','rename','name','pending')
 PATH_WORDS=16
 STATUS=('ok','revoked','missing','split','io','format','short')
 HANDOFF_STATES=('none','posted','assigned','skipped','failed','lost','superseded')
@@ -20,7 +22,7 @@ def request(token=0):
     return bytes((0xf0,0x52,0,0,0x6f,7,token,0xf7))
 def decode(packet):
     if len(packet)<6 or packet[:6]!=bytes((0xf0,0x52,0,0,0x6e,7)):return None
-    fields={8+5*(len(f)+PATH_WORDS):f for f in (FIELDS,CHAIN_FIELDS)}.get(len(packet))
+    fields={8+5*(len(f)+PATH_WORDS):f for f in (FIELDS,CHAIN_FIELDS,HISTORY_FIELDS)}.get(len(packet))
     if not fields or packet[-1]!=0xf7 or any(x>127 for x in packet[6:-1]):
         raise ValueError('invalid status reply length or encoding')
     values=[]
@@ -28,7 +30,7 @@ def decode(packet):
         v=packet[7+5*i:12+5*i]
         if v[4]>15:raise ValueError('status word exceeds 32 bits')
         values.append(sum(b<<(7*j) for j,b in enumerate(v)))
-    schema=1 if fields is FIELDS else 2
+    schema=1 if fields is FIELDS else 2 if fields is CHAIN_FIELDS else 3
     if values[:2]!=[schema,0x4c4d01]:raise ValueError('unsupported status schema or marker')
     text=lambda words:bytes((w>>(7*k))&127 for w in words for k in range(4)).split(b'\0')[0].decode('ascii')
     row=dict(zip(fields,values),token=packet[6])
@@ -41,7 +43,8 @@ def validate_samples(rows,manifest):
     expected=dict(schema=2 if 'pads' in rows[0] else 1,marker=0x4c4d01,startup_status=4,admitted=0,stopped=0,stock_recording=0,
         stop_faults=0,file_open=0,checked=0,refused=0,handoff_state=0,handoff_serial=0,recorder_busy=0)
     expected.update({n:manifest[n] for n in ('code_start','code_end','globals_start','globals_end')})
-    if 'pads' in rows[0]:expected['chain_mask']=0
+    if 'pads' in rows[0]:expected.update(chain_mask=0,schema=rows[0]['schema'])
+    if rows[0]['schema']==3:expected.update(history_written=0,history_failed=0)
     for row in rows:
         for n,v in expected.items():
             if row[n]!=v:raise ValueError(f'{n}: observed {row[n]}, expected {v}')
@@ -90,7 +93,14 @@ def validate_take(before,after):
     if after['file_open'] or after['stock_recording'] or after['master_bytes']<4096:
         raise ValueError('worker not idle or master too short')
     if not 128<=after['stack_used']<PAINTED:raise ValueError('worker stack measurement out of range')
-    return dict(take_assigned=True,assigned_path=path,take_folder=path.split('\\')[2],pads=after.get('pads'),
+    history=None
+    if after['schema']==3:
+        if after['history_status']==7:
+            raise ValueError('history pending: a new take started first; it is written when the recorder is idle')
+        if after['history_written']!=before['history_written']+1 or after['history_failed']!=before['history_failed']:
+            raise ValueError(f"history not written: status {HISTORY_STATUS[after['history_status']] if after['history_status']<len(HISTORY_STATUS) else after['history_status']}")
+        history=dict(entries=after['history_entries'],pad_files_played=after['played'])
+    return dict(take_assigned=True,assigned_path=path,take_folder=path.split('\\')[2],pads=after.get('pads'),history=history,
         master_bytes=after['master_bytes'],seconds_if_32bit_float=after['master_bytes']/384000,
         storage_packets_during_take=(after['revoked']-before['revoked'])&0xffffffff,
         worker_stack_bytes=after['stack_used'],minimum_free_bytes=after['minimum_free_bytes'])

@@ -108,3 +108,21 @@ reads a path an earlier assignment has not saved. The assignment queue holds
 with the original catalogue for all four pads, and with the original save,
 cold-boot load and reload keeping all four references. The state moved to one
 native-heap allocation published after the worker is created.
+
+8. Take history (experiment 28)
+Every pad start reaches 0x80018310 through the play wrapper 0x80002c60, on
+Main (pad buttons, MIDI and Editor dispatch); the only write of the renderer
+playing flag (0x20015e4c+pad*0x3c, read by 0x80018190) is inside it. A hook
+at 0x80018316 (push {r4,lr}; mov r4,r0, after the pad>3 check) records the
+pad's saved path while a take is open; pads already playing are seeded from
+the flags at admission. Polling cannot work: a 1-frame one-shot is active for
+one 64-frame render and the worker can be starved for over a second. The
+stock code never lists files inside take folders (the take scan lists
+directories only; the stream matcher accepts only its own WAV names), v1.10
+has no on-device take delete, and RMDIR removes whole trees (refusing if any
+file in the folder is open). HISTORY.TXT is written via HISTORY.TMP (create
+0x501/0x80, one write, close, same-folder rename, which refuses an existing
+target); writes of 512 bytes or more transfer straight from the buffer, so
+it is cleaned first. The filesystem tokens are counting semaphores without
+priority inheritance: while the priority-1 worker holds one, the priority-28
+file worker can wait, so the write is kept to a few calls.

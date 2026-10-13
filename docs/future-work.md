@@ -80,6 +80,14 @@ or unexpectedly changing mode during a take.
 
 ## Take links and recording history
 
+**Implemented in [experiment 28](../experiments/28-take-history/README.md)**
+for pads that play the stock masters: `HISTORY.TXT` in each take folder, a
+plain list of `RECORDER/<take>` and `SOUND <path>` lines between an
+`L6 HISTORY 1` header and an `END <n>` line, built from the pad files that
+actually started during the take. With no separate pad recordings, the
+pad-folder history files described below are not needed. The text below is
+the original design.
+
 **Confirmed:** each overdub pad recording must reference the main recording it
 was created alongside. Both that pad recording and its associated main recording
 must reference every other main recording included through overdubbing. Keep

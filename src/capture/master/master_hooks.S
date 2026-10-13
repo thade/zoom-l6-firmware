@@ -30,6 +30,11 @@ mr_stop_hook:
  pop.w {r0-r12,lr}
  movw r2,#0xdc8
  JUMP 0x8000691d
+/* Stock pad start 0x80018310, after its pad bounds check: C gets (0, pad). */
+HOOK mr_play_hook,0,mr_play
+ push {r4,lr}
+ mov r4,r0
+ JUMP 0x8001831b
 /* Startup: remember the first initialization result, then register after
  * the stock idle task exists. */
 HOOK startup_init_hook,0,startup_observe

@@ -5,7 +5,7 @@
 #include "../retention.h"
 #define W(a) (*(volatile const uint32_t *)(a))
 #define LD(p) __atomic_load_n((p),__ATOMIC_ACQUIRE)
-#define VALUES 31u
+#define VALUES 36u
 #define PAD_WORDS 4u     /* per pad: 16 characters, four 7-bit characters per word */
 #define PATH_WORDS (MR_PADS*PAD_WORDS)
 #define CONFIG_PATH(p) ((const volatile uint16_t *)(0x80440dc8u+0x798u+(p)*0x20au))
@@ -31,7 +31,7 @@ KEEP uint32_t mr_query(const uint8_t *packet) {
     uint32_t ipsr;__asm__ volatile("mrs %0,ipsr":"=r"(ipsr));if(ipsr)return 0;
     const MasterRef *g=LD(&mr_state);
 #define F(x) (g?(x):0)
-    uint32_t values[VALUES+PATH_WORDS]={2,0x4c4d01,mr_startup_status,F(g->task),
+    uint32_t values[VALUES+PATH_WORDS]={3,0x4c4d01,mr_startup_status,F(g->task),
         F(LD(&g->admitted)),F(LD(&g->stopped)),F(LD(&g->stock_recording)),F(g->stop_faults),
         F(LD(&g->revoked)),F(g->revoke_packet),F(LD(&g->file_open)),F(g->polls),
         F(g->checked),F(g->refused),F(g->last_status),F(g->master_bytes),
@@ -39,7 +39,8 @@ KEEP uint32_t mr_query(const uint8_t *packet) {
         stack_used(),W(0x801f9020u),W(0x801f9024u),W(0x801f9050u),W(0xe000ed14u),
         /* Published bounds, read back from the scatter records that placed them. */
         W(0x800a6930u),W(0x800a6930u)+W(0x800a6934u),W(0x800a6940u),W(0x800a6940u)+W(0x800a6944u),
-        W(0x80578ec0u),F(g->chain_mask)};
+        W(0x80578ec0u),F(g->chain_mask),
+        F(g->history_written),F(g->history_failed),F(g->history_status),F(g->history_entries),F(g->stop_played_count)};
 #undef F
     /* Each pad's saved path as the stock loader left it: the take folder of
      * a take master, else '#' and the file name. Non-ASCII ends a name. */
