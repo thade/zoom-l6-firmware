@@ -42,7 +42,10 @@ sound, an overdub recorded with pad 1 playing produced both layers, and the
 reference survived a reboot and a File Transfer Mode cycle.
 [Experiment 25](../experiments/25-take-chain/README.md) extends it to a chain:
 pads 1–4 hold the last four takes, newest on pad 1, moving one pad along per
-take from the stock saved pad paths. It is prepared and passes 21 offline groups. The early-hang
+take from the stock saved pad paths. It passed on the mixer, through a reboot
+and a File Transfer Mode cycle; the brief record lockout after each stop is the
+stock recorder finalizing its files. [Experiment 26](../experiments/26-short-takes/README.md)
+leaves takes under 2 seconds off the pads. The early-hang
 [recovery check](../experiments/18-recovery-hang/README.md) is parked.
 All hardware-trial tooling and research is now committed. The full offline
 regression passes 93 suites (995 groups); it now sets its own import path.

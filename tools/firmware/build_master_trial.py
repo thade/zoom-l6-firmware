@@ -4,6 +4,8 @@
 reference (experiment 24): pad 1 plays the last take's master. Rebuilt from
           the sources it was installed from.
 chain     (experiment 25): pads 1-4 play the last four takes, newest on pad 1.
+          Rebuilt from the sources it was installed from.
+minimum   (experiment 26): as chain, but takes under 2 seconds stay off the pads.
 
 Writes the trial image and the anchor file: a short silent 48 kHz stereo
 32-bit float WAV with the same 512-byte header layout as the extra files the
@@ -21,7 +23,8 @@ ANCHOR_FRAMES=4800   # 0.1 s of silence
 PINNED_SOURCES=('src/capture/master','src/capture/hook_macros.inc','src/capture/retention.h',
                 'src/diagnostics/health_hooks.S','tests/fixtures/capture_source_reuse.ld')
 MODES=dict(reference=dict(experiment=24,out=ROOT/'deployment/24_master_ref',image='trial_master_ref',pin='5765dbf',pads=1),
-           chain=dict(experiment=25,out=ROOT/'deployment/25_take_chain',image='trial_take_chain',pads=4))
+           chain=dict(experiment=25,out=ROOT/'deployment/25_take_chain',image='trial_take_chain',pin='2fc1c7d',pads=4),
+           minimum=dict(experiment=26,out=ROOT/'deployment/26_short_takes',image='trial_short_takes',pads=4))
 OUT=MODES['reference']['out']
 
 @contextlib.contextmanager
@@ -48,7 +51,8 @@ def trial(mode='reference'):
     p=t['pack']
     data=assemble(stock,t);names=p['names'];wav=anchor()
     pads=[f'A:\\SOUND_PAD\\PAD{n}\\MASTER.WAV' for n in range(1,m['pads']+1)]
-    report=dict(experiment=m['experiment'],mode='master' if mode=='reference' else mode,status='prepared_locally_not_staged',trial_sha256=digest(data),
+    report=dict(experiment=m['experiment'],mode='master' if mode=='reference' else mode,
+        minimum_take_seconds=2 if mode=='minimum' else None,status='prepared_locally_not_staged',trial_sha256=digest(data),
         stock_sha256=STOCK_SHA,elf_sha256=elf_sha,patches=t['patches'],DSP_patches=[],
         metadata_edits=p['edits'],code_bytes=len(p['code']),globals_bytes=t['globals_bytes'],
         spare_bytes=t['packing']['spare_bytes'],
@@ -65,7 +69,8 @@ def trial(mode='reference'):
             'Stock reload keeps the reference only while PAD1 lists MASTER.WAV (the anchor)'] if mode=='reference' else
             ['First hardware run of four queued assignments per take (one per pad)',
              'Stock reload keeps each reference only while that pad folder lists MASTER.WAV',
-             'Four masters play from A:\\RECORDER while a take records: card load is untested'])+[
+             'Four masters play from A:\\RECORDER while a take records: card load is untested']+
+            (['Takes under 2 s (96,000 frames, from the master header) are refused as short'] if mode=='minimum' else []))+[
             'Deleting a referenced take folder is untested',
             'Worker stack is measured by painting 7 KiB below its entry frame',
             'Early-hang recovery (experiment 18) is parked and unproven',
@@ -73,7 +78,7 @@ def trial(mode='reference'):
     return data,wav,report,t
 
 def main():
-    a=argparse.ArgumentParser(description=__doc__);a.add_argument('mode',nargs='?',choices=MODES,default='chain')
+    a=argparse.ArgumentParser(description=__doc__);a.add_argument('mode',nargs='?',choices=MODES,default='minimum')
     mode=a.parse_args().mode;m=MODES[mode];out=m['out']
     data,wav,report,_=trial(mode)
     for path,content in ((out/m['image']/'L6.BIN',data),(out/'anchor'/'MASTER.WAV',wav)):

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Exact take-chain trial image and anchor file (experiment 25).
+"""Exact short-take trial image and anchor file (experiment 26).
 
-Experiment 24's installed image must still rebuild byte for byte.
+The installed images of experiments 24 and 25 must still rebuild byte for byte.
 
 Original reset and scatter expand the image; the stock DSP code and ring size
 are unchanged. The status query runs on the trial build after an emulated take
@@ -23,8 +23,9 @@ from scatter_codec import expand
 sys.path.insert(0,str(ROOT/'tools/device'))
 from l6_padref_probe import request,decode,validate_samples,validate_take
 
-IMAGE24,ANCHOR,MANIFEST,T=trial('chain');TP=T['pack'];TN=TP['names'];OUT=MODES['chain']['out']
+IMAGE24,ANCHOR,MANIFEST,T=trial('minimum');TP=T['pack'];TN=TP['names'];OUT=MODES['minimum']['out']
 EXPERIMENT24='cb6d34fd9d5f576469e89d440d8affad40345d62611d87a1c36e2b7705d72574'
+EXPERIMENT25='e3168b78c7d159678b7e7cc9762d5b724eaa05cd9ae740433a3ce678456e6713'
 
 def boot():
     m=health.machine(False);u=m.uc
@@ -54,14 +55,16 @@ def main():
     def passed(case,**details):cases.append(dict(case=case,**details))
 
     old=trial('reference')[0];assert digest(old)==EXPERIMENT24==digest((MODES['reference']['out']/'trial_master_ref/L6.BIN').read_bytes())
-    passed('experiment_24_installed_image_rebuilds_byte_for_byte_from_its_pinned_sources',trial_sha256=EXPERIMENT24)
-    assert (OUT/'trial_take_chain/L6.BIN').read_bytes()==IMAGE24 and (OUT/'anchor/MASTER.WAV').read_bytes()==ANCHOR
+    old=trial('chain')[0];assert digest(old)==EXPERIMENT25==digest((MODES['chain']['out']/'trial_take_chain/L6.BIN').read_bytes())
+    passed('experiment_24_and_25_installed_images_rebuild_byte_for_byte_from_their_pinned_sources',
+           experiment24=EXPERIMENT24,experiment25=EXPERIMENT25)
+    assert (OUT/'trial_short_takes/L6.BIN').read_bytes()==IMAGE24 and (OUT/'anchor/MASTER.WAV').read_bytes()==ANCHOR
     validate(IMAGE24);assert len(IMAGE24)==len(IMAGE) and IMAGE24[0x2851f8:]==IMAGE[0x2851f8:]
     adapters=sorted(p['adapter'] for p in MANIFEST['patches'])
     assert len(adapters)==10 and adapters.count('mr_main_receive')==5 and not MANIFEST['DSP_patches']
     assert {'mr_admit_hook','mr_stop_hook','health_parser','startup_init_hook','startup_idle_hook'}<=set(adapters)
     assert IMAGE24[SIZE_SITE-BIAS:SIZE_SITE-BIAS+4]==IMAGE[SIZE_SITE-BIAS:SIZE_SITE-BIAS+4]==bytes.fromhex('4af68011')
-    assert MANIFEST['experiment']==25 and len(MANIFEST['anchor']['card_paths'])==4 and not MANIFEST['files_created'] and MANIFEST['native_capacity_frames']==240000
+    assert MANIFEST['experiment']==26 and MANIFEST['minimum_take_seconds']==2 and len(MANIFEST['anchor']['card_paths'])==4 and not MANIFEST['files_created'] and MANIFEST['native_capacity_frames']==240000
     # The query's bounds words read the scatter records that place the code.
     words=struct.unpack_from('<IIII',IMAGE24,0x800a6930-BIAS)[:2]+struct.unpack_from('<II',IMAGE24,0x800a6940-BIAS)
     assert (words[0],words[0]+words[1],words[2],words[2]+words[3])==tuple(

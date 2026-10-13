@@ -11,7 +11,7 @@ FIELDS=('schema','marker','startup_status','task','admitted','stopped','stock_re
     'recorder_busy')
 CHAIN_FIELDS=FIELDS+('chain_mask',)
 PATH_WORDS=16
-STATUS=('ok','revoked','missing','split','io','format')
+STATUS=('ok','revoked','missing','split','io','format','short')
 HANDOFF_STATES=('none','posted','assigned','skipped','failed','lost','superseded')
 HEAP=(0x808e2fe0,0x8095ffd8)
 PAINTED=7*1024

@@ -5,9 +5,44 @@ trial keeps a chain across all four pads: after each ordinary take, pad 1 plays
 the newest take, pad 2 the one before, and so on to pad 4. The oldest take
 drops off pad 4; its files stay on the card.
 
-**Prepared locally; not staged or installed.** The mixer runs experiment 24.
-Recovery from an image that fails before Main remains unproven
+**Installed 13 October 2026; passed. The chain works on the mixer.** Recovery
+from an image that fails before Main remains unproven
 ([experiment 18](../18-recovery-hang/README.md) is parked).
+
+## Results
+
+| After take | Pad 1 | Pad 2 | Pad 3 | Pad 4 | Pads assigned |
+|---|---|---|---|---|---|
+| (start) | `261012_153024` | hand-picked | hand-picked | anchor (see below) | |
+| 1 (19 s) | `261013_164507` | `261012_153024` | hand-picked | anchor | 1–2 |
+| 2, then 3 straight after | `261013_165012` | `261013_164942` | `261013_164507` | `261012_153024` | 1–3, then 1–4 |
+| 4–6 (6 s, 0.25 s accidental, 3.5 s) | `261013_165450` | `261013_165447` | `261013_165438` | `261013_165012` | 1–4 each |
+| cold reboot, File Transfer Mode cycle | unchanged | unchanged | unchanged | unchanged | |
+
+All six takes were checked and assigned on the first post, with no refusals;
+the strict probe check passed for take 1 (later pairs had two takes between
+samples). `L6PADSETTING.ZST` held the four take paths newest first, all four
+anchors were intact, and the newest take folder held its seven stock files.
+Worker stack peaked at 2,356 bytes; free heap 152,848 bytes (the state takes
+1,888 bytes of heap).
+
+Timeline of a stop followed by an immediate new take (status polled every
+0.25 s with `tools/device/l6_padref_monitor.py`): the stock recorder stayed
+busy finalizing the take's files for about 2.8 s, during which the stock
+firmware ignores record presses (the user noticed a lockout of up to about
+5 s, reaction time included); the chain then checked the take and all four
+assignments loaded within about 0.5 s, overlapping the next take's start
+without trouble. The lockout is stock behaviour, unaffected by the chain.
+
+Findings:
+- An empty pad gets its folder's first valid file at the File Transfer Mode
+  exit rescan, so pad 4 picked up the silent anchor after staging. The chain
+  treats it as a hand-picked sound and replaces it.
+- An accidental 0.25 s start-and-stop took a chain slot.
+  [Experiment 26](../26-short-takes/README.md) leaves takes under 2 s off the
+  pads.
+
+Evidence stays in `deployment/25_take_chain/`.
 
 ## How the chain moves
 

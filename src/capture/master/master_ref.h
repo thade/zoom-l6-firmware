@@ -22,7 +22,7 @@
 #define MR_PADS 4u             /* the chain: pad 1 newest ... pad 4 oldest */
 
 /* Worker results (last_status) and handoff results. */
-enum {MR_OK=0,MR_REVOKED=1,MR_MISSING=2,MR_SPLIT=3,MR_IO=4,MR_FORMAT=5};
+enum {MR_OK=0,MR_REVOKED=1,MR_MISSING=2,MR_SPLIT=3,MR_IO=4,MR_FORMAT=5,MR_SHORT=6};
 enum {MR_HANDOFF_NONE,MR_HANDOFF_POSTED,MR_HANDOFF_ASSIGNED,MR_HANDOFF_SKIPPED,
       MR_HANDOFF_FAILED,MR_HANDOFF_LOST,MR_HANDOFF_SUPERSEDED};
 #define MR_HANDOFF_EVENT 3u            /* Main category no stock dispatcher handles */

@@ -30,7 +30,7 @@ FIELDS=('admitted stopped stock_recording open_take stop_faults stop_revoked adm
 OFF={n:4*i for i,n in enumerate(FIELDS)};STOP_PATH=4*len(FIELDS);PATH=STOP_PATH+160;POSTED=PATH+160
 NEXT=POSTED+160;ASSIGNED=NEXT+4*160
 STATE=0x23010000   # stands in for the heap allocation made at startup
-OK,REVOKED,MISSING,SPLIT,IO,FORMAT=range(6)
+OK,REVOKED,MISSING,SPLIT,IO,FORMAT,SHORT=range(7)
 NONE,H_POSTED,H_ASSIGNED,H_SKIPPED,H_FAILED,H_LOST,H_SUPERSEDED=range(7)
 MAGIC=0x4c364d52;REC_STOP=0x8004ba4d;PLAY_STOP=0x8004b91d
 TAKE_DIR=0x8060ff80;RECORDER_BUSY=0x80578ec0;PACKET=0x23001900
@@ -39,10 +39,10 @@ def take_master(n):return f'A:\\RECORDER\\261011_14{n:04d}\\MASTER.WAV'
 def config(p):return CONFIG+0x798+p*0x20a
 NOT_FOUND,EXISTS=0xffffd75a,0xffffd75b
 
-def stock_master(data_bytes,rate=48000,channels=2,tag=3,stale=False):
+def stock_master(data_bytes,rate=48000,channels=2,tag=3,stale=False,bits=32):
     """Header as stock postprocess leaves it: fmt at 12, PAD to 902, data."""
     h=bytearray(b'RIFF')+struct.pack('<I',902+data_bytes)+b'WAVEfmt '
-    h+=struct.pack('<IHHIIHH',16,tag,channels,rate,rate*channels*4,channels*4,32)
+    h+=struct.pack('<IHHIIHH',16,tag,channels,rate,rate*channels*bits//8,channels*bits//8,bits)
     h+=b'PAD '+struct.pack('<I',858)+bytes(858)+b'data'+struct.pack('<I',0 if stale else data_bytes)
     assert len(h)==910;return (910+data_bytes,bytes(h)+bytes(1024))
 
@@ -314,13 +314,19 @@ def main():
             ('mono',{MASTER:stock_master(10**6,channels=1)},{},FORMAT),
             ('stale_header',{MASTER:stock_master(10**6,stale=True)},{},FORMAT),
             ('truncated',{MASTER:(500,stock_master(10**6)[1])},{},FORMAT),
-            ('not_wav',{MASTER:(10**6,bytes(1024))},{},FORMAT)):
+            ('not_wav',{MASTER:(10**6,bytes(1024))},{},FORMAT),
+            ('under_2_s_float',{MASTER:stock_master(96000*8-8)},{},SHORT),
+            ('under_2_s_16_bit',{MASTER:stock_master(96000*4-4,tag=1,bits=16)},{},SHORT)):
         r=MasterRig(card=card);r.faults=faults;r.take();r.settle()
         assert r.field('last_status')==status and r.field('refused')==1 and not r.posts and not r.open_probes,label
         refusals[label]=status
+    # Exactly 2 s (96,000 frames) is enough, in either format.
+    for size,tag,bits in ((96000*8,3,32),(96000*4,1,16)):
+        r=MasterRig(card={MASTER:stock_master(size,tag=tag,bits=bits)});r.take();r.settle()
+        assert r.field('last_status')==OK and r.posts,bits
     r=MasterRig();r.take();r.main_receive(0,0,0x33,0);r.settle()
     assert r.field('last_status')==REVOKED and not r.probes and not r.posts
-    passed('missing_split_unreadable_wrong_format_stale_or_revoked_masters_are_refused',refusals=refusals)
+    passed('missing_split_unreadable_wrong_format_stale_short_or_revoked_masters_are_refused',refusals=refusals)
 
     # Folder text that is not a RECORDER take, or too long, is never published.
     r=MasterRig();folder='A:\\RECORDER\\'+'X'*51;assert len(folder)==63   # longest accepted

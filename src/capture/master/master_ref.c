@@ -42,6 +42,7 @@ typedef int32_t (*Open)(uint32_t*,const uint16_t*,uint32_t,uint32_t);
 #define READ ((int32_t (*)(uint32_t,void*,uint32_t,uint32_t*))0x80060621u)
 #define NOT_FOUND 0xffffd75au
 #define HEAD 1024u              /* stock masters: fmt at 12, PAD, data at 902 */
+#define MIN_FRAMES 96000u       /* 2 s at 48 kHz: shorter takes stay off the pads */
 
 KEEP MasterRef *mr_state;    /* heap; published once the worker exists */
 KEEP uint32_t mr_startup_status;
@@ -254,22 +255,26 @@ static uint32_t u32(const uint8_t *p) {return p[0]|p[1]<<8|p[2]<<16|(uint32_t)p[
 static int is(const uint8_t *p,const char *t) {return p[0]==t[0] && p[1]==t[1] && p[2]==t[2] && p[3]==t[3];}
 /* 48 kHz stereo PCM or float (the anchor's format, which the validator judges
  * for every take) whose data chunk ends exactly at the end of the file, as
- * stock postprocess writes it. A stale header fails the size match. */
-static int playable(const uint8_t *h,uint32_t got,uint32_t bytes) {
-    if(got<44 || !is(h,"RIFF") || !is(h+8,"WAVE"))return 0;
-    int format=0;
+ * stock postprocess writes it; a stale header fails the size match. A take
+ * shorter than MIN_FRAMES (an accidental start and stop) is left out. */
+static uint32_t playable(const uint8_t *h,uint32_t got,uint32_t bytes) {
+    if(got<44 || !is(h,"RIFF") || !is(h+8,"WAVE"))return MR_FORMAT;
+    uint32_t frame=0;
     for(uint32_t at=12;at+8<=got;) {
         uint32_t size=u32(h+at+4);
-        if(size>bytes)return 0;
-        if(is(h+at,"data"))return format && size && at+8+size==bytes;
+        if(size>bytes)return MR_FORMAT;
+        if(is(h+at,"data")) {
+            if(!frame || !size || at+8+size!=bytes)return MR_FORMAT;
+            return size/frame<MIN_FRAMES?MR_SHORT:MR_OK;
+        }
         if(is(h+at,"fmt ")) {
-            if(size<16 || at+24>got)return 0;
-            uint32_t tag=h[at+8]|h[at+9]<<8,channels=h[at+10]|h[at+11]<<8;
-            format=(tag==1 || tag==3) && channels==2 && u32(h+at+12)==48000;
+            if(size<16 || at+24>got)return MR_FORMAT;
+            uint32_t tag=h[at+8]|h[at+9]<<8,channels=h[at+10]|h[at+11]<<8,align=h[at+20]|h[at+21]<<8;
+            frame=(tag==1 || tag==3) && channels==2 && u32(h+at+12)==48000?align:0;
         }
         at+=8+size+(size&1);
     }
-    return 0;
+    return MR_FORMAT;
 }
 static uint32_t check(MasterRef *g) {
     __atomic_store_n(&g->file_open,1,__ATOMIC_SEQ_CST);
@@ -289,7 +294,7 @@ static uint32_t check(MasterRef *g) {
     if(!master)return MR_MISSING;
     if(second<0)return MR_IO;
     if(second)return MR_SPLIT;   /* pad 1 would play only the first part */
-    return playable(head,got,bytes)?MR_OK:MR_FORMAT;
+    return playable(head,got,bytes);
 }
 KEEP uint32_t mr_worker_step(void) {
     MasterRef *g=LD(&mr_state);if(!g)return 0;
