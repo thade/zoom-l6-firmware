@@ -50,7 +50,8 @@ leaves takes under 2 seconds off the pads; it passed on the mixer.
 a clean everyday build without the status query or stack measurement.
 [Experiment 28](../experiments/28-take-history/README.md) adds the take
 history: a `HISTORY.TXT` in each take folder listing every recording it
-includes, from the pad files that actually played during the take. The early-hang
+includes, from the pad files that actually played during the take. It passed
+on the mixer for a chain of four takes. The early-hang
 [recovery check](../experiments/18-recovery-hang/README.md) is parked.
 All hardware-trial tooling and research is now committed. The full offline
 regression passes 95 suites (1,030 groups); it now sets its own import path.

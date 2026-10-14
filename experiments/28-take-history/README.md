@@ -6,8 +6,27 @@ the chain back and collect every original stem folder. This implements the
 history design in [future work](../../docs/future-work.md#take-links-and-recording-history),
 adapted to pads that play the stock masters.
 
-**Prepared locally; not staged or installed.** A trial build with the status
-query; an everyday build follows once it works on the mixer.
+**Installed 14 October 2026; passed for a straight chain of takes.** A trial
+build with the status query; an everyday build follows.
+
+## Results
+
+Four takes, each overdubbed with pad 1 (the newest take) playing:
+
+| Take | Played | `HISTORY.TXT` lists |
+|---|---|---|
+| A `261014_112613` | nothing | nothing (`END 0`) |
+| B `261014_112637` | pad 1 = A | A |
+| C `261014_112705` | pad 1 = B | A, B |
+| D `261014_112757` | pad 1 = C | A, B, C |
+
+All four histories were written on the first attempt (`history_failed` 0, no
+`HISTORY.TMP` left), every take was assigned to the chain on the first post,
+and the pads moved along as before. Worker stack peaked at 3,188 bytes of
+8,192; free heap 130,856 bytes. Takes recorded before this firmware have no
+history file, as expected. Not yet exercised on the mixer: a branch (playing
+an older take), a hand-picked sound, and several pads in one take; the
+emulation covers them. Evidence stays in `deployment/28_take_history/`.
 
 ## The file
 
