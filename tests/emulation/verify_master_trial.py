@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Exact take-history trial image and anchor file (experiment 28).
+"""Exact stereo AUX trial image and anchor file (experiment 30): take chain,
+take history and an always-on stereo AUX pair.
 
 The installed images of experiments 24 and 25 must still rebuild byte for byte
 (26 and 27 are checked by verify_master_everyday.py).
@@ -10,7 +11,7 @@ and is decoded by the device probe. No device or card access.
 """
 import json,struct,sys
 from unicorn import UC_HOOK_CODE
-from verify_master_ref import MasterRig,MasterBoot,MASTER,H_ASSIGNED,config,take_master
+from verify_master_ref import MasterRig,MasterBoot,MASTER,H_ASSIGNED,config,take_master,N as RIG
 from verify_pad_protocol import ROOT,IMAGE,BIAS,INPUT
 import verify_health_probe as health
 from build_deployment_probe import digest
@@ -24,7 +25,7 @@ from scatter_codec import expand
 sys.path.insert(0,str(ROOT/'tools/device'))
 from l6_padref_probe import request,decode,validate_samples,validate_take
 
-IMAGE24,ANCHOR,MANIFEST,T=trial('history');TP=T['pack'];TN=TP['names'];OUT=MODES['history']['out']
+IMAGE24,ANCHOR,MANIFEST,T=trial('stereo');TP=T['pack'];TN=TP['names'];OUT=MODES['stereo']['out']
 EXPERIMENT24='cb6d34fd9d5f576469e89d440d8affad40345d62611d87a1c36e2b7705d72574'
 EXPERIMENT25='e3168b78c7d159678b7e7cc9762d5b724eaa05cd9ae740433a3ce678456e6713'
 
@@ -48,7 +49,8 @@ class TrialRig(MasterRig):
     def query(self):
         replies=[];self.m.hooks[0x80031648]=lambda a:replies.append(bytes(self.m.uc.mem_read(a[0],a[1]))) or 0
         self.m.uc.mem_write(INPUT,struct.pack('<I',8)+request(7)+bytes(16));self.m.uc.mem_write(0x80629b60,b'\x02')
-        assert self.m.invoke(TN['mr_query'],[INPUT])==1
+        # The rig runs the non-stereo trial build; the query code is the same in both.
+        assert self.m.invoke(RIG['mr_query'],[INPUT])==1
         return decode(replies[-1])
 
 def main():
@@ -59,18 +61,19 @@ def main():
     old=trial('chain')[0];assert digest(old)==EXPERIMENT25==digest((MODES['chain']['out']/'trial_take_chain/L6.BIN').read_bytes())
     passed('experiment_24_and_25_installed_images_rebuild_byte_for_byte_from_their_pinned_sources',
            experiment24=EXPERIMENT24,experiment25=EXPERIMENT25)
-    assert (OUT/'trial_take_history/L6.BIN').read_bytes()==IMAGE24 and (OUT/'anchor/MASTER.WAV').read_bytes()==ANCHOR
+    assert (OUT/'trial_stereo_aux/L6.BIN').read_bytes()==IMAGE24 and (OUT/'anchor/MASTER.WAV').read_bytes()==ANCHOR
     validate(IMAGE24);assert len(IMAGE24)==len(IMAGE) and IMAGE24[0x2851f8:]==IMAGE[0x2851f8:]
     adapters=sorted(p['adapter'] for p in MANIFEST['patches'])
-    assert len(adapters)==11 and adapters.count('mr_main_receive')==5 and not MANIFEST['DSP_patches']
-    assert {'mr_admit_hook','mr_stop_hook','mr_play_hook','health_parser','startup_init_hook','startup_idle_hook'}<=set(adapters)
+    assert len(adapters)==16 and adapters.count('mr_main_receive')==5 and not MANIFEST['DSP_patches']
+    assert {'mr_admit_hook','mr_stop_hook','mr_play_hook','sa_ramp','sa_mono_pan','sa_balance','sa_reset1','sa_reset2','health_parser',
+            'startup_init_hook','startup_idle_hook'}<=set(adapters)
     assert IMAGE24[SIZE_SITE-BIAS:SIZE_SITE-BIAS+4]==IMAGE[SIZE_SITE-BIAS:SIZE_SITE-BIAS+4]==bytes.fromhex('4af68011')
-    assert MANIFEST['experiment']==28 and MANIFEST['take_history'] and MANIFEST['minimum_take_seconds']==2 and len(MANIFEST['anchor']['card_paths'])==4 and not MANIFEST['files_created'] and MANIFEST['native_capacity_frames']==240000
+    assert MANIFEST['experiment']==30 and MANIFEST['take_history'] and MANIFEST['stereo_aux'] and MANIFEST['minimum_take_seconds']==2 and len(MANIFEST['anchor']['card_paths'])==4 and not MANIFEST['files_created'] and MANIFEST['native_capacity_frames']==240000
     # The query's bounds words read the scatter records that place the code.
     words=struct.unpack_from('<IIII',IMAGE24,0x800a6930-BIAS)[:2]+struct.unpack_from('<II',IMAGE24,0x800a6940-BIAS)
     assert (words[0],words[0]+words[1],words[2],words[2]+words[3])==tuple(
         MANIFEST[k] for k in ('code_start','code_end','globals_start','globals_end')),words
-    passed('exact_image_has_eleven_sites_and_leaves_the_DSP_code_and_ring_size_stock',
+    passed('exact_image_has_sixteen_sites_and_leaves_the_DSP_code_and_ring_size_stock',
            trial_sha256=MANIFEST['trial_sha256'],code_bytes=MANIFEST['code_bytes'],
            globals_bytes=MANIFEST['globals_bytes'],spare_bytes=MANIFEST['spare_bytes'])
 
@@ -108,6 +111,9 @@ def main():
     assert take['assigned_path']==MASTER and take['take_folder']=='261011_130947' and take['master_bytes']==20_000_910
     # Pads 1 and 2 played during the take: a take without its own history, and a sound.
     assert take['history']==dict(entries=2,pad_files_played=2)
+    # Schema 4 reads the live AUX gain rows back as floats.
+    r.m.uc.mem_write(0x20010a48+0x5e84,struct.pack('<20f',*[j/8 for j in range(20)]))
+    rows=r.query();assert rows['aux1']==[j/8 for j in range(10)] and rows['aux2']==[j/8 for j in range(10,20)]
     assert r.history(MASTER)==b'L6 HISTORY 1\nRECORDER/261011_140009\nSOUND SOUND_PAD/PAD2/GLORY_BOX.WAV\nEND 2\n'
     # Pad 2's hand-picked sound is overwritten; pad 3 already holds its take;
     # pad 4's non-take keeps its place past the end of the chain.

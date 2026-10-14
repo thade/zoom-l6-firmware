@@ -35,6 +35,16 @@ HOOK mr_play_hook,0,mr_play
  push {r4,lr}
  mov r4,r0
  JUMP 0x8001831b
+/* The stock gain-ramp request 0x80010398 as it was: its displaced prologue,
+ * then the rest of it. Called by the stereo AUX filter that replaces it. */
+.section .text.sa_ramp_original,"ax",%progbits
+.global sa_ramp_original
+.type sa_ramp_original,%function
+.thumb_func
+sa_ramp_original:
+ push {r4,lr}
+ sub sp,#16
+ JUMP 0x8001039d
 /* Startup: remember the first initialization result, then register after
  * the stock idle task exists. */
 HOOK startup_init_hook,0,startup_observe

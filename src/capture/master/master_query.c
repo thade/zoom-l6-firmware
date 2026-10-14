@@ -6,6 +6,8 @@
 #define W(a) (*(volatile const uint32_t *)(a))
 #define LD(p) __atomic_load_n((p),__ATOMIC_ACQUIRE)
 #define VALUES 36u
+#define AUX_WORDS 20u
+#define AUX_GAINS ((volatile const uint32_t *)(0x20010a48u+0x5e84u))   /* AUX1 then AUX2 rows, raw floats */
 #define PAD_WORDS 4u     /* per pad: 16 characters, four 7-bit characters per word */
 #define PATH_WORDS (MR_PADS*PAD_WORDS)
 #define CONFIG_PATH(p) ((const volatile uint16_t *)(0x80440dc8u+0x798u+(p)*0x20au))
@@ -23,6 +25,10 @@ static uint32_t stack_used(void) {
 #else
 static uint32_t stack_used(void){return 0;}
 #endif
+/* Word i of the reply: five 7-bit groups, low first. */
+static void encode(uint8_t *reply,uint32_t i,uint32_t v) {
+    for(uint32_t j=0;j<5;j++){reply[7+5*i+j]=v&127;v>>=7;}
+}
 KEEP uint32_t mr_query(const uint8_t *packet) {
     const uint8_t *p=packet+4;
     if(*(const uint32_t*)packet!=8 || p[0]!=0xf0 || p[1]!=0x52 || p[2] || p[3] ||
@@ -31,7 +37,9 @@ KEEP uint32_t mr_query(const uint8_t *packet) {
     uint32_t ipsr;__asm__ volatile("mrs %0,ipsr":"=r"(ipsr));if(ipsr)return 0;
     const MasterRef *g=LD(&mr_state);
 #define F(x) (g?(x):0)
-    uint32_t values[VALUES+PATH_WORDS]={3,0x4c4d01,mr_startup_status,F(g->task),
+    /* Words are encoded straight into the reply (Main's stack is not measured). */
+    uint8_t reply[8+5*(VALUES+AUX_WORDS+PATH_WORDS)];
+    uint32_t values[VALUES]={4,0x4c4d01,mr_startup_status,F(g->task),
         F(LD(&g->admitted)),F(LD(&g->stopped)),F(LD(&g->stock_recording)),F(g->stop_faults),
         F(LD(&g->revoked)),F(g->revoke_packet),F(LD(&g->file_open)),F(g->polls),
         F(g->checked),F(g->refused),F(g->last_status),F(g->master_bytes),
@@ -42,6 +50,8 @@ KEEP uint32_t mr_query(const uint8_t *packet) {
         W(0x80578ec0u),F(g->chain_mask),
         F(g->history_written),F(g->history_failed),F(g->history_status),F(g->history_entries),F(g->stop_played_count)};
 #undef F
+    for(uint32_t i=0;i<VALUES;i++)encode(reply,i,values[i]);
+    for(uint32_t i=0;i<AUX_WORDS;i++)encode(reply,VALUES+i,AUX_GAINS[i]);
     /* Each pad's saved path as the stock loader left it: the take folder of
      * a take master, else '#' and the file name. Non-ASCII ends a name. */
     for(uint32_t p=0;p<MR_PADS;p++) {
@@ -55,20 +65,16 @@ KEEP uint32_t mr_query(const uint8_t *packet) {
         else for(uint32_t i=0;master[i];i++)if(path[end-(sizeof(master)-1)+i]!=(uint16_t)master[i])take=0;
         if(take){start=sizeof(recorder)-1;end=start;while(end<0x104u && path[end] && path[end]!='\\')end++;}
         else for(uint32_t i=0;i<end;i++)if(path[i]=='\\')start=i+1;
-        uint32_t *out=values+VALUES+p*PAD_WORDS;
+        uint32_t out[PAD_WORDS]={0};
         for(uint32_t k=0,i=start;k<PAD_WORDS*4u;k++) {
             uint32_t c=!take && !k?'#':i<end?path[i++]:0;
             if(c>127)break;
             out[k/4u]|=c<<(7u*(k%4u));
             if(!c)break;
         }
+        for(uint32_t k=0;k<PAD_WORDS;k++)encode(reply,VALUES+AUX_WORDS+p*PAD_WORDS+k,out[k]);
     }
-    uint8_t reply[8+5*(VALUES+PATH_WORDS)];
     reply[0]=0xf0;reply[1]=0x52;reply[2]=reply[3]=0;reply[4]=0x6e;reply[5]=7;reply[6]=p[6];
-    for(uint32_t i=0;i<VALUES+PATH_WORDS;i++) {
-        uint32_t v=values[i];
-        for(uint32_t j=0;j<5;j++){reply[7+5*i+j]=v&127;v>>=7;}
-    }
     reply[sizeof(reply)-1]=0xf7;
     ((void (*)(const uint8_t*,uint32_t,uint32_t))0x80031649u)(reply,sizeof(reply),2);
     return 1;

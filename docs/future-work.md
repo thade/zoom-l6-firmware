@@ -282,12 +282,15 @@ with proposed gain settings, native pan/balance factors and separate output
 conversion/copy paths. The mode is not implemented; physical outputs and the
 intervening gain/protection processing still need validation.
 
-Proposed interpretation: AUX 1 carries left and AUX 2 carries right, with a
-linked send level and defined stereo placement. Agree whether this should be
-an independent stereo send mix or a copy of the main stereo mix before implementation.
+**Agreed for the first trial (14 October 2026):** an independent stereo send
+mix. AUX 1 carries left and AUX 2 right; each channel's AUX 1 send amount and
+pre/post choice set its level in the pair; placement follows the channel's own
+pan/balance; the pair is always stereo in this trial (a mono/stereo switch can
+follow); the six input channels only, no pads or internal effects.
 
-- [ ] Decide whether send pan follows channel pan or has a separate setting,
-      and how stereo inputs, pads and effects returns feed the pair.
+- [x] Decide whether send pan follows channel pan or has a separate setting,
+      and how stereo inputs, pads and effects returns feed the pair: follows
+      channel pan; inputs only.
 - [ ] Define linked levels, pre/post behavior and restoration of independent mono settings.
 - [x] Establish that the stock mixer can route separate left/right input samples
       into the AUX pair and preserve them through the examined output conversion/copy.

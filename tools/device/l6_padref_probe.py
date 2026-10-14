@@ -12,6 +12,7 @@ FIELDS=('schema','marker','startup_status','task','admitted','stopped','stock_re
 CHAIN_FIELDS=FIELDS+('chain_mask',)
 HISTORY_FIELDS=CHAIN_FIELDS+('history_written','history_failed','history_status','history_entries','played') # schema 3
 HISTORY_STATUS=('ok','revoked','create','write','close','rename','name','pending')
+STEREO_FIELDS=HISTORY_FIELDS+tuple(f'aux1_{j}' for j in range(10))+tuple(f'aux2_{j}' for j in range(10)) # schema 4
 PATH_WORDS=16
 STATUS=('ok','revoked','missing','split','io','format','short')
 HANDOFF_STATES=('none','posted','assigned','skipped','failed','lost','superseded')
@@ -22,7 +23,7 @@ def request(token=0):
     return bytes((0xf0,0x52,0,0,0x6f,7,token,0xf7))
 def decode(packet):
     if len(packet)<6 or packet[:6]!=bytes((0xf0,0x52,0,0,0x6e,7)):return None
-    fields={8+5*(len(f)+PATH_WORDS):f for f in (FIELDS,CHAIN_FIELDS,HISTORY_FIELDS)}.get(len(packet))
+    fields={8+5*(len(f)+PATH_WORDS):f for f in (FIELDS,CHAIN_FIELDS,HISTORY_FIELDS,STEREO_FIELDS)}.get(len(packet))
     if not fields or packet[-1]!=0xf7 or any(x>127 for x in packet[6:-1]):
         raise ValueError('invalid status reply length or encoding')
     values=[]
@@ -30,10 +31,14 @@ def decode(packet):
         v=packet[7+5*i:12+5*i]
         if v[4]>15:raise ValueError('status word exceeds 32 bits')
         values.append(sum(b<<(7*j) for j,b in enumerate(v)))
-    schema=1 if fields is FIELDS else 2 if fields is CHAIN_FIELDS else 3
+    schema=1 if fields is FIELDS else 2 if fields is CHAIN_FIELDS else 3 if fields is HISTORY_FIELDS else 4
     if values[:2]!=[schema,0x4c4d01]:raise ValueError('unsupported status schema or marker')
     text=lambda words:bytes((w>>(7*k))&127 for w in words for k in range(4)).split(b'\0')[0].decode('ascii')
     row=dict(zip(fields,values),token=packet[6])
+    if schema==4:
+        import struct
+        gains=[struct.unpack('<f',struct.pack('<I',row.pop(f'aux{b}_{j}')))[0] for b in (1,2) for j in range(10)]
+        row['aux1'],row['aux2']=gains[:10],gains[10:]
     if schema==1:row['assigned_path']=text(values[len(fields):])
     else:row['pads']=[text(values[len(fields)+4*p:len(fields)+4*p+4]) for p in range(4)]
     return row
@@ -44,7 +49,7 @@ def validate_samples(rows,manifest):
         stop_faults=0,file_open=0,checked=0,refused=0,handoff_state=0,handoff_serial=0,recorder_busy=0)
     expected.update({n:manifest[n] for n in ('code_start','code_end','globals_start','globals_end')})
     if 'pads' in rows[0]:expected.update(chain_mask=0,schema=rows[0]['schema'])
-    if rows[0]['schema']==3:expected.update(history_written=0,history_failed=0)
+    if rows[0]['schema']>=3:expected.update(history_written=0,history_failed=0)
     for row in rows:
         for n,v in expected.items():
             if row[n]!=v:raise ValueError(f'{n}: observed {row[n]}, expected {v}')
@@ -94,7 +99,7 @@ def validate_take(before,after):
         raise ValueError('worker not idle or master too short')
     if not 128<=after['stack_used']<PAINTED:raise ValueError('worker stack measurement out of range')
     history=None
-    if after['schema']==3:
+    if after['schema']>=3:
         if after['history_status']==7:
             raise ValueError('history pending: a new take started first; it is written when the recorder is idle')
         if after['history_written']!=before['history_written']+1 or after['history_failed']!=before['history_failed']:

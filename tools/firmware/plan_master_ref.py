@@ -24,6 +24,19 @@ RECORDER_SPECS=(
          replay='movw r0,#0x201',purpose='stock recorder admitted its seven streams'),
     dict(site=0x80006918,original='40f6c852',adapter='mr_stop_hook',resume=0x8000691c,
          replay='movw r2,#0xdc8',purpose='stock stop cursor setter; RecStop notes the take folder'))
+# Stereo AUX: the gain-ramp request entry (pass-through replays the prologue)
+# and the apply veneers of mono pan and stereo balance (replaced outright).
+STEREO_SPECS=(
+    dict(site=0x80010398,original='10b584b0',adapter='sa_ramp',resume=0x8001039c,
+         replay='push {r4,lr}; sub sp,#16 (in sa_ramp_original)',purpose='stereo AUX: AUX1 requests drive both sides'),
+    dict(site=0x80002ac0,original='01230af0b5bd',adapter='sa_mono_pan',resume=0x80002ac6,
+         replay='none: veneer replaced',purpose='stereo AUX: mono pan also refreshes the pair'),
+    dict(site=0x800028d8,original='032888bf',adapter='sa_balance',resume=0x800028dc,
+         replay='none: veneer replaced',purpose='stereo AUX: stereo balance also refreshes the pair'),
+    dict(site=0x80002b78,original='46f66871',adapter='sa_reset1',resume=0x80002b7c,
+         replay='none: veneer replaced',purpose='stereo AUX: Editor mixer reset 1, then the bulk recompute'),
+    dict(site=0x80002b90,original='46f66871',adapter='sa_reset2',resume=0x80002b94,
+         replay='none: veneer replaced',purpose='stereo AUX: Editor mixer reset 2, then the bulk recompute'))
 PLAY_SPEC=dict(site=0x80018316,original='10b50446',adapter='mr_play_hook',resume=0x8001831a,
                replay='push {r4,lr}; mov r4,r0',purpose='stock pad start (every trigger, on Main): take history')
 
@@ -39,6 +52,7 @@ def plan(elf_path=None,trial=False):
     if trial:patches.append(main_patch(stock,QUERY_SPEC,names['health_parser'],**at))
     patches+=[main_patch(stock,s,names[s['adapter']],**at) for s in RECORDER_SPECS]
     if 'mr_play_hook' in names:patches.append(main_patch(stock,PLAY_SPEC,names['mr_play_hook'],**at))
+    if 'sa_ramp' in names:patches+=[main_patch(stock,s,names[s['adapter']],**at) for s in STEREO_SPECS]
     patches+=[receive_patch(stock,site,old,names['mr_main_receive'],adapter='mr_main_receive',**at)
               for site,old in RECEIVERS]
     ordered=sorted(patches,key=lambda x:x['site'])
