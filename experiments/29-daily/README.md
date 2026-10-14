@@ -14,7 +14,27 @@ take `261014_112757`: the chain moved to `120212`, `112757`, `112705`,
 `112637`, and the new `HISTORY.TXT` listed `112613`, `112637`, `112705` and
 `112757` (`END 4`): the played take's own history plus its folder. The take
 folder held its seven stock files and `HISTORY.TXT`, no temp file was left,
-and all four anchors were intact. Evidence stays in `deployment/29_daily/`.
+and all four anchors were intact.
+
+### A missing take folder
+
+Pad 1's take (`261014_122711`, a throwaway) was moved off `A:\RECORDER` in
+File Transfer Mode (renamed into `A:\L6_HOLD`, nothing deleted), to look
+deleted to the mixer:
+
+- At the rescan when leaving File Transfer Mode, the stock loader could not
+  open the master and cleared pad 1 (no file assigned); pads 2–4 kept their
+  takes. Pressing pad 1 was simply silent.
+- The next take (recorded with pad 2 playing) went to pad 1; the chain
+  closed up over the empty pad, so pads 2–4 stayed `120212`, `112757`,
+  `112705`, and nothing was pushed off. Its history listed pad 2's take and
+  that take's history (`END 5`); the missing take appears nowhere.
+- Emulation of the stock reload predicts that a later rescan would give the
+  empty pad its folder's anchor (silent), which the chain also replaces.
+
+The take was then moved back to `A:\RECORDER` as an ordinary take no pad
+refers to. Deleting take folders therefore needs no special handling.
+Evidence stays in `deployment/29_daily/`.
 Recovery from an image that fails before Main remains unproven
 ([experiment 18](../18-recovery-hang/README.md) is parked).
 

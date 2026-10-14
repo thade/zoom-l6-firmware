@@ -126,3 +126,11 @@ target); writes of 512 bytes or more transfer straight from the buffer, so
 it is cleaned first. The filesystem tokens are counting semaphores without
 priority inheritance: while the priority-1 worker holds one, the priority-28
 file worker can wait, so the write is kept to a few calls.
+
+9. A missing take folder (experiment 29, on the mixer)
+Take folders can only disappear over USB, and leaving File Transfer Mode runs
+the stock reload: the reload callback finds the anchor's name, the loader then
+fails to open the missing master and clears the pad (config NO ASSIGN, pad
+unloaded; pressing it is silent). An empty pad is not a take, so the next
+chain shift closes up over it and no history can include it. A later reload
+gives the empty pad its folder's first valid file, the anchor (emulated).

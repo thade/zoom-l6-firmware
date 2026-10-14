@@ -74,9 +74,12 @@ to four times, once per completed assignment.
 Each of `A:\SOUND_PAD\PAD1`–`PAD4` needs the anchor `MASTER.WAV`: stock reload
 keeps a pad's path only while its folder lists that name. Staging adds the
 three new ones. The chain ends at the first pad without an anchor, so with
-only PAD1's it behaves as experiment 24. Carried takes are not re-checked: a
-deleted take folder keeps moving along as a dead path until it drops off. As
-in experiment 24, every pad's name shows `MASTER.WAV`.
+only PAD1's it behaves as experiment 24. A deleted take folder does not move
+along: folders can only be removed over USB, and the stock rescan when leaving
+File Transfer Mode clears a pad whose file is missing, which the chain then
+closes up over (confirmed on the mixer in
+[experiment 29](../29-daily/README.md)). As in experiment 24, every pad's name
+shows `MASTER.WAV`.
 
 The state (about 1.8 KB) now lives in one native-heap allocation made at
 startup, instead of the reused globals interval.
