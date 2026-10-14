@@ -52,7 +52,8 @@ a clean everyday build without the status query or stack measurement.
 history: a `HISTORY.TXT` in each take folder listing every recording it
 includes, from the pad files that actually played during the take. It passed
 on the mixer for a chain of four takes. [Experiment 29](../experiments/29-daily/README.md) is
-the same behaviour as a clean everyday build without diagnostics. The early-hang
+the same behaviour as a clean everyday build without diagnostics; it passed on
+the mixer and is the current image. The early-hang
 [recovery check](../experiments/18-recovery-hang/README.md) is parked.
 All hardware-trial tooling and research is now committed. The full offline
 regression passes 95 suites (1,030 groups); it now sets its own import path.

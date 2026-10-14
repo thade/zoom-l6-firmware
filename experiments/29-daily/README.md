@@ -5,7 +5,16 @@
 normal use: no status query, so no hook on the Editor's MIDI parser, and no
 worker stack measurement. Behaviour is otherwise identical.
 
-**Prepared locally; not staged or installed.** The mixer runs experiment 28.
+**Installed 14 October 2026; passed. This is the current everyday image.**
+
+## Results
+
+A take (`261014_120212`, about 17 s) recorded with pad 1 playing the previous
+take `261014_112757`: the chain moved to `120212`, `112757`, `112705`,
+`112637`, and the new `HISTORY.TXT` listed `112613`, `112637`, `112705` and
+`112757` (`END 4`): the played take's own history plus its folder. The take
+folder held its seven stock files and `HISTORY.TXT`, no temp file was left,
+and all four anchors were intact. Evidence stays in `deployment/29_daily/`.
 Recovery from an image that fails before Main remains unproven
 ([experiment 18](../18-recovery-hang/README.md) is parked).
 
