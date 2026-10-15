@@ -36,6 +36,12 @@ recorded through the interface, input at −20 dBFS, band RMS in dBFS.
 
 Evidence stays in `deployment/32_aux_switch/`.
 
+A later review found three gaps, fixed in
+[experiment 33](../33-daily-switch/README.md): a pad recording (not an
+ordinary take) did not refuse the switch; a mixer whose worker failed to start
+would stay in a stored stereo mode with no switch; and the end of the LED show
+relied on the priority-1 worker alone.
+
 ## Behaviour
 
 - **Mono** (the stock behaviour): AUX 1 and AUX 2 are two independent sends,

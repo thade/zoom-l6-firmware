@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-"""Exact everyday image (experiment 31): the experiment 30 behaviour (take
-chain, take history and stereo AUX) without diagnostics. Original reset and scatter
+"""Exact everyday image (experiment 33): the experiment 32 behaviour (take
+chain, take history and the switchable stereo AUX) without diagnostics, with
+the review fixes. Original reset and scatter
 expand it; the Editor parser, the DSP code and the ring size stay stock. Behaviour on this build is checked by
-`verify_master_ref.py everyday` (every group on the clean ELF). No device access.
+`verify_master_ref.py everyday` (every group on the clean ELF) and
+`verify_stereo_aux_hooks.py everyday`. No device access.
 """
 import json,struct
 from unicorn import UC_HOOK_CODE
@@ -16,12 +18,14 @@ from plan_capture_packing import DECOMPRESS,ZERO
 from plan_simple_capture import QUERY_SPEC
 from scatter_codec import expand
 
-DATA,ANCHOR,MANIFEST,T=trial('daily_stereo');TP=T['pack'];TN=TP['names'];OUT=MODES['daily_stereo']['out']
+DATA,ANCHOR,MANIFEST,T=trial('daily_switch');TP=T['pack'];TN=TP['names'];OUT=MODES['daily_switch']['out']
 EXPERIMENT26='268f1a76a4f8c49a4498cf8d9881201effe83484cd19845a6ed38b62e2c6edf9'
 EXPERIMENT27='5b9bb4e56abaf1d4890e92f301804834cd5f8c2dacdb7345cf55592574d12300'
 EXPERIMENT28='e22e388293f4b0ce84e09fac3fc5d9bb8db6670189fad5a1db290d0bc0944f2c'
 EXPERIMENT29='510a057e866963243018a0a9025185af6071b9d79538ce4084a01f4251474fde'
 EXPERIMENT30='5b3ad135ebd19d31aa5f1acd8c6030b6a870344536c881f881be58d6c70eeb31'
+EXPERIMENT31='c618db4e8c1dcb3f9f7130bcde30c22c48397e0b489bfa9073a2446807ff818b'
+EXPERIMENT32='8acd59d46f9274c7c2c933f28b978b03a17335036b122db2431e313e3f1c721f'
 
 def boot():
     m=health.machine(False);u=m.uc
@@ -42,9 +46,10 @@ def main():
     def passed(case,**details):cases.append(dict(case=case,**details))
 
     for mode,sha in (('minimum',EXPERIMENT26),('everyday',EXPERIMENT27),('history',EXPERIMENT28),
-                     ('daily',EXPERIMENT29),('stereo',EXPERIMENT30)):
+                     ('daily',EXPERIMENT29),('stereo',EXPERIMENT30),('daily_stereo',EXPERIMENT31),
+                     ('switch',EXPERIMENT32)):
         assert digest(trial(mode)[0])==sha==digest((MODES[mode]['out']/MODES[mode]['image']/'L6.BIN').read_bytes()),mode
-    assert (OUT/'daily_stereo/L6.BIN').read_bytes()==DATA and (OUT/'anchor/MASTER.WAV').read_bytes()==ANCHOR
+    assert (OUT/'daily_switch/L6.BIN').read_bytes()==DATA and (OUT/'anchor/MASTER.WAV').read_bytes()==ANCHOR
     validate(DATA);assert len(DATA)==len(IMAGE) and DATA[0x2851f8:]==IMAGE[0x2851f8:]
     adapters=sorted(p['adapter'] for p in MANIFEST['patches'])
     assert len(adapters)==15 and adapters.count('mr_main_receive')==5 and 'mr_play_hook' in adapters and 'health_parser' not in adapters
@@ -52,8 +57,9 @@ def main():
     q=QUERY_SPEC['site']-BIAS;assert DATA[q:q+4]==IMAGE[q:q+4]==bytes.fromhex(QUERY_SPEC['original'])
     assert DATA[SIZE_SITE-BIAS:SIZE_SITE-BIAS+4]==IMAGE[SIZE_SITE-BIAS:SIZE_SITE-BIAS+4]
     assert not any(n in TN for n in ('mr_query','health_parser','mr_stack_low'))
-    assert MANIFEST['experiment']==31 and not MANIFEST['diagnostics'] and MANIFEST['minimum_take_seconds']==2
-    assert MANIFEST['take_history'] and MANIFEST['stereo_aux']
+    assert MANIFEST['experiment']==33 and not MANIFEST['diagnostics'] and MANIFEST['minimum_take_seconds']==2
+    assert MANIFEST['take_history'] and MANIFEST['stereo_aux'] and MANIFEST['aux_switch']
+    assert {'sa_toggle','sa_restore','sa_poll'}<=set(TN)
     words=struct.unpack_from('<II',DATA,0x800a6930-BIAS)+struct.unpack_from('<II',DATA,0x800a6940-BIAS)
     assert (words[0],words[0]+words[1],words[2],words[2]+words[3])==tuple(
         MANIFEST[k] for k in ('code_start','code_end','globals_start','globals_end'))
@@ -61,7 +67,8 @@ def main():
            trial_sha256=MANIFEST['trial_sha256'],code_bytes=MANIFEST['code_bytes'],
            globals_bytes=MANIFEST['globals_bytes'],spare_bytes=MANIFEST['spare_bytes'],
            rebuilt=dict(experiment26=EXPERIMENT26,experiment27=EXPERIMENT27,experiment28=EXPERIMENT28,
-                        experiment29=EXPERIMENT29,experiment30=EXPERIMENT30))
+                        experiment29=EXPERIMENT29,experiment30=EXPERIMENT30,
+                        experiment31=EXPERIMENT31,experiment32=EXPERIMENT32))
     boot()
     passed('original_reset_and_scatter_expand_the_image_with_the_stock_DSP_code')
     result=dict(passed=True,passed_groups=len(cases),results=cases,trial_sha256=MANIFEST['trial_sha256'])

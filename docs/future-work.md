@@ -354,7 +354,8 @@ an external effect connected as a stereo pair.
       passed on the mixer). Other options researched
       ([AUX switch findings](research/aux_switch_findings.txt)): a power-on key
       combination; an NRPN pair on the Mixer Control port (configurator control
-      remains open).
+      remains open). [Experiment 33](../experiments/33-daily-switch/README.md):
+      refused during every recording, stock mono when the worker is absent.
 - [ ] Finalize scene-save behavior, send mute and restoration of independent settings.
 - [ ] Integrate paired gain updates with physical and MIDI scene recall, startup
       restoration and editor changes.

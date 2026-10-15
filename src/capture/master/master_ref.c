@@ -255,9 +255,8 @@ KEEP int32_t mr_main_receive(uint32_t *packet) {
     int32_t result=RECEIVE(packet);
     MasterRef *g=LD(&mr_state);if(!g)return result;
     if(packet[0]==MR_HANDOFF_EVENT && packet[1]==MR_HANDOFF_MAGIC)handoff(g,packet[2]);
-    if(packet[0]==MR_HANDOFF_EVENT && packet[1]==SA_TOGGLE_MAGIC && sa_toggle)
-        sa_toggle(LD(&g->stock_recording) || RECORDER_BUSY);
-    if(packet[0]==MR_HANDOFF_EVENT && packet[1]==SA_RESTORE_MAGIC && sa_restore)sa_restore();
+    if(packet[0]==MR_HANDOFF_EVENT && packet[1]==SA_TOGGLE_MAGIC && sa_toggle)sa_toggle();
+    if(sa_restore)sa_restore();   /* ends a due AUX LED show on any event */
     uint32_t storage=(packet[0]==0 && packet[2]>=0x32 && packet[2]<=0x35) ||
         (packet[0]==1 && packet[1]==0 && packet[2]<=5) ||
         (packet[0]==2 && (packet[2]==0xa2 || packet[2]==0xa3));

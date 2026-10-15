@@ -63,7 +63,10 @@ is its clean everyday build. [Experiment 32](../experiments/32-aux-switch/README
 makes it switchable: hold AUX 1 + AUX 2 for 1.5 s to toggle between the stock
 two mono sends and the stereo pair, remembered in the internal settings; it
 passed on the mixer (both directions, LED feedback, kept through a power-cycle,
-refused while recording) and is the current image. The early-hang
+refused while recording) and is the current image. [Experiment 33](../experiments/33-daily-switch/README.md)
+is its clean everyday build, with three review fixes: the switch is refused
+during pad recordings too, a mixer whose worker did not start is stock mono,
+and the LED show is ended by Main. The early-hang
 [recovery check](../experiments/18-recovery-hang/README.md) is parked.
 All hardware-trial tooling and research is now committed. The full offline
 regression passes 97 suites (1,040 groups); it now sets its own import path.

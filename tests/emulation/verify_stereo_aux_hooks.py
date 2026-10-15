@@ -31,6 +31,8 @@ f32 = lambda x: struct.unpack('<f', struct.pack('<f', x))[0]
 u2f = lambda u: struct.unpack('<f', struct.pack('<I', u & 0xffffffff))[0]
 f2u = lambda x: struct.unpack('<I', struct.pack('<f', x))[0]
 LANES_OF = {0: [0], 1: [1], 2: [2, 3], 3: [4, 5], 4: [6, 7], 5: [8, 9]}
+STATE = 0x21010000             # master-reference state (only its address matters here)
+RECORDING, RECORDER_BUSY = 0x80578ebc, 0x80578ec0
 
 
 class Probe(Rig):
@@ -45,6 +47,7 @@ class Probe(Rig):
                 assert self.raw(p['site'],len(bytes.fromhex(p['original'])))==bytes.fromhex(p['original'])
                 self.uc.mem_write(p['site'],bytes.fromhex(p['patch']))
             self.uc.mem_write(MODE,bytes([0xa5,0x5a]) if stereo else bytes(2))
+            self.uc.mem_write(NAMES['mr_state'],struct.pack('<I',STATE))   # the worker exists
         core = 0x8001039c      # after the displaced prologue: the queue send, short-circuited
         self.uc.hook_add(UC_HOOK_CODE, self.core, begin=core, end=core)
 
@@ -282,7 +285,7 @@ def switch():
     saves=[];stub(p,0x80006ab8,calls=saves)
     stub(p,0x80076950,1);stub(p,0x800763d8,1)                     # LED lock take/give
     p.uc.mem_write(0x801f9050,struct.pack('<I',30000))
-    p.run(NAMES['sa_toggle'],[0])
+    p.run(NAMES['sa_toggle'])
     assert p.raw(MODE,2)==bytes([0xa5,0x5a]) and len(saves)==1
     check_rows(p,'switched to stereo')
     assert p.raw(LED(4),2)==bytes([0x10,1]) and p.raw(LED(5),2)==bytes([0x10,1])     # both blink: stereo
@@ -291,17 +294,31 @@ def switch():
     for j in range(10):
         v=rnd.randrange(128);p.run(0x80002878,[j,2,v,1]);stock.run(0x80002878,[j,2,v,1])
     check_rows(p,'aux2 edits in stereo')
-    p.run(NAMES['sa_toggle'],[0])
+    p.run(NAMES['sa_toggle'])
     assert p.raw(MODE,2)==bytes(2) and len(saves)==2
     assert p.raw(LED(4),2)==bytes([0x10,0]) and p.raw(LED(5),2)==bytes([0x10,0])     # both steady: mono
     assert p.raw(B+0x5e34,160)==stock.raw(B+0x5e34,160)          # back to stock, AUX 2 edits included
-    # After the show, the view indication comes back as stock draws it.
-    p.uc.mem_write(0x804430d8,b'\x05');p.run(NAMES['sa_restore'])
+    # Before SHOW_TICKS the redraw does nothing; after it, the view indication
+    # comes back as stock draws it, once.
+    p.uc.mem_write(0x804430d8,b'\x05')
+    p.uc.mem_write(0x801f9050,struct.pack('<I',31999));p.run(NAMES['sa_restore'])
+    assert p.raw(LED(4),2)==bytes([0x10,0]) and p.raw(LED(5),2)==bytes([0x10,0])
+    p.uc.mem_write(0x801f9050,struct.pack('<I',32000));p.run(NAMES['sa_restore'])
     assert p.raw(LED(4),2)==bytes(2) and p.raw(LED(5),2)==bytes([0x10,0])
-    before=p.raw(B+0x5e34,160);p.run(NAMES['sa_toggle'],[1])     # recording: refused
+    p.uc.mem_write(LED(4),bytes([0x10,1]));p.run(NAMES['sa_restore'])
+    assert p.raw(LED(4),2)==bytes([0x10,1])                      # the show already ended: no redraw
+    p.uc.mem_write(LED(4),bytes(2))
+    # Refused while any recording runs or finalizes: an ordinary take or a
+    # pad recording (stock state 1), or a RecPlayCtl callback.
+    before=p.raw(B+0x5e34,160)
+    for at,value in ((RECORDING,1),(RECORDER_BUSY,1)):
+        p.uc.mem_write(at,bytes([value]));p.run(NAMES['sa_toggle']);p.uc.mem_write(at,bytes(1))
     assert p.raw(MODE,2)==bytes(2) and p.raw(B+0x5e34,160)==before and len(saves)==2
     toggles,refused=(struct.unpack('<I',p.raw(NAMES[n],4))[0] for n in ('sa_toggles','sa_refused'))
-    assert (toggles,refused)==(2,1)
+    assert (toggles,refused)==(2,2)
+    p.uc.mem_write(RECORDING,b'\x02');p.run(NAMES['sa_toggle'])   # playback (state 2) is no reason to refuse
+    assert p.raw(MODE,2)==bytes([0xa5,0x5a]) and len(saves)==3
+    p.uc.mem_write(RECORDING,b'\x00');p.run(NAMES['sa_toggle']);assert p.raw(MODE,2)==bytes(2)
     # The hold detector: both keys for 1.5 s posts once; less, one key, or a
     # longer hold do not post again; a new hold does.
     # The real key read: AUX 1/AUX 2 are bits 4/5 of the second key word.
@@ -330,23 +347,35 @@ def switch():
     hold(T+8050,T+9000);poll(T+9600,1,1)                          # a 600 ms stall: the hold restarts
     hold(T+9650,T+11050);assert len(toggles_posted())==2
     hold(T+11100,T+11150);assert len(toggles_posted())==3
-    # The LED show ends SHOW_TICKS after the toggle with a redraw request.
-    p.uc.mem_write(0x801f9050,struct.pack('<I',T+20000));posts.clear();p.run(NAMES['sa_toggle'],[0])
+    # The LED show ends SHOW_TICKS after the toggle: the worker asks Main to
+    # redraw and repeats every 250 ms until Main has done it.
+    p.uc.mem_write(0x801f9050,struct.pack('<I',T+20000));posts.clear();p.run(NAMES['sa_toggle'])
     hold(T+20050,T+21950,0,0);assert not posts
     hold(T+22000,T+22000,0,0);assert [q[:2] for q in posts]==[[3,0x4c364152]]
-    hold(T+22050,T+23000,0,0);assert len(posts)==1
+    hold(T+22050,T+22200,0,0);assert len(posts)==1
+    hold(T+22250,T+22250,0,0);assert len(posts)==2                # not redrawn yet: asked again
+    p.run(NAMES['sa_restore']);hold(T+22300,T+23000,0,0);assert len(posts)==2
+    # A toggle Main handles after the worker read the time is not yet due.
+    p.uc.mem_write(0x801f9050,struct.pack('<I',T+30000));posts.clear();p.run(NAMES['sa_toggle'])
+    poll(T+29990,0,0);assert not posts
+    assert p.raw(LED(4),2)[0]==0x10                               # still showing
     # Main's receive hook routes the posted event to the toggle, refusing it
-    # while a take records (stock_recording, word 2 of the state).
-    state,packet=0x21010000,0x21020000
-    p.uc.mem_write(state,bytes(0x6000));p.uc.mem_write(NAMES['mr_state'],struct.pack('<I',state))
+    # while a pad recording runs (the master reference ignores those takes)
+    # or RecStop finalizes.
+    packet=0x21020000
+    p.uc.mem_write(STATE,bytes(0x6000))
     stub(p,0x80020690)                                            # stock receive: packet already in place
+    # Any event ends a due show on Main, even if the worker never asks.
+    p.uc.mem_write(packet,struct.pack('<4I',2,0,0x10,0))
+    p.uc.mem_write(0x801f9050,struct.pack('<I',T+32000));p.run(NAMES['mr_main_receive'],[packet])
+    assert p.raw(LED(4),2)==bytes(2) and p.raw(LED(5),2)==bytes([0x10,0])
     p.uc.mem_write(packet,struct.pack('<4I',3,0x4c364158,0,0))
-    mode=p.raw(MODE,2)
-    p.uc.mem_write(state+8,struct.pack('<I',1));p.run(NAMES['mr_main_receive'],[packet])
-    assert p.raw(MODE,2)==mode and struct.unpack('<I',p.raw(NAMES['sa_refused'],4))[0]==2
-    p.uc.mem_write(state+8,struct.pack('<I',0));p.uc.mem_write(0x80578ec0,struct.pack('<I',1))   # RecStop finalizing
+    mode=p.raw(MODE,2);refused=struct.unpack('<I',p.raw(NAMES['sa_refused'],4))[0]
+    p.uc.mem_write(RECORDING,b'\x01');p.run(NAMES['mr_main_receive'],[packet])
+    assert p.raw(MODE,2)==mode and struct.unpack('<I',p.raw(NAMES['sa_refused'],4))[0]==refused+1
+    p.uc.mem_write(RECORDING,b'\x00');p.uc.mem_write(RECORDER_BUSY,struct.pack('<I',1))   # RecStop finalizing
     p.run(NAMES['mr_main_receive'],[packet]);assert p.raw(MODE,2)==mode
-    p.uc.mem_write(0x80578ec0,struct.pack('<I',0))
+    p.uc.mem_write(RECORDER_BUSY,struct.pack('<I',0))
     p.uc.mem_write(packet,struct.pack('<4I',3,0x4c364d52,0,0));p.run(NAMES['mr_main_receive'],[packet])
     assert p.raw(MODE,2)==mode                                    # another category-3 event: no toggle
     p.uc.mem_write(packet,struct.pack('<4I',3,0x4c364158,0,0));p.run(NAMES['mr_main_receive'],[packet])
@@ -358,6 +387,13 @@ def switch():
     q=Probe(True);stub(q,0x800763d8,1)                            # semaphore give to MacPrmSave
     q.uc.mem_write(0x804439a0+0xf25,bytes(2));q.run(0x80006ab8)
     assert q.raw(0x804439a0+0xf25,2)==bytes([0xa5,0x5a])
+    # Without the worker (startup gave up) a stored stereo mode is stock mono:
+    # the switch could not bring it back.
+    stock=Probe(False);q=Probe(True);q.uc.mem_write(NAMES['mr_state'],bytes(4))
+    for r in (stock,q):
+        for j in range(10):r.floats(C+0x70+4*j,[1.0])
+        controls(r,random.Random(33))
+    assert q.raw(MODE,2)==bytes([0xa5,0x5a]) and q.raw(B+0x5e34,160)==stock.raw(B+0x5e34,160)
     return dict(mono_rows='stock bit for bit',hold_ms=1500,arm_ms=10000,show_ms=2000,
                 saved_at='P+0xf25 (flash image)')
 
@@ -386,7 +422,7 @@ def main():
     passed('the_real_ramp_task_moves_an_aux_pair_with_matching_768_sample_ramps',**ramp_machinery())
     passed('hooks_set_aux1_to_G_times_left_and_aux2_to_G_times_right_on_every_path',**prototype())
     passed('master_rows_are_unchanged_by_the_hooks',**master_unchanged())
-    passed('mono_is_stock_and_holding_aux1_aux2_toggles_with_save_and_leds',**switch())
+    passed('mono_is_stock_and_holding_aux1_aux2_toggles_with_save_and_leds_refused_while_any_recording',**switch())
     result=dict(passed=True,groups=len(cases),results=cases,firmware_sha256=hashlib.sha256(IMAGE).hexdigest(),
         elf_sha256=PLAN['elf_sha256'],limitations=[
             'The ramp request queue send is short-circuited; the ramp task is run separately with real slots',
