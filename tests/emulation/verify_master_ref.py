@@ -652,9 +652,27 @@ def main():
     assert not chain_posts()
     for ms in range(21450,23000,50):poll(ms,1,1)
     assert len(chain_posts())==1
-    poll(23050,1,0);poll(23100,1,1)
-    for ms in range(23150,24700,50):poll(ms,1,1)
+    poll(23050,1,0);poll(23100,1,0);poll(23150,1,0)                    # a real release (3 polls)
+    for ms in range(23200,24750,50):poll(ms,1,1)
     assert len(chain_posts())==2
+    # A one-poll misread does not restart a hold nor re-arm it; a release
+    # merged into a hold after a long stall cannot shorten it (the 1.5 s
+    # restarts once both keys went unseen for over 500 ms).
+    poll(24800,0,0);poll(24850,0,0);poll(24900,0,0)
+    for ms in range(24950,25950,50):poll(ms,1,1)
+    poll(25950,1,0)
+    for ms in range(26000,26500,50):poll(ms,1,1)
+    assert len(chain_posts())==3                                       # 1.5 s after 24950, despite the misread
+    poll(26550,0,1)
+    for ms in range(26600,29000,50):poll(ms,1,1)
+    assert len(chain_posts())==3                                       # the misread re-armed nothing
+    poll(29050,0,0);poll(29100,0,0);poll(29150,0,0)
+    for ms in range(29200,30200,50):poll(ms,1,1)
+    poll(32200,0,0);poll(32250,1,1)                                    # a 2 s stall hiding a release, one poll up
+    assert len(chain_posts())==3                                       # no instant toggle on re-press
+    for ms in range(32300,33700,50):poll(ms,1,1)
+    assert len(chain_posts())==3
+    poll(33750,1,1);assert len(chain_posts())==4                       # 1.5 s after the re-press
     passed('the_chain_switch_keeps_takes_off_the_pads_while_off_and_persists_in_the_settings')
 
     # Original reload, assignment and settings code: with the anchor the

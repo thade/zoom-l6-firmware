@@ -2,15 +2,16 @@
 
 ## Status
 
-**0.1.0** is the experiment 35 image: the take chain on pads 1–4 with a
+**0.1.0** is the experiment 36 image: the take chain on pads 1–4 with a
 PAN + LEVEL on/off switch (off until switched on), a `HISTORY.TXT` in every
 take folder, and the stereo AUX send with the AUX 1 + AUX 2 mono/stereo
 switch, on Zoom's v1.10. Its features have run on
 one mixer daily since experiments 24–33 (12–15 October 2026); the release
 review build passed on 16 October
-([experiment 34](../experiments/34-release/README.md)), and the release with
-the chain switch passed the same day
-([experiment 35](../experiments/35-release/README.md)). Recovery from an image that hangs before startup completes
+([experiment 34](../experiments/34-release/README.md)), the chain switch
+passed the same day ([experiment 35](../experiments/35-release/README.md)),
+and [experiment 36](../experiments/36-release/README.md) makes both holds
+tolerate a misread key. Recovery from an image that hangs before startup completes
 remains unproven ([experiment 18](../experiments/18-recovery-hang/README.md)
 is parked).
 
@@ -32,8 +33,8 @@ Open work: [future work](future-work.md). The detailed log up to 0.1.0 is in
    `MASTER.WAV` in place instead, which needs no capture at all; then the
    four-pad chain, the 2-second minimum and `HISTORY.TXT`.
 5. **Stereo AUX (30–33, 15 Oct)**: the stereo send, its mono/stereo switch and
-   the everyday build. **34** carries the release review fixes and **35**,
-   0.1.0, adds the chain on/off switch.
+   the everyday build. **34** carries the release review fixes, **35** adds
+   the chain on/off switch and **36**, 0.1.0, hardens the switch holds.
 
 ## Experiments
 
@@ -75,7 +76,8 @@ Open work: [future work](future-work.md). The detailed log up to 0.1.0 is in
 | 32 | [AUX mono/stereo switch](../experiments/32-aux-switch/README.md) | Installed; passed |
 | 33 | [Everyday build of 32](../experiments/33-daily-switch/README.md) | Installed; superseded by 34 |
 | 34 | [Release review build](../experiments/34-release/README.md) | Installed 16 Oct; passed |
-| 35 | [Release 0.1.0: chain switch](../experiments/35-release/README.md) | Installed 16 Oct; passed |
+| 35 | [Chain on/off switch](../experiments/35-release/README.md) | Installed 16 Oct; passed |
+| 36 | [Release 0.1.0: tolerant holds](../experiments/36-release/README.md) | See its README |
 
 ## Checks
 

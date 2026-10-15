@@ -95,8 +95,10 @@ Details: [stereo AUX findings](research/stereo_aux_findings.txt),
 
 `panel.c` serves both holds. The worker reads the live key state
 (`0x80008478`): PAN + LEVEL (keys 19, 20) or AUX 1 + AUX 2 (16, 17) held for
-1.5 s posts one event to Main, armed 10 s after power-on, restarted after a
-polling gap. Main refuses either while any recording or RecStop runs;
+1.5 s posts one event to Main, armed 10 s after power-on. A release ends a
+hold only when seen on three polls running, so a one-off misread neither
+restarts the 1.5 s nor allows a second toggle; a hold restarts if both keys
+went unseen for over 500 ms (a stall may hide a release). Main refuses either while any recording or RecStop runs;
 otherwise it flips the mode bytes, requests the stock settings save and lights
 the pair's select LEDs for 2 s (blink = on or stereo, steady = off or mono),
 then redraws all nine select LEDs from the current view, as a view press does.

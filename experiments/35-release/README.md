@@ -1,10 +1,12 @@
-# Release 0.1.0: the take chain gets an on/off switch
+# Chain switch: the take chain gets an on/off switch
 
 [Experiment 34](../34-release/README.md) plus a panel switch for the take
 chain: hold **PAN** + **LEVEL** for 1.5 s to turn it on or off. Everyday
-build: no status query and no stack measurement. This is release 0.1.0.
+build: no status query and no stack measurement.
 
-**Installed 16 October 2026; passed. This is release 0.1.0.** Recovery from
+**Installed 16 October 2026; passed.** Superseded by
+[experiment 36](../36-release/README.md), the 0.1.0 release, which makes the
+holds tolerate a misread key. Recovery from
 an image that fails before Main remains unproven
 ([experiment 18](../18-recovery-hang/README.md) is parked).
 
@@ -33,10 +35,10 @@ taken after the MASTER knob and played back through it again (manual,
 signal flow), so overdub with MASTER and SOUND PAD at their unity marks.
 Evidence stays in `deployment/35_release/`.
 
-| | Experiment 34 | 0.1.0 (experiment 35) |
+| | Experiment 34 | Experiment 35 |
 |---|---|---|
 | Patch sites | 15 | 15 |
-| Code | 8,820 bytes | 9,116 bytes |
+| Code | 8,820 bytes | 9,144 bytes |
 | Image SHA256 | `47d9f90d…` | `824e37c69c2086b4c4464b14ab5b698c32d154352b0aa1537095fd6cb5134932` |
 
 ## Behaviour
@@ -75,8 +77,8 @@ first pad without one).
 
 ## Build and checks
 
-- `tools/firmware/build_release.py` writes `release/0.1.0/`;
-  `tools/firmware/verify_release.py` checks it from a fresh clone:
+- Rebuilt by `tools/firmware/build_master_trial.py chain_switch` (pinned to
+  e258bd6). Its checks at the time, through `tools/firmware/verify_release.py`:
   `verify_master_everyday.py` (exact image; experiments 26–34 rebuilt),
   `verify_master_ref_everyday.py` (26 groups on the release link, including
   the chain switch: off keeps takes off the pads with histories written, a

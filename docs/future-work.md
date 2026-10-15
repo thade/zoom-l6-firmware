@@ -14,12 +14,12 @@ hardware result. An emulator result does not complete a hardware item.
       dropping one when the history of the first is still being written.
 - [ ] Measure the hooks' stack use on the stock recorder and Main tasks (only
       the worker's has been measured).
-- [ ] The PAN + LEVEL hold felt unreliable at first on the mixer (not
-      reproduced later). If it returns: a single poll that misreads one
-      button ends the hold, so the 1.5 s restarts, and a misread late in a
-      long hold could toggle twice. Fix by ignoring a one-poll release and
-      allowing one toggle per press until both buttons are released; a
-      diagnostic build could count restarts and toggles to confirm.
+- [x] The PAN + LEVEL hold felt unreliable at first on the mixer (not
+      reproduced later). Emulation showed a one-poll misread restarts a hold
+      and can toggle twice; experiment 36 ignores releases shorter than three
+      polls and allows one toggle per hold.
+- [ ] Whether the panel controller ever reports a brief release mid-hold is
+      unknown (it runs its own firmware); a diagnostic build could count it.
 - [ ] Recovery from an image that hangs before startup completes
       ([experiment 18](../experiments/18-recovery-hang/README.md), parked).
 

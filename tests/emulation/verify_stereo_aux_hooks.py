@@ -342,11 +342,14 @@ def switch():
     assert not toggles_posted()
     hold(T+3550,T+3600);assert len(toggles_posted())==1           # 1.5 s: toggles once
     hold(T+3650,T+6000);assert len(toggles_posted())==1           # holding on: nothing more
-    hold(T+6050,T+6050,0,1);hold(T+6100,T+7700);assert len(toggles_posted())==2   # released, held again
-    hold(T+8000,T+8000,0,0)
+    hold(T+6050,T+6150,0,1);hold(T+6200,T+7800);assert len(toggles_posted())==2   # released, held again
+    hold(T+7850,T+7950,0,0)
     hold(T+8050,T+9000);poll(T+9600,1,1)                          # a 600 ms stall: the hold restarts
     hold(T+9650,T+11050);assert len(toggles_posted())==2
     hold(T+11100,T+11150);assert len(toggles_posted())==3
+    hold(T+11200,T+11300,0,0);hold(T+11350,T+12000);poll(T+12050,0,1);poll(T+12500,1,1)   # a misread, a 450 ms stall
+    hold(T+12550,T+12800);assert len(toggles_posted())==3;hold(T+12850,T+12850);assert len(toggles_posted())==4
+    poll(T+12900,1,0);hold(T+12950,T+15000);assert len(toggles_posted())==4                   # a misread re-arms nothing
     # The LED show ends SHOW_TICKS after the toggle: the worker asks Main to
     # redraw and repeats every 250 ms until Main has done it.
     p.uc.mem_write(0x801f9050,struct.pack('<I',T+20000));posts.clear();p.run(NAMES['sa_toggle'])

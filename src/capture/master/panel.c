@@ -12,7 +12,9 @@
 #define TICKS (*(volatile uint32_t *)0x801f9050u)        /* 1 ms */
 #define HOLD_TICKS 1500u
 #define ARM_TICKS 10000u      /* no switching in the first 10 s: Main may not be in its normal loop */
-#define GAP_TICKS 100u        /* a longer gap between polls restarts a hold */
+#define GAP_TICKS 500u        /* both keys unseen for longer restarts a hold (a stall may hide a release) */
+#define RELEASE_POLLS 3u      /* a release ends a hold once seen this many polls running (50-75 ms at
+                                 25 ms polls, 20-30 ms at 10 ms): a one-off misread does not */
 #define SHOW_TICKS 2000u      /* how long the LEDs show the new state */
 #define RETRY_TICKS 250u      /* the worker repeats its redraw request until Main has done it */
 #define POST ((void (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t))0x80020ca1u)
@@ -33,9 +35,9 @@
 typedef struct {uint8_t a,b;uint32_t magic;} Pair;
 static const Pair PAIRS[]={{16,17,SA_TOGGLE_MAGIC},{19,20,MR_CHAIN_MAGIC}};   /* AUX1+AUX2, PAN+LEVEL */
 #define HOLDS (sizeof(PAIRS)/sizeof(PAIRS[0]))
-typedef struct {uint32_t held_since,holding,fired;} Hold;
+typedef struct {uint32_t held_since,seen,holding,fired,up;} Hold;
 static Hold holds[HOLDS];
-static uint32_t last_poll,restore_posted;
+static uint32_t restore_posted;
 static volatile uint32_t showing,shown_at;   /* set by Main (show), cleared by Main (redraw) */
 
 /* The LED show has lasted SHOW_TICKS. Signed: a show Main started after the
@@ -45,13 +47,19 @@ static int due(uint32_t now) {return showing && (int32_t)(now-shown_at)>=(int32_
 /* Worker: each hold that lasts HOLD_TICKS posts its event to Main, once per
  * hold; a due show is asked to end. */
 KEEP void panel_poll(void) {
-    uint32_t now=TICKS,gap=now-last_poll;
-    last_poll=now;
+    uint32_t now=TICKS;
     if(due(now) && now-restore_posted>=RETRY_TICKS){restore_posted=now;POST(MR_HANDOFF_EVENT,PANEL_RESTORE_MAGIC,0,0,0);}
     for(uint32_t i=0;i<HOLDS;i++) {
         Hold *h=&holds[i];const Pair *k=&PAIRS[i];
-        if(now<ARM_TICKS || KEY(k->a)!=1 || KEY(k->b)!=1){h->holding=h->fired=0;continue;}
-        if(!h->holding || gap>GAP_TICKS){h->holding=1;h->held_since=now;continue;}   /* a stalled poll may hide a release */
+        if(now<ARM_TICKS || KEY(k->a)!=1 || KEY(k->b)!=1) {
+            /* A one-off misread does not end a hold; a real release (and only
+             * that) allows the next toggle. */
+            if(h->holding && now>=ARM_TICKS && ++h->up<RELEASE_POLLS)continue;
+            h->holding=h->fired=h->up=0;continue;
+        }
+        h->up=0;
+        uint32_t unseen=now-h->seen;h->seen=now;
+        if(!h->holding || unseen>GAP_TICKS){h->holding=1;h->held_since=now;continue;}   /* unseen for long: may hide a release */
         if(!h->fired && now-h->held_since>=HOLD_TICKS){h->fired=1;POST(MR_HANDOFF_EVENT,k->magic,0,0,0);}
     }
 }

@@ -62,7 +62,7 @@ Both write `release/0.1.0/`: `L6.BIN`, `MASTER.WAV`, `SHA256SUMS` and
 yours differs from the published hashes:
 
 ```text
-824e37c69c2086b4c4464b14ab5b698c32d154352b0aa1537095fd6cb5134932  L6.BIN
+c796f4e6bd0f2b5f3d11b2594cdc882a40765af43e3d0b0b41eb4c2f6d08d5af  L6.BIN
 58a0bc492b292ac5a0b95889a58fa354c27bf394562b6dbde64d517b6acba791  MASTER.WAV
 ``` Then [install](../README.md#install).
 

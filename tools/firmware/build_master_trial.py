@@ -17,7 +17,8 @@ daily_stereo (31) 30 without diagnostics
 switch       (32) 30 with the mono/stereo switch (hold AUX 1 + AUX 2 for 1.5 s)
 daily_switch (33) 32 without diagnostics, with the switch review fixes
 review       (34) 33 plus the release review fixes
-release      (35) version 0.1.0: 34 plus the PAN + LEVEL chain switch (default)
+chain_switch (35) 34 plus the PAN + LEVEL chain on/off switch
+release      (36) version 0.1.0: 35 with misread-tolerant switch holds (default)
 
 Writes the trial image and the anchor file: a short silent 48 kHz stereo
 32-bit float WAV with the same 512-byte header layout as the extra files the
@@ -62,13 +63,15 @@ MODES=dict(
                       history=True,stereo=True,switch=True,sha='36f2025bb62ad9d655e02f24769fcbede910cb53a26e87782cabfa9157e04ab9'),
     review=dict(experiment=34,out=ROOT/D/'34_release_review',image='review',pin='1c3e4bf',pads=4,trial=False,minimum=True,
                 history=True,stereo=True,switch=True,sha='47d9f90d8fab846a3a28f51a28ff22332435c6d7ad7058fb2ea585d8be8a3e59'),
-    # Release 0.1.0: experiment 34 plus the PAN + LEVEL chain switch, installed
-    # 16 October 2026. Built from the current sources (so a ZIP download builds
-    # it too) and held to its published hash; pin it to the v0.1.0 tag when
-    # these sources change.
-    release=dict(experiment=35,out=ROOT/D/'35_release',image='release',pads=4,trial=False,minimum=True,
-                 history=True,stereo=True,switch=True,chain_switch=True,version='0.1.0',
-                 sha='824e37c69c2086b4c4464b14ab5b698c32d154352b0aa1537095fd6cb5134932'))
+    chain_switch=dict(experiment=35,out=ROOT/D/'35_release',image='release',pin='e258bd6',pads=4,trial=False,minimum=True,
+                      history=True,stereo=True,switch=True,chain_switch=True,
+                      sha='824e37c69c2086b4c4464b14ab5b698c32d154352b0aa1537095fd6cb5134932'),
+    # Release 0.1.0: experiment 35 with misread-tolerant switch holds. Built from
+    # the current sources (so a ZIP download builds it too); once installed it is
+    # held to its published hash, and pinned to the v0.1.0 tag when these
+    # sources change.
+    release=dict(experiment=36,out=ROOT/D/'36_release',image='release',pads=4,trial=False,minimum=True,
+                 history=True,stereo=True,switch=True,chain_switch=True,version='0.1.0'))
 
 @contextlib.contextmanager
 def trial_elf(m):
