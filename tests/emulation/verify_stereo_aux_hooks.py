@@ -17,7 +17,10 @@ from verify_pad_protocol import ROOT,IMAGE
 from build_master_ref import build
 from plan_master_ref import plan,STEREO_SPECS
 
-ELF=build(trial=True,stereo=True);PLAN=plan(ELF,trial=True);PACK=PLAN['pack']
+import sys
+# 'everyday' runs the same groups on the clean (no query) stereo build.
+EVERYDAY=__name__=='__main__' and sys.argv[1:]==['everyday']
+ELF=build(trial=not EVERYDAY,stereo=True);PLAN=plan(ELF,trial=not EVERYDAY);PACK=PLAN['pack']
 SA={p['adapter']:p for p in PLAN['patches'] if p['adapter'].startswith('sa_')}
 AUX1, AUX2 = B + 0x5e84, B + 0x5eac
 ST = lambda row, j: B + 0x5ed4 + 0x78*row + 12*j
@@ -278,6 +281,7 @@ def main():
             'The ramp request queue send is short-circuited; the ramp task is run separately with real slots',
             'MIDI/Editor parameter routing, MONO x2 and USB input selection are not executed',
             'The per-bus AUX limiters and the physical jacks are not exercised'])
-    (ROOT/'analysis/stereo_aux_hooks_verification.json').write_text(json.dumps(result,indent=2,default=str)+'\n')
+    result['build']='everyday' if EVERYDAY else 'trial'
+    (ROOT/('analysis/stereo_aux_hooks_everyday_verification.json' if EVERYDAY else 'analysis/stereo_aux_hooks_verification.json')).write_text(json.dumps(result,indent=2,default=str)+'\n')
     print(json.dumps(dict(passed=True,groups=len(cases))))
 if __name__=='__main__':main()

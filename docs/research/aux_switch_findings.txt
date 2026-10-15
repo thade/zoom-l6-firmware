@@ -1,0 +1,66 @@
+AUX mono/stereo switch: options (stock L6 v1.10, 15 October 2026)
+=================================================================
+
+Research for switching the stereo AUX pair (experiments 30-31) back to two
+independent mono sends and back. Static reading plus emulation of original
+instructions; nothing here is hardware evidence. Scratch work:
+scratchpad/aux-switch/ (not in the repository).
+
+1. Switching mechanics (emulated)
+A mode flag read by the stereo filter (pass everything through when mono),
+then the stock bulk recompute 0x8000c648(1), which re-issues every gain as
+16 ms ramps (67 requests, 20 on the AUX rows); the master rows stay
+byte-identical. Mono restores AUX 2 from its own stored settings, including
+AUX 2 edits made while stereo. Flipping the flag without the recompute leaves
+the old gains. The recompute calls the ramp request 0x80010398 (mutex
+[0x80446874], queue [0x801f8f20]), so it runs in task context; scene recall
+already does it on Main (0x8003c0b0, recompute at 0x8003cdc0). Refuse while
+recording.
+
+2. Persistence
+Internal NOR flash ("MacPrm"): RAM image 0x804439a0 (0x17c4 bytes: five
+0x306-byte mixer structs, scenes A-C, current, defaults; then a 0x488-byte
+global block); live copy CONFIG 0x80440dc8 (globals at CONFIG+0x308..0x78f).
+Two 8 KiB ping-pong blocks at flash 0x3fb000/0x3fd000, counter 1..3, no
+checksum. Save on task "MacPrmSave" (0x8002c058): erase, program data,
+program counter last, erase old; power-cut emulated after every step: old
+data survives until the counter is written. Saves: every 10 s if the global
+block changed (timer slot 14 -> Main event 0x18 -> 0x8002d71c), graceful
+power-off, record start, scene save, factory reset. Request: 0x80006ab8.
+Spare: global bytes CONFIG+0x30d..0x31c (16) and CONFIG+0x36f, never
+initialised, validated or read, not copied by scenes, copied raw on save and
+load; emulated a byte there surviving a reboot. Factory reset leaves it.
+Per-channel AUX bytes have no spare values (pre/post >= 2 is forced to 1).
+ZOOM_L6.SYS is rewritten on every take (it holds the recording-in-progress
+path) and is unsuitable; L6PADSETTING.ZST has 1 KiB reserved but depends on
+the card and is written in place.
+
+3. Power-on keys (emulated)
+Key index API 0x80008478; boot-mode chooser 0x800086b0 (Main init,
+0x8001b278) builds a key mask and accepts only exact stock combinations
+(HIGH+FREQ setting mode, REC format, A factory reset, A+B+C test mode when
+enabled, and an undocumented USB1/2 + pad 1-3 USB profile choice). Every
+other combination, including AUX1, AUX2 and AUX1+AUX2, boots normally. Hook
+site 0x8000870c runs once on the plain normal-boot path with the mask in
+r4/r5 (AUX1+AUX2 = 0x30000).
+
+4. Runtime keys
+Panel MCU messages parsed on SubMcuRX (0x800393d0) post {0, press/release,
+key} to Main (dispatcher 0x8002c9d8). AUX1/AUX2 (keys 16/17) select views in
+0x8003dd00 (held byte 0x804430d9); AUX + MUTE mutes that send. AUX1 held +
+AUX2 pressed just switches to the AUX2 view; there is no long-press timer for
+AUX, so a 1.5 s two-button hold timed on Main (tick 0x80077690) is free.
+LEDs: table 0x8062939c (2 bytes per LED; AUX1/AUX2 at 0x806293b4/b6). Voice
+guidance initialises only in setting mode.
+
+5. MIDI
+Mixer Control port: assembler 0x8002d858 passes note/CC/program change to
+dispatcher 0x8002f490 (configured channel only). CC 0, 32, 96-101 and
+120-127 can never be mapped (the Editor's mapping writer forces them off).
+An NRPN-select pair CC 99 = 0x4C then CC 98 = 0/1/0x7F (mono/stereo/query)
+is consumable with no stock effect; post a private event above 0xA4 to Main
+(dispatcher 0x8002c510) to switch; reply on route 1 (0x80031648(buf,3,1)).
+Editor port SysEx reaches the parser only with manufacturer 0x52; unknown
+commands are ignored in every session state, so a minimal F0 52 command is
+also possible at the trial hook site 0x800301f0. The Editor's AUX pre/post
+message cannot carry a switch without changing stock meaning.

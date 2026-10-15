@@ -349,6 +349,9 @@ recommended default: recalling a mono scene could send two unrelated mixes to
 an external effect connected as a stereo pair.
 
 - [ ] Finalize global-mode persistence across reboot and its device/configurator control.
+      Options researched ([AUX switch findings](research/aux_switch_findings.txt)):
+      a spare byte in the internal settings flash; a power-on or held AUX1+AUX2
+      key combination; an NRPN pair on the Mixer Control port.
 - [ ] Finalize scene-save behavior, send mute and restoration of independent settings.
 - [ ] Integrate paired gain updates with physical and MIDI scene recall, startup
       restoration and editor changes.
