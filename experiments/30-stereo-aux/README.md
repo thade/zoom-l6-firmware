@@ -6,8 +6,44 @@ plus an always-on stereo AUX pair, as agreed in
 independent stereo send mix on the two AUX jacks, for a stereo external effect
 or a separate stereo monitor mix.
 
-**Prepared locally; not staged or installed.** A trial build with the status
-query. The mixer runs experiment 29.
+**Installed 15 October 2026; passed on the jacks.** A trial build with the
+status query.
+
+## Results
+
+Test setup: the computer played test signals into the L6 over USB, which
+reaches input 5 (a stereo channel; AUX 1, AUX 2 and level at their unity
+marks, a combined send gain of 0.342), while a two-input interface (an
+Elektron Syntakt) recorded AUX 1 and AUX 2
+(`tools/device/l6_aux_tone_test.py`: left 1 kHz, right 1.5 kHz, or 1 kHz on
+both). Tone levels are band RMS in dBFS at the interface, input at −20 dBFS.
+
+| Condition | AUX 1 | AUX 2 | Status gains (lanes 6/7) |
+|---|---|---|---|
+| Stock (experiment 29), stereo tones | both tones (mono sum) | both tones, equal | |
+| Balance centre, stereo tones | 1 kHz −30.4 | 1.5 kHz −30.1 | AUX1 0.342/0, AUX2 0/0.342 |
+| Balance centre, 1 kHz on both | −30.6 | −30.6 (0 delay, correlation 1.0) | |
+| Balance fully left | 1 kHz −30.3 | silent (−120) | AUX2 0/0 |
+| Balance fully right | silent (−122) | 1.5 kHz −30.0 | AUX1 0/0 |
+| AUX 2 send fully down | −30.4 | −30.1 | unchanged |
+| After a cold reboot | −30.3 | −30.0 | unchanged |
+
+- Left and right reach their own jacks with the stock path's gain; the jacks
+  match within 0.3 dB with no delay between them; output is linear (20 dB less
+  input gave 20 dB less output).
+- With the firmware's cross gains exactly zero, the other side still appears
+  36–52 dB down, varying between runs: electrical crosstalk in the outputs,
+  cables or interface. A by-product of the 1 kHz tone near 1.5 kHz, present
+  on both jacks even in the mono test, comes from the USB playback path.
+- Balance on a stereo channel turns the opposite side down (it does not move
+  it across), exactly as in the main mix.
+- With input 5's send and level at maximum the path gain is about +29 dB and
+  test signals above about −45 dBFS drove the AUX outputs into their stock
+  limiters; at the unity marks nothing limited.
+- Not exercised on the jacks: a mono channel's pan (no USB route to the mono
+  inputs here; covered by emulation), scene recall and Editor changes.
+
+Evidence stays in `deployment/30_stereo_aux/`.
 
 ## Behaviour
 

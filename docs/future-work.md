@@ -297,8 +297,9 @@ follow); the six input channels only, no pads or internal effects.
 - [ ] Implement a coefficient adapter covering control changes, scenes, startup,
       MIDI/editor updates and synchronized gain ramps. Linking knob values alone
       still produces mono sums.
-- [ ] Validate full output gain/protection processing, DMA/codec routing and the
-      two physical jacks, including stereo delay and gain matching.
+- [x] Validate the two physical jacks, including stereo delay and gain matching:
+      [experiment 30](../experiments/30-stereo-aux/README.md) measured separate
+      left/right on AUX 1/2, matched within 0.3 dB with no delay.
 - [ ] Measure code space, processing cost and interaction with recording and effects.
 - [ ] If feasible, prototype behind an optional mode and verify left/right isolation,
       gain, clipping, timing and unchanged mono behavior when disabled.

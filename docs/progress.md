@@ -56,8 +56,9 @@ the same behaviour as a clean everyday build without diagnostics; it passed on
 the mixer and is the current image.
 [Experiment 30](../experiments/30-stereo-aux/README.md) adds an always-on
 stereo AUX send (AUX 1 left, AUX 2 right) as an independent stereo send mix
-that follows channel pan; it is prepared, with a measurement tool for a
-two-input interface. The early-hang
+that follows channel pan. It passed on the jacks: left and right on their own
+AUX outputs, matched within 0.3 dB with no delay, following balance, ignoring
+the AUX 2 knob, and surviving a reboot. The early-hang
 [recovery check](../experiments/18-recovery-hang/README.md) is parked.
 All hardware-trial tooling and research is now committed. The full offline
 regression passes 96 suites (1,034 groups); it now sets its own import path.
