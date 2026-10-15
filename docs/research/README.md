@@ -14,6 +14,7 @@ Read these to understand the release ([architecture](../architecture.md)):
 | [master_reference_findings.txt](master_reference_findings.txt) | The take chain: playing the stock master in place, the anchor rule, the take check, the handoff, the history |
 | [stereo_aux_findings.txt](stereo_aux_findings.txt) | The AUX gain rows, pan factors and gain-ramp path the stereo send uses (written as a feasibility study; built in experiments 30–34) |
 | [aux_switch_findings.txt](aux_switch_findings.txt) | The mode bytes, settings flash, keys, LEDs and MIDI options for the switch |
+| [panel_keys_findings.txt](panel_keys_findings.txt) | Every panel key and LED index, which two-button holds are free, the chain switch's storage |
 | [capture_source_reuse_findings.txt](capture_source_reuse_findings.txt) | The image layout: code placed in the consumed DSP source span |
 | [startup_sites_findings.txt](startup_sites_findings.txt) | The two startup hook sites |
 | [pad_dispatch_findings.txt](pad_dispatch_findings.txt) | Main's event receive, which the five receive hooks wrap |

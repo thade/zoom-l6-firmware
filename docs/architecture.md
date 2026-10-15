@@ -1,6 +1,6 @@
 # Architecture (0.1.0)
 
-The release adds about 8.8 KB of code to Zoom's v1.10 firmware and patches 15
+The release adds about 9.1 KB of code to Zoom's v1.10 firmware and patches 15
 stock instruction sites. It records nothing and copies no audio: the pads play
 the stock recorder's own `MASTER.WAV` files in place. The DSP code, the
 recorder, the SD driver and every recording file stay stock. Source:
@@ -29,11 +29,14 @@ Built by `tools/firmware/build_release.py` from the stock `L6.BIN`:
 | Startup | `0x80067a84`, `0x800745e8` | Notes the first initialisation result; after the idle task exists, allocates the state and creates the worker (priority 1, 8 KiB stack), then publishes the state |
 | Recorder (RecPlayCtl) | Stream admission `0x8000b158`; stop cursor setter `0x80006918` (RecStop's call only) | Marks an ordinary take (all seven streams, no pad record target); at RecStop notes the take folder (`0x8060ff80`) and the pad files that played |
 | Main | Pad start `0x80018316` | Notes each pad file started during a take (its saved path) |
-| Main | The five stock receive calls (`0x8002c258`...`0x8002c440`) | Assigns the chain; counts storage changes (card and transfer-mode events); toggles the AUX mode |
-| Worker | Its own loop (every 25 ms) | Waits for the recorder, checks the master, writes `HISTORY.TXT`, polls the AUX switch |
+| Main | The five stock receive calls (`0x8002c258`...`0x8002c440`) | Assigns the chain; counts storage changes (card and transfer-mode events); toggles the chain and AUX modes |
+| Worker | Its own loop (every 25 ms) | Waits for the recorder, checks the master, writes `HISTORY.TXT`, polls the PAN + LEVEL and AUX 1 + AUX 2 holds |
 | Gain requests (any task) | Ramp request `0x80010398`; pan, balance and Editor reset veneers `0x80002ac0`, `0x800028d8`, `0x80002b78`, `0x80002b90` | The stereo AUX filter |
 
 ## Take chain
+
+The chain runs only while it is switched on (below); off, takes are checked
+and get their history but are not posted to the pads.
 
 1. After RecStop the worker waits until the stock recorder is idle (not
    recording, playing or finalizing), then opens the master read-only: it must
@@ -87,6 +90,22 @@ Details: [stereo AUX findings](research/stereo_aux_findings.txt),
 [AUX switch findings](research/aux_switch_findings.txt), experiments
 [30](../experiments/30-stereo-aux/README.md) and
 [32](../experiments/32-aux-switch/README.md)–[34](../experiments/34-release/README.md).
+
+## The panel switches
+
+`panel.c` serves both holds. The worker reads the live key state
+(`0x80008478`): PAN + LEVEL (keys 19, 20) or AUX 1 + AUX 2 (16, 17) held for
+1.5 s posts one event to Main, armed 10 s after power-on, restarted after a
+polling gap. Main refuses either while any recording or RecStop runs;
+otherwise it flips the mode bytes, requests the stock settings save and lights
+the pair's select LEDs for 2 s (blink = on or stereo, steady = off or mono),
+then redraws all nine select LEDs from the current view, as a view press does.
+View buttons have no stock long press or combination, and their presses save
+nothing ([panel keys findings](research/panel_keys_findings.txt)).
+
+- **Chain mode**: `CONFIG+0x30f/0x310`, `C3 3C` = on, anything else (a mixer
+  that never switched) off.
+- **AUX mode**: `CONFIG+0x30d/0x30e` (below).
 
 ## Verification
 

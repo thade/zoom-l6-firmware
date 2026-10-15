@@ -1,9 +1,11 @@
-# Release 0.1.0: take chain, take history and the AUX mono/stereo switch
+# Release review build: take chain, take history and the AUX mono/stereo switch
 
 [Experiment 33](../33-daily-switch/README.md) plus the fixes from the 0.1.0
 release review. Everyday build: no status query and no stack measurement.
 
-**Installed 16 October 2026; passed. This is release 0.1.0.** Recovery from
+**Installed 16 October 2026; passed.** Superseded by
+[experiment 35](../35-release/README.md), the 0.1.0 release, which adds an
+on/off switch for the take chain. Recovery from
 an image that fails before Main remains unproven
 ([experiment 18](../18-recovery-hang/README.md) is parked).
 
@@ -30,7 +32,7 @@ the version 2 history is what identifies the running image. Not exercised:
 the stereo tone test (the mixer was rewired), a history over 100 entries
 (emulation covers it). Evidence stays in `deployment/34_release/`.
 
-| | Experiment 33 | 0.1.0 (experiment 34) |
+| | Experiment 33 | Experiment 34 |
 |---|---|---|
 | Patch sites | 15 | 15 |
 | Code | 8,760 bytes | 8,820 bytes |
@@ -57,9 +59,8 @@ the stereo tone test (the mixer was rewired), a history over 100 entries
 
 ## Build and checks
 
-- `tools/firmware/build_release.py` writes `release/0.1.0/` (image, anchor,
-  `SHA256SUMS`, manifest); the mode is `release` in
-  `tools/firmware/build_master_trial.py`.
+- Rebuilt by `tools/firmware/build_master_trial.py review` (pinned to
+  1c3e4bf).
 - `tools/firmware/verify_release.py` (from a fresh clone):
   `verify_master_everyday.py` (2 groups: exact image, boot, experiments 26–33
   rebuilt), `verify_master_ref_everyday.py` (25 groups on the release link,

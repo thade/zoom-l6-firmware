@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Exact release image (0.1.0, experiment 34): the take chain, take history
-and the switchable stereo AUX without diagnostics. Original reset and scatter
+"""Exact release image (0.1.0, experiment 35): the take chain with its on/off
+switch, take history and the switchable stereo AUX, without diagnostics. Original reset and scatter
 expand it; the Editor parser, the DSP code and the ring size stay stock. Behaviour on this build is checked by
 `verify_master_ref.py everyday` (every group on the clean ELF) and
 `verify_stereo_aux_hooks.py everyday`. No device access.
@@ -27,6 +27,7 @@ EXPERIMENT30='5b3ad135ebd19d31aa5f1acd8c6030b6a870344536c881f881be58d6c70eeb31'
 EXPERIMENT31='c618db4e8c1dcb3f9f7130bcde30c22c48397e0b489bfa9073a2446807ff818b'
 EXPERIMENT32='8acd59d46f9274c7c2c933f28b978b03a17335036b122db2431e313e3f1c721f'
 EXPERIMENT33='36f2025bb62ad9d655e02f24769fcbede910cb53a26e87782cabfa9157e04ab9'
+EXPERIMENT34='47d9f90d8fab846a3a28f51a28ff22332435c6d7ad7058fb2ea585d8be8a3e59'
 
 def boot():
     m=Emulator(cpu_model=A.UC_CPU_ARM_CORTEX_M7,mclass=True);u=m.uc
@@ -48,7 +49,7 @@ def main():
 
     for mode,sha in (('minimum',EXPERIMENT26),('everyday',EXPERIMENT27),('history',EXPERIMENT28),
                      ('daily',EXPERIMENT29),('stereo',EXPERIMENT30),('daily_stereo',EXPERIMENT31),
-                     ('switch',EXPERIMENT32),('daily_switch',EXPERIMENT33)):
+                     ('switch',EXPERIMENT32),('daily_switch',EXPERIMENT33),('review',EXPERIMENT34)):
         assert digest(trial(mode)[0])==sha==MODES[mode]['sha'],mode
         local=MODES[mode]['out']/MODES[mode]['image']/'L6.BIN'   # an installed image kept locally
         assert not local.exists() or digest(local.read_bytes())==sha,mode
@@ -61,9 +62,9 @@ def main():
     q=QUERY_SPEC['site']-BIAS;assert DATA[q:q+4]==IMAGE[q:q+4]==bytes.fromhex(QUERY_SPEC['original'])
     assert DATA[SIZE_SITE-BIAS:SIZE_SITE-BIAS+4]==IMAGE[SIZE_SITE-BIAS:SIZE_SITE-BIAS+4]
     assert not any(n in TN for n in ('mr_query','health_parser','mr_stack_low'))
-    assert MANIFEST['experiment']==34 and MANIFEST['version']=='0.1.0' and not MANIFEST['diagnostics'] and MANIFEST['minimum_take_seconds']==2
+    assert MANIFEST['experiment']==35 and MANIFEST['version']=='0.1.0' and MANIFEST['chain_switch'] and not MANIFEST['diagnostics'] and MANIFEST['minimum_take_seconds']==2
     assert MANIFEST['take_history'] and MANIFEST['stereo_aux'] and MANIFEST['aux_switch']
-    assert {'sa_toggle','sa_restore','sa_poll'}<=set(TN)
+    assert {'sa_toggle','panel_poll','panel_restore','panel_show','mr_chain_toggles'}<=set(TN)
     words=struct.unpack_from('<II',DATA,0x800a6930-BIAS)+struct.unpack_from('<II',DATA,0x800a6940-BIAS)
     assert (words[0],words[0]+words[1],words[2],words[2]+words[3])==tuple(
         MANIFEST[k] for k in ('code_start','code_end','globals_start','globals_end'))
@@ -72,7 +73,8 @@ def main():
            globals_bytes=MANIFEST['globals_bytes'],spare_bytes=MANIFEST['spare_bytes'],
            rebuilt=dict(experiment26=EXPERIMENT26,experiment27=EXPERIMENT27,experiment28=EXPERIMENT28,
                         experiment29=EXPERIMENT29,experiment30=EXPERIMENT30,
-                        experiment31=EXPERIMENT31,experiment32=EXPERIMENT32,experiment33=EXPERIMENT33))
+                        experiment31=EXPERIMENT31,experiment32=EXPERIMENT32,experiment33=EXPERIMENT33,
+                        experiment34=EXPERIMENT34))
     boot()
     passed('original_reset_and_scatter_expand_the_image_with_the_stock_DSP_code')
     result=dict(passed=True,passed_groups=len(cases),results=cases,trial_sha256=MANIFEST['trial_sha256'])

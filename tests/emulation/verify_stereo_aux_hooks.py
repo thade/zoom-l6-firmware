@@ -301,11 +301,11 @@ def switch():
     # Before SHOW_TICKS the redraw does nothing; after it, the view indication
     # comes back as stock draws it, once.
     p.uc.mem_write(0x804430d8,b'\x05')
-    p.uc.mem_write(0x801f9050,struct.pack('<I',31999));p.run(NAMES['sa_restore'])
+    p.uc.mem_write(0x801f9050,struct.pack('<I',31999));p.run(NAMES['panel_restore'])
     assert p.raw(LED(4),2)==bytes([0x10,0]) and p.raw(LED(5),2)==bytes([0x10,0])
-    p.uc.mem_write(0x801f9050,struct.pack('<I',32000));p.run(NAMES['sa_restore'])
+    p.uc.mem_write(0x801f9050,struct.pack('<I',32000));p.run(NAMES['panel_restore'])
     assert p.raw(LED(4),2)==bytes(2) and p.raw(LED(5),2)==bytes([0x10,0])
-    p.uc.mem_write(LED(4),bytes([0x10,1]));p.run(NAMES['sa_restore'])
+    p.uc.mem_write(LED(4),bytes([0x10,1]));p.run(NAMES['panel_restore'])
     assert p.raw(LED(4),2)==bytes([0x10,1])                      # the show already ended: no redraw
     p.uc.mem_write(LED(4),bytes(2))
     # Refused while any recording runs or finalizes: an ordinary take or a
@@ -331,7 +331,7 @@ def switch():
     p.uc.hook_add(UC_HOOK_CODE,key,begin=0x80008478,end=0x80008478)
     stub(p,0x80020ca0,calls=posts)
     def poll(t,a1,a2):
-        keys[16],keys[17]=a1,a2;p.uc.mem_write(0x801f9050,struct.pack('<I',t));p.run(NAMES['sa_poll'])
+        keys[16],keys[17]=a1,a2;p.uc.mem_write(0x801f9050,struct.pack('<I',t));p.run(NAMES['panel_poll'])
     toggles_posted=lambda:[q for q in posts if q[1]==0x4c364158]
     for t in range(0,9990,50):poll(t,1,1)                         # the first 10 s after power-on: never
     assert not toggles_posted()
@@ -354,7 +354,7 @@ def switch():
     hold(T+22000,T+22000,0,0);assert [q[:2] for q in posts]==[[3,0x4c364152]]
     hold(T+22050,T+22200,0,0);assert len(posts)==1
     hold(T+22250,T+22250,0,0);assert len(posts)==2                # not redrawn yet: asked again
-    p.run(NAMES['sa_restore']);hold(T+22300,T+23000,0,0);assert len(posts)==2
+    p.run(NAMES['panel_restore']);hold(T+22300,T+23000,0,0);assert len(posts)==2
     # A toggle Main handles after the worker read the time is not yet due.
     p.uc.mem_write(0x801f9050,struct.pack('<I',T+30000));posts.clear();p.run(NAMES['sa_toggle'])
     poll(T+29990,0,0);assert not posts
@@ -385,8 +385,9 @@ def switch():
     # The stock save request copies the global block, mode bytes included, into
     # the image MacPrmSave writes to flash (P+0xf20 holds CONFIG+0x308...).
     q=Probe(True);stub(q,0x800763d8,1)                            # semaphore give to MacPrmSave
-    q.uc.mem_write(0x804439a0+0xf25,bytes(2));q.run(0x80006ab8)
-    assert q.raw(0x804439a0+0xf25,2)==bytes([0xa5,0x5a])
+    q.uc.mem_write(0x80440dc8+0x30f,bytes([0xc3,0x3c]))            # the chain switch's bytes ride along
+    q.uc.mem_write(0x804439a0+0xf25,bytes(4));q.run(0x80006ab8)
+    assert q.raw(0x804439a0+0xf25,4)==bytes([0xa5,0x5a,0xc3,0x3c])
     # Without the worker (startup gave up) a stored stereo mode is stock mono:
     # the switch could not bring it back.
     stock=Probe(False);q=Probe(True);q.uc.mem_write(NAMES['mr_state'],bytes(4))

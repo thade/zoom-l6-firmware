@@ -1,0 +1,66 @@
+Panel keys, LEDs and a second hold switch (stock L6 v1.10, 16 October 2026)
+==========================================================================
+
+Research for a panel control that turns the take chain on and off, next to the
+AUX 1 + AUX 2 switch (aux_switch_findings.txt). Static reading of the stock
+image only (capstone); claims that rest on earlier emulation say so. Chosen and
+built: a 1.5 s PAN + LEVEL hold (experiment 35).
+
+1. Key indices of the live key read 0x80008478 (1 pressed, 0 released, 2 none)
+Panel-MCU keys read bit/word pairs from the table 0x800a153c (words
+0x808cb5fc/600/604, 0x808cb608 for keys 8-11) through 0x800399c8; Main-MCU keys
+read the active-low GPIO copy [0x8060e3a4] through 0x8001fca0. Each index equals
+the Main event code; the dispatcher 0x8002c9d8 logs a name for every code, and
+the boot chooser's combinations agree (HIGH+FREQ 12+13, REC 31, A 27, A+B+C
+27-29, USB 1/2 + pad 1-3 = 10 + 21-23).
+  0-5 MUTE ch 1-6       6 COMP              7 PHANTOM (+48 V)
+  8, 9 MONO ch 3, 4     10, 11 USB 1/2, 3/4 12-15 HIGH, FREQ, MID, LOW
+  16, 17 AUX1, AUX2     18 EFX              19 PAN       20 LEVEL
+  21-24 SOUND PAD 1-4 (GPIO)  25 TAP (GPIO)  26 SEL       27-29 scene A-C
+  30 no hardware        31 REC              32 PLAY/STOP (GPIO)
+  33 second PWR_SW code, no source          34 POWER (GPIO)
+
+2. Two-button holds at run time
+Releases cancel long-press timers (0x8001fb80; inline for pads and TAP in the
+GPIO poller 0x8006d470). Only pads (800 ms: stop), scenes (1 s: save), PLAY
+(800 ms, ignored) and POWER (800 ms: power-off check) have one. No stock code
+combines keys; the only run-time reader of the live state is the pad handler
+(REC held, 0x800409a6). On press: MUTE, COMP, PHANTOM, MONO and USB toggle;
+TAP sets the tempo; SEL cycles the effect; PLAY starts or stops playback; pads
+play. REC acts on release (starts or stops a take). Scene release recalls.
+The view keys 12-20 (handler 0x8003dd00) set the view byte CONFIG+0x2310
+(0x804430d8) and the held byte +0x2311, and redraw the select, encoder-ring and
+MUTE LEDs; release (0x8003d588) clears the held byte. The held byte matters
+only for AUX1, AUX2 and EFX (MUTE then mutes that send). Nothing audible and
+nothing saved: 0x2310/0x2311 lie outside the saved global block. So PAN +
+LEVEL (19 + 20) is free and harmless; the view ends on the button pressed
+second. HIGH + FREQ is avoided (setting mode at power-on).
+
+3. Power-on
+At the plain normal-boot site 0x8000870c the mask is in r4 (key k = bit k) and
+r5 (keys 32-34; POWER must be masked). Every mask boots normally there except
+the exact stock combinations and A+B+C with extra keys. Panel keys held at
+power-on arrive in the panel MCU's state dump without a press event; a later
+release is posted (harmless for view keys). A pad held at power-on may be
+reported as a press by the first GPIO poll (debounce state starts zeroed,
+0x8001f7c0): unverified, so never use a pad at power-on.
+
+4. LEDs (table 0x8062939c, 2 bytes each: level, mode)
+  0-5 MUTE (0x80007a40)   6 COMP   7 +48 V   8, 9 MONO   10, 11 USB (0x80007e60)
+  12-20 select LEDs, index sel+0xc with sel = key - 12 (0x800075d8)
+  21 REC (0x80007c20)     22 PLAY (0x80007ad0)   29-31 scenes (0x80007d18)
+  44-47 pads (0x80007c90) 48-101 encoder rings; 24-28 and 32-43 probable
+  effect and channel indicators (medium confidence)
+The LED task near 0x8002b1ee sends only changes to the panel MCU, which does
+the blinking. Level 0x10 full, 2 dim; mode 0 steady, 1 blink. Pad LEDs are
+written by the 32 ms task 0x80037288 through 0x8004af10 only when a pad's state
+changes (cache 0x801f8ecc+5+pad), so a temporary pattern would persist until
+then. REC/PLAY LEDs have no cached state to restore. A view press redraws all
+nine select LEDs from the view byte, which is what the switches' redraw does.
+
+5. Storage for a flag
+Spare global bytes CONFIG+0x30f..0x31c and 0x36f remain (0x30d/0x30e hold the
+AUX mode; 0x30f/0x310 now hold the chain mode). Per-pad fields at CONFIG+0xfc0..
+and the pad path structs are rebuilt from L6PADSETTING.ZST and never reach
+internal flash; CONFIG+0x329..0x32c (unique per pad, likely MIDI notes) and
+0x32d+i are in use.

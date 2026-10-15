@@ -2,12 +2,14 @@
 
 ## Status
 
-**0.1.0** is the experiment 34 image: the take chain on pads 1–4, a
-`HISTORY.TXT` in every take folder, and the stereo AUX send with the
-AUX 1 + AUX 2 mono/stereo switch, on Zoom's v1.10. Its features have run on
-one mixer daily since experiments 24–33 (12–15 October 2026), and the release
-image passed its own hardware checks on 16 October
-([experiment 34](../experiments/34-release/README.md)). Recovery from an image that hangs before startup completes
+**0.1.0** is the experiment 35 image: the take chain on pads 1–4 with a
+PAN + LEVEL on/off switch (off until switched on), a `HISTORY.TXT` in every
+take folder, and the stereo AUX send with the AUX 1 + AUX 2 mono/stereo
+switch, on Zoom's v1.10. Its features have run on
+one mixer daily since experiments 24–33 (12–15 October 2026); the release
+review build passed on 16 October
+([experiment 34](../experiments/34-release/README.md)), and
+[experiment 35](../experiments/35-release/README.md) adds the chain switch. Recovery from an image that hangs before startup completes
 remains unproven ([experiment 18](../experiments/18-recovery-hang/README.md)
 is parked).
 
@@ -29,7 +31,8 @@ Open work: [future work](future-work.md). The detailed log up to 0.1.0 is in
    `MASTER.WAV` in place instead, which needs no capture at all; then the
    four-pad chain, the 2-second minimum and `HISTORY.TXT`.
 5. **Stereo AUX (30–33, 15 Oct)**: the stereo send, its mono/stereo switch and
-   the everyday build. **34** is 0.1.0.
+   the everyday build. **34** carries the release review fixes and **35**,
+   0.1.0, adds the chain on/off switch.
 
 ## Experiments
 
@@ -70,7 +73,8 @@ Open work: [future work](future-work.md). The detailed log up to 0.1.0 is in
 | 31 | [Everyday build of 30](../experiments/31-daily-stereo/README.md) | Superseded by 32, not installed |
 | 32 | [AUX mono/stereo switch](../experiments/32-aux-switch/README.md) | Installed; passed |
 | 33 | [Everyday build of 32](../experiments/33-daily-switch/README.md) | Installed; superseded by 34 |
-| 34 | [Release 0.1.0](../experiments/34-release/README.md) | Installed 16 Oct; passed |
+| 34 | [Release review build](../experiments/34-release/README.md) | Installed 16 Oct; passed |
+| 35 | [Release 0.1.0: chain switch](../experiments/35-release/README.md) | See its README |
 
 ## Checks
 

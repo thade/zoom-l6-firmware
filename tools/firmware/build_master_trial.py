@@ -16,7 +16,8 @@ stereo       (30) 28 plus an always-on stereo AUX pair (AUX 1 left, AUX 2 right)
 daily_stereo (31) 30 without diagnostics
 switch       (32) 30 with the mono/stereo switch (hold AUX 1 + AUX 2 for 1.5 s)
 daily_switch (33) 32 without diagnostics, with the switch review fixes
-release      (34) version 0.1.0: 33 plus the release review fixes (default)
+review       (34) 33 plus the release review fixes
+release      (35) version 0.1.0: 34 plus the PAN + LEVEL chain switch (default)
 
 Writes the trial image and the anchor file: a short silent 48 kHz stereo
 32-bit float WAV with the same 512-byte header layout as the extra files the
@@ -59,12 +60,14 @@ MODES=dict(
                 stereo=True,switch=True,sha='8acd59d46f9274c7c2c933f28b978b03a17335036b122db2431e313e3f1c721f'),
     daily_switch=dict(experiment=33,out=ROOT/D/'33_daily_switch',image='daily_switch',pin='cccb5b6',pads=4,trial=False,minimum=True,
                       history=True,stereo=True,switch=True,sha='36f2025bb62ad9d655e02f24769fcbede910cb53a26e87782cabfa9157e04ab9'),
-    # Release 0.1.0: experiment 33 plus the release review fixes, installed 16 October 2026.
-    # Built from the current sources (so a ZIP download builds it too) and held
-    # to its published hash; pin it to the v0.1.0 tag when these sources change.
-    release=dict(experiment=34,out=ROOT/D/'34_release',image='release',pads=4,trial=False,minimum=True,
-                 history=True,stereo=True,switch=True,version='0.1.0',
-                 sha='47d9f90d8fab846a3a28f51a28ff22332435c6d7ad7058fb2ea585d8be8a3e59'))
+    review=dict(experiment=34,out=ROOT/D/'34_release_review',image='review',pin='1c3e4bf',pads=4,trial=False,minimum=True,
+                history=True,stereo=True,switch=True,sha='47d9f90d8fab846a3a28f51a28ff22332435c6d7ad7058fb2ea585d8be8a3e59'),
+    # Release 0.1.0: experiment 34 plus the PAN + LEVEL chain switch. Built from
+    # the current sources (so a ZIP download builds it too); once installed it
+    # is held to its published hash, and pinned to the v0.1.0 tag when these
+    # sources change.
+    release=dict(experiment=35,out=ROOT/D/'35_release',image='release',pads=4,trial=False,minimum=True,
+                 history=True,stereo=True,switch=True,chain_switch=True,version='0.1.0'))
 
 @contextlib.contextmanager
 def trial_elf(m):
@@ -99,7 +102,7 @@ def trial(mode='reference'):
     report=dict(experiment=m['experiment'],mode='master' if mode=='reference' else mode,version=m.get('version'),
         minimum_take_seconds=2 if m.get('minimum') else None,
         take_history=m.get('history',False),stereo_aux=m.get('stereo',False),
-        aux_switch=m.get('switch',False),status='built',expected_sha256=m.get('sha'),trial_sha256=digest(data),
+        aux_switch=m.get('switch',False),chain_switch=m.get('chain_switch',False),status='built',expected_sha256=m.get('sha'),trial_sha256=digest(data),
         stock_sha256=STOCK_SHA,elf_sha256=elf_sha,patches=t['patches'],DSP_patches=[],
         metadata_edits=p['edits'],code_bytes=len(p['code']),globals_bytes=t['globals_bytes'],
         spare_bytes=t['packing']['spare_bytes'],
@@ -126,7 +129,8 @@ def trial(mode='reference'):
               'Starts in mono until switched; factory reset leaves the mode as it was'] if mode=='switch' else [])+
             (['First hardware run of the review fixes: refusal during pad recordings, the LED show ending from Main, stock mono without the worker',
               'Keeps the mode stored by experiment 32 (stereo when last switched to stereo)'] if mode=='daily_switch' else [])+
-            (['History newest first, at most 100 lines (OMITTED), version 2; file calls also wait during pad recordings and playback'] if mode=='release' else [])+
+            (['History newest first, at most 100 lines (OMITTED), version 2; file calls also wait during pad recordings and playback'] if m['experiment']>=34 else [])+
+            (['First hardware run of the PAN + LEVEL chain on/off switch and its persistence'] if m.get('chain_switch') else [])+
             (['First hardware run of the stereo AUX pair: jack order, separation, level, delay and the per-bus limiters are unmeasured',
               'Startup restore relies on the stock bulk recompute after the direct unity reset'] if mode=='stereo' else [])+
             (['First hardware run of the pad-start hook (0x80018316) and of writing HISTORY.TXT into take folders'] if mode=='history' else [])+

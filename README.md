@@ -9,11 +9,13 @@ not included: you download it from Zoom and build the image yourself.
 
 ## What it adds
 
-- **Your last four takes on the sound pads.** After each ordinary recording,
-  pad 1 plays the take you just made, pad 2 the one before, and so on to pad 4.
-  Play pad 1 while you record the next take and the new take contains both:
-  an overdub. Nothing is copied; the pads play the take's own `MASTER.WAV`
-  where it was recorded. Takes under 2 seconds are ignored.
+- **Your last four takes on the sound pads (switch on with PAN + LEVEL).**
+  With the overdub chain on, after each ordinary recording pad 1 plays the
+  take you just made, pad 2 the one before, and so on to pad 4. Play pad 1
+  while you record the next take and the new take contains both: an overdub.
+  Nothing is copied; the pads play the take's own `MASTER.WAV` where it was
+  recorded. Takes under 2 seconds are ignored. The chain is off until you
+  turn it on, so the pads work as on a stock L6.
 - **A history in every take folder.** Each take gets a `HISTORY.TXT` listing
   the earlier takes and pad sounds it includes, newest first, so you can find
   every original recording (with its separate tracks) behind a final mix.
@@ -67,18 +69,29 @@ not included: you download it from Zoom and build the image yourself.
 
 ## Using it
 
-**Overdubbing.** Record a take as usual. A few seconds after you stop (the
-L6 finishes writing its files first) it is on pad 1. Start the next take and
+**Turning the overdub chain on and off.** Hold **PAN** and **LEVEL** together
+for 1.5 seconds. Both lights blink for 2 seconds when the chain turns on and
+light steadily for 2 seconds when it turns off (the hold also selects the
+view of the button you pressed second). It does nothing in the first 10
+seconds after power-on and while recording. The mixer remembers the setting
+through power cycles. A new install starts with the chain off. While it is
+off, takes do not move onto the pads and the pads keep whatever you assign;
+every take still gets its `HISTORY.TXT`.
+
+**Overdubbing.** Turn the chain on, then record a take as usual. A few
+seconds after you stop (the L6 finishes writing its files first) it is on
+pad 1. Start the next take and
 press pad 1 to play the previous one into it. The master compressor is part
 of a take's `MASTER.WAV`, so overdub with the master compressor off or it is
 applied again on every layer.
 
-**The pads.** Pads 1–4 follow your takes: as takes move along, they replace
-whatever sound a pad had. Every pad shows the name `MASTER.WAV` (choosing the
+**The pads.** While the chain is on, pads 1–4 follow your takes: as takes
+move along, they replace whatever sound a pad had; turning the chain off
+leaves them as they are. Every pad shows the name `MASTER.WAV` (choosing the
 anchor by hand gives silence). Recordings made *to* a pad, and recordings
 under 2 seconds, do not enter the chain. To keep a hand-picked sound on a pad,
 remove that pad's anchor `MASTER.WAV`: the chain stops at the first pad
-without one. Removing PAD1's anchor turns the chain off.
+without one (without PAD1's it never runs).
 
 **History.** `RECORDER/<take>/HISTORY.TXT` lists the recordings and pad
 sounds the take includes, newest first, at most 100 lines. When older entries

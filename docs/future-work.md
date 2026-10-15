@@ -27,13 +27,13 @@ take was used as backing ([experiment 25](../experiments/25-take-chain/README.md
 
 ## Normal and overdub modes
 
-**Confirmed requirement:** a setting to switch between the overdub chain and
-normal sound-pad use. Today the only switch is removing the anchor files.
+Done: hold PAN + LEVEL to turn the chain on or off, remembered through power
+cycles, off until first switched on; off leaves the pads as they are
+([experiment 35](../experiments/35-release/README.md)).
 
-- [ ] Decide where the setting lives (panel, configurator) and whether it
-      survives a reboot.
-- [ ] Keep separate normal and overdub pad banks, changed only when the
-      recorder is stopped, and restore each bank's assignments and settings.
+- [ ] Optional: separate normal and overdub pad banks, so switching off
+      restores the sounds you had before the chain took over (both banks
+      saved in a card file, swapped only when the recorder is stopped).
 
 ## Take links and recording history
 

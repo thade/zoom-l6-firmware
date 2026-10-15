@@ -26,6 +26,7 @@ def build(trial=False,root=ROOT,stereo=False):
         '-ffunction-sections','-fdata-sections',
         '-Wl,-T,tests/fixtures/capture_source_reuse.ld','-Wl,-e,mr_worker_entry','-Wl,--gc-sections',
         'src/capture/master/master_ref.c','src/capture/master/master_hooks.S',
+        *[s for s in ('src/capture/master/panel.c',) if (Path(root)/s).exists()],   # absent before experiment 35
         *(['src/capture/master/stereo_aux.c'] if stereo else []),
         *(QUERY if trial else []),
         '-o',str(output)],cwd=root,env=env,check=True)

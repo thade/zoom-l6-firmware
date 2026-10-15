@@ -19,6 +19,16 @@
 #define REC_STOP_RETURN 0x8004ba4du   /* RecStop's call of the setter; PlayStop also calls it */
 #define RECORDER_BUSY W(0x80578ec0u)  /* RecPlayCtl is running a callback (RecStop includes finalize) */
 #define REC_STATE B8(0x80578ebcu)     /* stock recorder: 1 recording (any target), 2 playing, else 0 */
+/* The take chain's on/off setting: two global settings bytes stock code never
+ * uses, checks or puts in scenes, saved to internal flash with the other
+ * globals (next to the AUX mode). On only for this exact pair, so a mixer
+ * that never switched (zero) keeps the stock pads: the chain is off. */
+#define CHAIN_MODE ((volatile uint8_t *)(0x80440dc8u+0x30fu))
+#define CHAIN_ON_A 0xc3u
+#define CHAIN_ON_B 0x3cu
+#define SAVE ((void (*)(void))0x80006ab9u)   /* request a settings save */
+#define SEL_PAN 7u
+#define SEL_LEVEL 8u
 
 typedef int32_t (*Open)(uint32_t*,const uint16_t*,uint32_t,uint32_t);
 #define OPEN ((Open)0x8005ffe9u)
@@ -54,6 +64,7 @@ typedef int32_t (*Open)(uint32_t*,const uint16_t*,uint32_t,uint32_t);
 
 KEEP MasterRef *mr_state;    /* heap; published once the worker exists */
 KEEP uint32_t mr_startup_status;
+KEEP uint32_t mr_chain_toggles,mr_chain_refused;
 KEEP const uint32_t mr_layout[]={sizeof(MasterRef),offsetof(MasterRef,revoked),offsetof(MasterRef,task),
     offsetof(MasterRef,handoff_state),offsetof(MasterRef,stop_path),offsetof(MasterRef,path),
     offsetof(MasterRef,posted_path),offsetof(MasterRef,next),offsetof(MasterRef,assigned),
@@ -167,6 +178,8 @@ KEEP void mr_stop(uint32_t selected,uint32_t caller) {
     ST(&g->stopped,g->stopped+1);
 }
 
+static int chain_on(void) {return CHAIN_MODE[0]==CHAIN_ON_A && CHAIN_MODE[1]==CHAIN_ON_B;}
+
 /* ---- Main: assign pad 1, as the Editor's select does ---- */
 /* Final states are written only from POSTED and only for the posted serial;
  * a newer POSTED, LOST or SUPERSEDED is never overwritten. The serial is then
@@ -199,6 +212,7 @@ static void handoff(MasterRef *g,uint32_t serial) {
     if(LD(&g->handoff_state)!=MR_HANDOFF_POSTED || serial!=g->handoff_serial)return;
     /* Revocation is incremented on Main only, so this comparison is exact. */
     if(LD(&g->revoked)!=g->handoff_revoked){handoff_done(g,serial,MR_HANDOFF_SKIPPED,5);return;}
+    if(!chain_on()){handoff_done(g,serial,MR_HANDOFF_SKIPPED,6);return;}
     /* A new take or any RecPlayCtl callback: leave it posted for a repost. */
     if(LD(&g->stock_recording) || RECORDER_BUSY)return;
     /* An assignment still loading has not saved its path yet: wait for its
@@ -252,13 +266,27 @@ static void handoff(MasterRef *g,uint32_t serial) {
     handoff_done(g,serial,MR_HANDOFF_ASSIGNED,0);
 }
 
+/* ---- Main: the chain on/off switch (PAN + LEVEL hold, panel.c) ---- */
+/* Off: takes stay off the pads (each still gets its history). Refused while
+ * any recording runs or finalizes. PAN and LEVEL blink (on) or light steadily
+ * (off) for 2 s. */
+static void chain_toggle(void) {
+    if(panel_recording()){mr_chain_refused++;return;}
+    int to_on=!chain_on();
+    CHAIN_MODE[0]=to_on?CHAIN_ON_A:0;CHAIN_MODE[1]=to_on?CHAIN_ON_B:0;
+    SAVE();
+    panel_show(SEL_PAN,SEL_LEVEL,(uint32_t)to_on);
+    mr_chain_toggles++;
+}
+
 /* ---- Main: five original receive calls ---- */
 KEEP int32_t mr_main_receive(uint32_t *packet) {
     int32_t result=RECEIVE(packet);
     MasterRef *g=LD(&mr_state);if(!g)return result;
     if(packet[0]==MR_HANDOFF_EVENT && packet[1]==MR_HANDOFF_MAGIC)handoff(g,packet[2]);
+    if(packet[0]==MR_HANDOFF_EVENT && packet[1]==MR_CHAIN_MAGIC)chain_toggle();
     if(packet[0]==MR_HANDOFF_EVENT && packet[1]==SA_TOGGLE_MAGIC && sa_toggle)sa_toggle();
-    if(sa_restore)sa_restore();   /* ends a due AUX LED show on any event */
+    panel_restore();   /* ends a due switch LED show on any event */
     uint32_t storage=(packet[0]==0 && packet[2]>=0x32 && packet[2]<=0x35) ||
         (packet[0]==1 && packet[1]==0 && packet[2]<=5) ||
         (packet[0]==2 && (packet[2]==0xa2 || packet[2]==0xa3));
@@ -584,7 +612,7 @@ static void history_done(MasterRef *g,uint32_t status) {
 KEEP uint32_t mr_worker_step(void) {
     MasterRef *g=LD(&mr_state);if(!g)return 0;
     g->polls++;
-    if(sa_poll)sa_poll();   /* stereo builds: the AUX 1 + AUX 2 hold */
+    panel_poll();   /* the PAN + LEVEL and AUX 1 + AUX 2 holds */
     uint32_t s=LD(&g->stopped);
     /* A take's history is finished before the next take is taken in. */
     if(s!=g->seen && !g->history_pending) {

@@ -1,11 +1,8 @@
 #ifndef L6_STEREO_AUX_H
 #define L6_STEREO_AUX_H
-/* Optional stereo AUX module (linked only into stereo builds): the worker and
- * Main's receive hook call it through weak references. */
+/* Optional stereo AUX module (linked only into stereo builds): Main's receive
+ * hook calls it through a weak reference. */
 #include <stdint.h>
 #define SA_TOGGLE_MAGIC 0x4c364158u   /* 'L6AX': Main category-3 event, toggle mono/stereo */
-#define SA_RESTORE_MAGIC 0x4c364152u  /* 'L6AR': wake Main to end the LED show */
-void sa_poll(void) __attribute__((weak));
 void sa_toggle(void) __attribute__((weak));
-void sa_restore(void) __attribute__((weak));
 #endif
