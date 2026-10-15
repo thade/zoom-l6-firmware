@@ -94,7 +94,7 @@ def main():
     for name in ('L6.BIN','ZOOM_L6.SYS'):
         if (card/name).exists() and not (name=='L6.BIN' and (card/name).read_bytes()==image):
             if not saved:saved=new_folder(args.backup/time.strftime('%Y%m%d-%H%M%S'))
-            shutil.copy2(card/name,saved/name)
+            shutil.copyfile(card/name,saved/name)   # data only: card file flags need not copy
             if (saved/name).read_bytes()!=(card/name).read_bytes():fail(f'backup of {name} failed')
             backed.append(str(saved/name))
     if not target.exists() or target.read_bytes()!=image:write_checked(target,image)
