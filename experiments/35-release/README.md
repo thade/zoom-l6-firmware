@@ -4,15 +4,40 @@
 chain: hold **PAN** + **LEVEL** for 1.5 s to turn it on or off. Everyday
 build: no status query and no stack measurement. This is release 0.1.0.
 
-**Prepared locally; not yet installed.** The mixer runs experiment 34.
-Recovery from an image that fails before Main remains unproven
+**Installed 16 October 2026; passed. This is release 0.1.0.** Recovery from
+an image that fails before Main remains unproven
 ([experiment 18](../18-recovery-hang/README.md) is parked).
+
+## Results
+
+Installed over experiment 34 with `tools/device/install_release.py` (image
+read back identical; the previous image and settings file backed up). The
+user ran the procedure below, partly out of order, and confirmed every check:
+
+| Check | Result |
+|---|---|
+| A take with the chain never switched | Stayed off pad 1: off by default |
+| Hold PAN + LEVEL, then a take | Blinked (on); the take reached pad 1 |
+| Power-cycle, then a take | Still on; the take reached pad 1 |
+| Hold PAN + LEVEL, then a take | Steady (off); pad 1 kept the previous take |
+| Both holds while recording | No light change: refused |
+| AUX 1 + AUX 2 after recording | Steady (mono), then blinking (stereo) |
+
+Every take recorded, with the chain on or off, has a version 2 `HISTORY.TXT`
+and no temp file left. The user found the PAN + LEVEL hold unreliable at
+first and could not reproduce it later (probably released too early); a
+possible cause, a single poll misreading one button, which would restart the
+hold, is recorded in [future work](../../docs/future-work.md). Playback of a
+take sounding quieter than while recording is stock: the recorded master is
+taken after the MASTER knob and played back through it again (manual,
+signal flow), so overdub with MASTER and SOUND PAD at their unity marks.
+Evidence stays in `deployment/35_release/`.
 
 | | Experiment 34 | 0.1.0 (experiment 35) |
 |---|---|---|
 | Patch sites | 15 | 15 |
 | Code | 8,820 bytes | 9,116 bytes |
-| Image SHA256 | `47d9f90d…` | `824e37c6…` |
+| Image SHA256 | `47d9f90d…` | `824e37c69c2086b4c4464b14ab5b698c32d154352b0aa1537095fd6cb5134932` |
 
 ## Behaviour
 

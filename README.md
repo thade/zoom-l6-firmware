@@ -81,9 +81,15 @@ every take still gets its `HISTORY.TXT`.
 **Overdubbing.** Turn the chain on, then record a take as usual. A few
 seconds after you stop (the L6 finishes writing its files first) it is on
 pad 1. Start the next take and
-press pad 1 to play the previous one into it. The master compressor is part
-of a take's `MASTER.WAV`, so overdub with the master compressor off or it is
-applied again on every layer.
+press pad 1 to play the previous one into it.
+
+Keep the **MASTER** and **SOUND PAD** knobs at their unity (0 dB) marks while
+you overdub, and set your listening level with **MONITOR** or your speakers.
+A take's `MASTER.WAV` is recorded after the master volume and compressor, and
+the pads (and **PLAY/STOP** playback) send it through them again: with the
+master below unity every layer gets quieter on each pass, and with the master
+compressor on it is applied again on every layer, so keep it off. This is how
+the stock L6 records and plays back.
 
 **The pads.** While the chain is on, pads 1–4 follow your takes: as takes
 move along, they replace whatever sound a pad had; turning the chain off
