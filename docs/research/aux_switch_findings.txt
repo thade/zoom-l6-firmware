@@ -70,3 +70,15 @@ Editor port SysEx reaches the parser only with manufacturer 0x52; unknown
 commands are ignored in every session state, so a minimal F0 52 command is
 also possible at the trial hook site 0x800301f0. The Editor's AUX pre/post
 message cannot carry a switch without changing stock meaning.
+
+6. Send point (pre/post), 15 October 2026
+Stock sends are post-fader by default. The per-channel send point is set by
+0x8003d9d8(channel, aux, pre) (both lanes of a stereo channel, through the
+setter veneer 0x80002890 -> 0x8000cb28), reached only from 0x80009d10, which
+the category-2 command dispatch 0x8002c510 calls for codes 0x2b-0x36 (six
+channels by two AUX buses). Panel keys and encoders arrive as category-0
+events and never reach it, so stock v1.10 has no panel control for the send
+point; the manual's procedure is ZOOM L6 Editor's AUX Send Point dialog. The
+setting is part of the mixer struct, so scenes store and recall it. In stereo
+the pair follows each channel's AUX 1 send point. Static reading only;
+whether a MIDI path also reaches 0x8002c510 with these codes is unchecked.

@@ -6,9 +6,33 @@ by holding **AUX 1** + **AUX 2** for 1.5 s) as a clean build for normal use:
 no status query, so no hook on the Editor's MIDI parser, and no worker stack
 measurement. It also carries three fixes from a review of the switch.
 
-**Prepared locally; not staged or installed.** The mixer runs experiment 32.
-Recovery from an image that fails before Main remains unproven
+**Installed (15 October 2026)** and in everyday use. The hardware checks of
+the review fixes are still to do (see Results). Recovery from an image that
+fails before Main remains unproven
 ([experiment 18](../18-recovery-hang/README.md) is parked).
+
+## Results
+
+- Staged with `stage33.py` over experiment 32: readback identical, settings
+  and audio files unchanged, pads and MIDI ports unchanged after transfer
+  mode. After the power-cycle the status query no longer answers with an
+  Editor session open (experiment 32 answered it), so the everyday image is
+  running.
+- In use with AUX 1/2 as an effects loop (returns on another channel). That
+  showed the stock send point: every channel's sends were **post-fader** (the
+  stock default), so turning a channel down in the main mix also turned its
+  sends down. All twelve send points (AUX 1 and AUX 2, channels 1–6) were set
+  to **Pre Fader** in ZOOM L6 Editor (AUX Send Point), and read back as Pre
+  Fader. In stereo the pair uses each channel's AUX 1 send point.
+- The send point has no panel control in stock v1.10: the manual's procedure
+  is Editor-only, and statically the setter is reached only from the
+  category-2 command dispatch the Editor's commands use
+  ([AUX switch findings](../../docs/research/aux_switch_findings.txt),
+  section 6). Send points are stored per scene, so recalling a scene saved
+  earlier restores its own.
+- Not yet checked on the mixer: the tone test, the hold in both directions,
+  the refusal during a pad recording, and an ordinary take's chain and
+  history (procedure below). The mixer was rewired for use before these.
 
 | | Experiment 32 (trial) | Experiment 33 (everyday) |
 |---|---|---|

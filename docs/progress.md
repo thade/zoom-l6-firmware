@@ -66,7 +66,9 @@ passed on the mixer (both directions, LED feedback, kept through a power-cycle,
 refused while recording) and is the current image. [Experiment 33](../experiments/33-daily-switch/README.md)
 is its clean everyday build, with three review fixes: the switch is refused
 during pad recordings too, a mixer whose worker did not start is stock mono,
-and the LED show is ended by Main. The early-hang
+and the LED show is ended by Main. It is installed and in use; the fixes'
+hardware checks are still to do. Sends are now pre-fader on every channel
+(set in ZOOM L6 Editor) for use as an effects loop. The early-hang
 [recovery check](../experiments/18-recovery-hang/README.md) is parked.
 All hardware-trial tooling and research is now committed. The full offline
 regression passes 97 suites (1,040 groups); it now sets its own import path.
