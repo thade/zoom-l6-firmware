@@ -53,7 +53,7 @@ history: a `HISTORY.TXT` in each take folder listing every recording it
 includes, from the pad files that actually played during the take. It passed
 on the mixer for a chain of four takes. [Experiment 29](../experiments/29-daily/README.md) is
 the same behaviour as a clean everyday build without diagnostics; it passed on
-the mixer and is the current image.
+the mixer.
 [Experiment 30](../experiments/30-stereo-aux/README.md) adds an always-on
 stereo AUX send (AUX 1 left, AUX 2 right) as an independent stereo send mix
 that follows channel pan. It passed on the jacks: left and right on their own
@@ -61,7 +61,9 @@ AUX outputs, matched within 0.3 dB with no delay, following balance, ignoring
 the AUX 2 knob, and surviving a reboot. [Experiment 31](../experiments/31-daily-stereo/README.md)
 is its clean everyday build. [Experiment 32](../experiments/32-aux-switch/README.md)
 makes it switchable: hold AUX 1 + AUX 2 for 1.5 s to toggle between the stock
-two mono sends and the stereo pair, remembered in the internal settings. The early-hang
+two mono sends and the stereo pair, remembered in the internal settings; it
+passed on the mixer (both directions, LED feedback, kept through a power-cycle,
+refused while recording) and is the current image. The early-hang
 [recovery check](../experiments/18-recovery-hang/README.md) is parked.
 All hardware-trial tooling and research is now committed. The full offline
 regression passes 97 suites (1,040 groups); it now sets its own import path.

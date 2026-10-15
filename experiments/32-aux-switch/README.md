@@ -5,8 +5,36 @@ between the stock two mono sends and the stereo pair by holding the **AUX 1**
 and **AUX 2** buttons together for 1.5 seconds. The choice is kept in the
 mixer's internal settings and survives power-off.
 
-**Prepared locally; not staged or installed.** A trial build with the status
-query. The mixer runs experiment 30.
+**Passed on the mixer (15 October 2026)** and installed: a trial build with
+the status query.
+
+## Results
+
+Same test setup as [experiment 30](../30-stereo-aux/README.md#results): tones
+over USB into input 5 (AUX 1, AUX 2 and level at their unity marks), AUX 1/2
+recorded through the interface, input at −20 dBFS, band RMS in dBFS.
+
+| Step | LEDs | AUX 1 | AUX 2 | Status |
+|---|---|---|---|---|
+| First boot (never switched) | normal | 1 kHz −30.6, 1.5 kHz −30.1 | 1 kHz −30.1, 1.5 kHz −29.8 | mono, 0 toggles |
+| Hold AUX 1 + AUX 2 | both blink 2 s | 1 kHz −30.6, 1.5 kHz −66.6 | 1 kHz −82.2, 1.5 kHz −30.3 | stereo, 1 toggle; AUX1 0.342/0, AUX2 0/0.342 |
+| Hold again | both steady 2 s | 1 kHz −30.6, 1.5 kHz −30.2 | 1 kHz −30.2, 1.5 kHz −29.8 | mono, 2 toggles; AUX1 0.342/0.342, AUX2 0.359/0.359 |
+| Hold (stereo), power-cycle | normal | 1 kHz −30.3, 1.5 kHz −66.1 | 1 kHz −82.9, 1.5 kHz −30.0 | stereo, 0 toggles (loaded from flash) |
+| Hold while a take records | unchanged | | | stereo, 1 refused, 0 toggles |
+
+- The hold toggles once per hold in both directions, with the LED pattern for
+  2 s and then the normal view indication.
+- Back in mono, AUX 2 returns to its own setting (gain 0.359, 0.4 dB above
+  AUX 1's 0.342, matching the measured levels), not the stereo pair's values.
+  Turning the AUX 2 knob while in stereo was not exercised on the mixer
+  (covered by emulation).
+- The mode survives a power-cycle through the stock settings save; the toggle
+  counter restarting at 0 shows it was loaded, not switched again.
+- While recording, the hold is refused with no LED change and no mode change;
+  the take (15 s) went to pad 1 as usual and its history was written.
+- Separation in stereo is 36–52 dB, as in experiment 30 (analogue crosstalk).
+
+Evidence stays in `deployment/32_aux_switch/`.
 
 ## Behaviour
 

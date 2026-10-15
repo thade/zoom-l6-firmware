@@ -348,14 +348,18 @@ Saving stereo/mono mode inside each scene is an alternative, but is not the
 recommended default: recalling a mono scene could send two unrelated mixes to
 an external effect connected as a stereo pair.
 
-- [ ] Finalize global-mode persistence across reboot and its device/configurator control.
-      Options researched ([AUX switch findings](research/aux_switch_findings.txt)):
-      a spare byte in the internal settings flash; a power-on or held AUX1+AUX2
-      key combination; an NRPN pair on the Mixer Control port.
+- [x] Finalize global-mode persistence across reboot and its device control:
+      a spare byte pair in the internal settings flash, toggled by holding
+      AUX 1 + AUX 2 for 1.5 s ([experiment 32](../experiments/32-aux-switch/README.md),
+      passed on the mixer). Other options researched
+      ([AUX switch findings](research/aux_switch_findings.txt)): a power-on key
+      combination; an NRPN pair on the Mixer Control port (configurator control
+      remains open).
 - [ ] Finalize scene-save behavior, send mute and restoration of independent settings.
 - [ ] Integrate paired gain updates with physical and MIDI scene recall, startup
       restoration and editor changes.
-- [ ] Test old scenes, stereo scene saves, switching back to mono and reboot.
+- [ ] Test old scenes and stereo scene saves (switching back to mono and
+      reboot passed in experiment 32).
       Confirm recall preserves the global mode and unsaved recalls leave stored
       scene data unchanged.
 - [ ] Verify transitions with different channel levels, pan, send amounts,
