@@ -58,9 +58,13 @@ python tools/firmware/build_release.py
 ```
 
 Both write `release/0.1.0/`: `L6.BIN`, `MASTER.WAV`, `SHA256SUMS` and
-`manifest.json`. The 0.1.0 image is reproducible: its SHA256 is published in
-the release notes and in `tools/firmware/build_master_trial.py`, and the
-build stops if yours differs. Then [install](../README.md#install).
+`manifest.json`. The 0.1.0 image is reproducible, and the build stops if
+yours differs from the published hashes:
+
+```text
+47d9f90d8fab846a3a28f51a28ff22332435c6d7ad7058fb2ea585d8be8a3e59  L6.BIN
+58a0bc492b292ac5a0b95889a58fa354c27bf394562b6dbde64d517b6acba791  MASTER.WAV
+``` Then [install](../README.md#install).
 
 ## Rebuilding earlier experiments
 

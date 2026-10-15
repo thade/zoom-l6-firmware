@@ -3,15 +3,38 @@
 [Experiment 33](../33-daily-switch/README.md) plus the fixes from the 0.1.0
 release review. Everyday build: no status query and no stack measurement.
 
-**Prepared locally; not yet installed.** The mixer runs experiment 33.
-Recovery from an image that fails before Main remains unproven
+**Installed 16 October 2026; passed. This is release 0.1.0.** Recovery from
+an image that fails before Main remains unproven
 ([experiment 18](../18-recovery-hang/README.md) is parked).
+
+## Results
+
+Installed over experiment 33 with `tools/device/install_release.py` through
+File Transfer Mode: image written and read back identical, the card's
+previous `L6.BIN` and `ZOOM_L6.SYS` backed up, card found by its layout. (Its
+first run stopped before writing anything: copying the card file's flags into
+the backup was refused; fixed to copy data only.)
+
+| Check | Result |
+|---|---|
+| Hold AUX 1 + AUX 2, twice | Steady (mono), then blinking (stereo) |
+| Hold while recording to pad 4 | No LED change: refused |
+| Ordinary take `261016_001314` with pad 1 playing, then playback straight away | Pad 1 played the new take afterwards |
+| Its `HISTORY.TXT` | `L6 HISTORY 2`, `SOUND SOUND_PAD/PAD1/261016_000950.WAV` (a pad recording was on pad 1), `END 1`; no temp file left |
+| Saved pads afterwards | 1 the new take; 2 `261014_123107`; 3 `261014_120212`; 4 the pad recording `261016_001030.WAV` |
+
+The chain moved as designed: pad 1's pad recording counted as a hand-picked
+sound, so the new take led and the takes on pads 2-3 followed; pad 4's sound,
+past the chain's end, stayed. The status query is absent in this build, so
+the version 2 history is what identifies the running image. Not exercised:
+the stereo tone test (the mixer was rewired), a history over 100 entries
+(emulation covers it). Evidence stays in `deployment/34_release/`.
 
 | | Experiment 33 | 0.1.0 (experiment 34) |
 |---|---|---|
 | Patch sites | 15 | 15 |
 | Code | 8,760 bytes | 8,820 bytes |
-| Image SHA256 | `36f2025b…` | `47d9f90d…` (pinned on release) |
+| Image SHA256 | `36f2025b…` | `47d9f90d8fab846a3a28f51a28ff22332435c6d7ad7058fb2ea585d8be8a3e59` |
 
 ## Changes from experiment 33
 

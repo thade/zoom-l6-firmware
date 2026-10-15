@@ -5,9 +5,9 @@
 **0.1.0** is the experiment 34 image: the take chain on pads 1–4, a
 `HISTORY.TXT` in every take folder, and the stereo AUX send with the
 AUX 1 + AUX 2 mono/stereo switch, on Zoom's v1.10. Its features have run on
-one mixer daily since experiments 24–33 (12–15 October 2026); see
-[experiment 34](../experiments/34-release/README.md) for the release's own
-hardware checks. Recovery from an image that hangs before startup completes
+one mixer daily since experiments 24–33 (12–15 October 2026), and the release
+image passed its own hardware checks on 16 October
+([experiment 34](../experiments/34-release/README.md)). Recovery from an image that hangs before startup completes
 remains unproven ([experiment 18](../experiments/18-recovery-hang/README.md)
 is parked).
 
@@ -70,7 +70,7 @@ Open work: [future work](future-work.md). The detailed log up to 0.1.0 is in
 | 31 | [Everyday build of 30](../experiments/31-daily-stereo/README.md) | Superseded by 32, not installed |
 | 32 | [AUX mono/stereo switch](../experiments/32-aux-switch/README.md) | Installed; passed |
 | 33 | [Everyday build of 32](../experiments/33-daily-switch/README.md) | Installed; superseded by 34 |
-| 34 | [Release 0.1.0](../experiments/34-release/README.md) | See its README |
+| 34 | [Release 0.1.0](../experiments/34-release/README.md) | Installed 16 Oct; passed |
 
 ## Checks
 

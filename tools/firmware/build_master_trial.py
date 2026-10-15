@@ -2,8 +2,8 @@
 """Build the master-reference images locally: the 0.1.0 release and every
 earlier experiment, byte for byte. No device access.
 
-Every mode but `release` is pinned to the commit its image was built from and
-must reproduce that image's hash exactly (24-26, 28-30, 32 and 33 were
+Every mode must reproduce its image's hash exactly; all but `release` are
+pinned to the commit their image was built from (24-26, 28-30, 32 and 33 were
 installed; 27 and 31 were prepared and superseded before installation).
 
 reference    (24) pad 1 plays the last take's master
@@ -59,9 +59,12 @@ MODES=dict(
                 stereo=True,switch=True,sha='8acd59d46f9274c7c2c933f28b978b03a17335036b122db2431e313e3f1c721f'),
     daily_switch=dict(experiment=33,out=ROOT/D/'33_daily_switch',image='daily_switch',pin='cccb5b6',pads=4,trial=False,minimum=True,
                       history=True,stereo=True,switch=True,sha='36f2025bb62ad9d655e02f24769fcbede910cb53a26e87782cabfa9157e04ab9'),
-    # Release 0.1.0: experiment 33 plus the release review fixes. Pinned once installed.
+    # Release 0.1.0: experiment 33 plus the release review fixes, installed 16 October 2026.
+    # Built from the current sources (so a ZIP download builds it too) and held
+    # to its published hash; pin it to the v0.1.0 tag when these sources change.
     release=dict(experiment=34,out=ROOT/D/'34_release',image='release',pads=4,trial=False,minimum=True,
-                 history=True,stereo=True,switch=True,version='0.1.0'))
+                 history=True,stereo=True,switch=True,version='0.1.0',
+                 sha='47d9f90d8fab846a3a28f51a28ff22332435c6d7ad7058fb2ea585d8be8a3e59'))
 
 @contextlib.contextmanager
 def trial_elf(m):
