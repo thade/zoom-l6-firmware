@@ -59,10 +59,12 @@ stereo AUX send (AUX 1 left, AUX 2 right) as an independent stereo send mix
 that follows channel pan. It passed on the jacks: left and right on their own
 AUX outputs, matched within 0.3 dB with no delay, following balance, ignoring
 the AUX 2 knob, and surviving a reboot. [Experiment 31](../experiments/31-daily-stereo/README.md)
-is its clean everyday build. The early-hang
+is its clean everyday build. [Experiment 32](../experiments/32-aux-switch/README.md)
+makes it switchable: hold AUX 1 + AUX 2 for 1.5 s to toggle between the stock
+two mono sends and the stereo pair, remembered in the internal settings. The early-hang
 [recovery check](../experiments/18-recovery-hang/README.md) is parked.
 All hardware-trial tooling and research is now committed. The full offline
-regression passes 97 suites (1,038 groups); it now sets its own import path.
+regression passes 97 suites (1,040 groups); it now sets its own import path.
 
 The latest independent work adds a [concrete startup witness](research/storage_boot_findings.txt):
 successful initial card setup and a matched USB request, consumption and acknowledgement

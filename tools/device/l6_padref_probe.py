@@ -13,6 +13,7 @@ CHAIN_FIELDS=FIELDS+('chain_mask',)
 HISTORY_FIELDS=CHAIN_FIELDS+('history_written','history_failed','history_status','history_entries','played') # schema 3
 HISTORY_STATUS=('ok','revoked','create','write','close','rename','name','pending')
 STEREO_FIELDS=HISTORY_FIELDS+tuple(f'aux1_{j}' for j in range(10))+tuple(f'aux2_{j}' for j in range(10)) # schema 4
+SWITCH_FIELDS=HISTORY_FIELDS+('aux_mode','aux_toggles','aux_refused')+STEREO_FIELDS[len(HISTORY_FIELDS):] # schema 5
 PATH_WORDS=16
 STATUS=('ok','revoked','missing','split','io','format','short')
 HANDOFF_STATES=('none','posted','assigned','skipped','failed','lost','superseded')
@@ -23,7 +24,7 @@ def request(token=0):
     return bytes((0xf0,0x52,0,0,0x6f,7,token,0xf7))
 def decode(packet):
     if len(packet)<6 or packet[:6]!=bytes((0xf0,0x52,0,0,0x6e,7)):return None
-    fields={8+5*(len(f)+PATH_WORDS):f for f in (FIELDS,CHAIN_FIELDS,HISTORY_FIELDS,STEREO_FIELDS)}.get(len(packet))
+    fields={8+5*(len(f)+PATH_WORDS):f for f in (FIELDS,CHAIN_FIELDS,HISTORY_FIELDS,STEREO_FIELDS,SWITCH_FIELDS)}.get(len(packet))
     if not fields or packet[-1]!=0xf7 or any(x>127 for x in packet[6:-1]):
         raise ValueError('invalid status reply length or encoding')
     values=[]
@@ -31,11 +32,12 @@ def decode(packet):
         v=packet[7+5*i:12+5*i]
         if v[4]>15:raise ValueError('status word exceeds 32 bits')
         values.append(sum(b<<(7*j) for j,b in enumerate(v)))
-    schema=1 if fields is FIELDS else 2 if fields is CHAIN_FIELDS else 3 if fields is HISTORY_FIELDS else 4
+    schema={id(FIELDS):1,id(CHAIN_FIELDS):2,id(HISTORY_FIELDS):3,id(STEREO_FIELDS):4,id(SWITCH_FIELDS):5}[id(fields)]
     if values[:2]!=[schema,0x4c4d01]:raise ValueError('unsupported status schema or marker')
     text=lambda words:bytes((w>>(7*k))&127 for w in words for k in range(4)).split(b'\0')[0].decode('ascii')
     row=dict(zip(fields,values),token=packet[6])
-    if schema==4:
+    if schema==5:row['aux_stereo']=row['aux_mode']==0x5aa5
+    if schema>=4:
         import struct
         gains=[struct.unpack('<f',struct.pack('<I',row.pop(f'aux{b}_{j}')))[0] for b in (1,2) for j in range(10)]
         row['aux1'],row['aux2']=gains[:10],gains[10:]

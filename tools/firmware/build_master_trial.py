@@ -19,6 +19,9 @@ stereo    (experiment 30): experiment 28 plus an always-on stereo AUX pair
           (AUX 1 left, AUX 2 right), trial build with the query.
           Rebuilt from the sources it was installed from.
 daily_stereo (experiment 31): the experiment 30 behaviour without diagnostics.
+          Rebuilt from the sources it was installed from.
+switch    (experiment 32): experiment 30 with a mono/stereo AUX switch (hold
+          AUX 1 + AUX 2 for 1.5 s), trial build with the query.
 
 Writes the trial image and the anchor file: a short silent 48 kHz stereo
 32-bit float WAV with the same 512-byte header layout as the extra files the
@@ -42,7 +45,8 @@ MODES=dict(reference=dict(experiment=24,out=ROOT/'deployment/24_master_ref',imag
            history=dict(experiment=28,out=ROOT/'deployment/28_take_history',image='trial_take_history',pin='5c39ab8',pads=4),
            daily=dict(experiment=29,out=ROOT/'deployment/29_daily',image='daily',pin='f8f2170',pads=4,trial=False),
            stereo=dict(experiment=30,out=ROOT/'deployment/30_stereo_aux',image='trial_stereo_aux',pin='cce6f50',pads=4,stereo=True),
-           daily_stereo=dict(experiment=31,out=ROOT/'deployment/31_daily_stereo',image='daily_stereo',pads=4,trial=False,stereo=True))
+           daily_stereo=dict(experiment=31,out=ROOT/'deployment/31_daily_stereo',image='daily_stereo',pin='cda0f26',pads=4,trial=False,stereo=True),
+           switch=dict(experiment=32,out=ROOT/'deployment/32_aux_switch',image='trial_aux_switch',pads=4,stereo=True))
 OUT=MODES['reference']['out']
 
 @contextlib.contextmanager
@@ -71,8 +75,9 @@ def trial(mode='reference'):
     data=assemble(stock,t);names=p['names'];wav=anchor()
     pads=[f'A:\\SOUND_PAD\\PAD{n}\\MASTER.WAV' for n in range(1,m['pads']+1)]
     report=dict(experiment=m['experiment'],mode='master' if mode=='reference' else mode,
-        minimum_take_seconds=2 if mode in ('minimum','everyday','history','daily','stereo','daily_stereo') else None,
-        take_history=mode in ('history','daily','stereo','daily_stereo'),stereo_aux=m.get('stereo',False),status='prepared_locally_not_staged',trial_sha256=digest(data),
+        minimum_take_seconds=2 if mode in ('minimum','everyday','history','daily','stereo','daily_stereo','switch') else None,
+        take_history=mode in ('history','daily','stereo','daily_stereo','switch'),stereo_aux=m.get('stereo',False),
+        aux_switch=mode=='switch',status='prepared_locally_not_staged',trial_sha256=digest(data),
         stock_sha256=STOCK_SHA,elf_sha256=elf_sha,patches=t['patches'],DSP_patches=[],
         metadata_edits=p['edits'],code_bytes=len(p['code']),globals_bytes=t['globals_bytes'],
         spare_bytes=t['packing']['spare_bytes'],
@@ -83,6 +88,7 @@ def trial(mode='reference'):
                     format='48 kHz stereo 32-bit float, 0.1 s silence, 512-byte header'),
         protocol=('6F/6E kind7 schema1; recorder/worker/handoff/heap words and the assigned path' if mode=='reference'
                   else 'none: no status query' if not diagnostic
+                  else '6F/6E kind7 schema5; as schema 4 plus the AUX mode, toggles and refusals' if mode=='switch'
                   else '6F/6E kind7 schema4; as schema 3 plus the AUX1 and AUX2 gain rows' if mode=='stereo'
                   else '6F/6E kind7 schema3; as schema 2 plus history written/failed/status/entries and pad files played' if mode=='history'
                   else '6F/6E kind7 schema2; recorder/worker/handoff/heap words, chain mask and each pad\'s saved take'),
@@ -93,11 +99,13 @@ def trial(mode='reference'):
             ['First hardware run of four queued assignments per take (one per pad)',
              'Stock reload keeps each reference only while that pad folder lists MASTER.WAV',
              'Four masters play from A:\\RECORDER while a take records: card load is untested']+
-            (['Takes under 2 s (96,000 frames, from the master header) are refused as short'] if mode in ('minimum','everyday','history','daily','stereo','daily_stereo') else [])+
+            (['Takes under 2 s (96,000 frames, from the master header) are refused as short'] if mode in ('minimum','everyday','history','daily','stereo','daily_stereo','switch') else [])+
+            (['First hardware run of the AUX 1 + AUX 2 hold switch, its LED feedback and the mode bytes in the internal settings',
+              'Starts in mono until switched; factory reset leaves the mode as it was'] if mode=='switch' else [])+
             (['First hardware run of the stereo AUX pair: jack order, separation, level, delay and the per-bus limiters are unmeasured',
               'Startup restore relies on the stock bulk recompute after the direct unity reset'] if mode=='stereo' else [])+
             (['First hardware run of the pad-start hook (0x80018316) and of writing HISTORY.TXT into take folders'] if mode=='history' else [])+
-            (['Power loss during the history write (directory sector shared with the take files) is untested'] if mode in ('history','daily','stereo','daily_stereo') else [])+
+            (['Power loss during the history write (directory sector shared with the take files) is untested'] if mode in ('history','daily','stereo','daily_stereo','switch') else [])+
             (['Stereo AUX is always on; mono-channel pan, scene recall and Editor changes are verified in emulation only'] if mode=='daily_stereo' else [])+
             (['No status query: hardware behaviour is checked by ear and from the saved pad paths'] if not diagnostic else []))+[
             'Deleting a referenced take folder is untested',
@@ -107,7 +115,7 @@ def trial(mode='reference'):
     return data,wav,report,t
 
 def main():
-    a=argparse.ArgumentParser(description=__doc__);a.add_argument('mode',nargs='?',choices=MODES,default='daily_stereo')
+    a=argparse.ArgumentParser(description=__doc__);a.add_argument('mode',nargs='?',choices=MODES,default='switch')
     mode=a.parse_args().mode;m=MODES[mode];out=m['out']
     data,wav,report,_=trial(mode)
     for path,content in ((out/m['image']/'L6.BIN',data),(out/'anchor'/'MASTER.WAV',wav)):

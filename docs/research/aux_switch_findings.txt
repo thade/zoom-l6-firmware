@@ -50,8 +50,14 @@ key} to Main (dispatcher 0x8002c9d8). AUX1/AUX2 (keys 16/17) select views in
 0x8003dd00 (held byte 0x804430d9); AUX + MUTE mutes that send. AUX1 held +
 AUX2 pressed just switches to the AUX2 view; there is no long-press timer for
 AUX, so a 1.5 s two-button hold timed on Main (tick 0x80077690) is free.
-LEDs: table 0x8062939c (2 bytes per LED; AUX1/AUX2 at 0x806293b4/b6). Voice
-guidance initialises only in setting mode.
+LEDs: table 0x8062939c (2 bytes per LED: level 0x10 on, mode 1 blinks; mutex
+[0x80446840]). The select LEDs (view EQ/AUX1/AUX2/EFX/PAN/LEVEL) are written
+by 0x800075d8(sel, on) at index sel+0xc (AUX1/AUX2 = sel 4/5 at
+0x806293bc/be), steady, exactly one lit for the current view (0x804430d8).
+0x80007e60(sel 4/5, level) writes index sel+6 (0x806293b0/b2), driven by
+channels 5/6's per-channel byte +0x12 next to the input-mode/USB path:
+apparently the USB 1/2 and 3/4 button LEDs, not AUX. Voice guidance
+initialises only in setting mode.
 
 5. MIDI
 Mixer Control port: assembler 0x8002d858 passes note/CC/program change to

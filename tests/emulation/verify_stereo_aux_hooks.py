@@ -11,7 +11,7 @@ import hashlib,json,random,struct
 from unicorn import UC_HOOK_CODE
 from unicorn.arm_const import (UC_ARM_REG_R0, UC_ARM_REG_R1, UC_ARM_REG_R2, UC_ARM_REG_R4, UC_ARM_REG_R5,
                                UC_ARM_REG_R6, UC_ARM_REG_R7, UC_ARM_REG_R8, UC_ARM_REG_S0, UC_ARM_REG_PC,
-                               UC_ARM_REG_SP)
+                               UC_ARM_REG_SP, UC_ARM_REG_LR)
 from verify_stereo_aux import Rig, B, C, STACK
 from verify_pad_protocol import ROOT,IMAGE
 from build_master_ref import build
@@ -22,6 +22,9 @@ import sys
 EVERYDAY=__name__=='__main__' and sys.argv[1:]==['everyday']
 ELF=build(trial=not EVERYDAY,stereo=True);PLAN=plan(ELF,trial=not EVERYDAY);PACK=PLAN['pack']
 SA={p['adapter']:p for p in PLAN['patches'] if p['adapter'].startswith('sa_')}
+NAMES=PACK['names']
+MODE=0x80440dc8+0x30d          # stereo when these two bytes are A5 5A
+LED=lambda sel: 0x8062939c+2*(sel+0xc)
 AUX1, AUX2 = B + 0x5e84, B + 0x5eac
 ST = lambda row, j: B + 0x5ed4 + 0x78*row + 12*j
 f32 = lambda x: struct.unpack('<f', struct.pack('<f', x))[0]
@@ -31,7 +34,7 @@ LANES_OF = {0: [0], 1: [1], 2: [2, 3], 3: [4, 5], 4: [6, 7], 5: [8, 9]}
 
 
 class Probe(Rig):
-    def __init__(self, patched):
+    def __init__(self, patched, stereo=True):
         super().__init__()
         self.requests = []
         self.patched = patched
@@ -41,6 +44,7 @@ class Probe(Rig):
             for p in SA.values():
                 assert self.raw(p['site'],len(bytes.fromhex(p['original'])))==bytes.fromhex(p['original'])
                 self.uc.mem_write(p['site'],bytes.fromhex(p['patch']))
+            self.uc.mem_write(MODE,bytes([0xa5,0x5a]) if stereo else bytes(2))
         core = 0x8001039c      # after the displaced prologue: the queue send, short-circuited
         self.uc.hook_add(UC_HOOK_CODE, self.core, begin=core, end=core)
 
@@ -251,6 +255,112 @@ def prototype():
     return dict(aux_requests_per_bulk=n_aux, level_change_requests=seq)
 
 
+def stub(p,address,result=0,calls=None):
+    """Return at once from a stock function (optionally recording its arguments)."""
+    def hook(uc,a,size,u):
+        if calls is not None:calls.append([uc.reg_read(r) for r in (UC_ARM_REG_R0,UC_ARM_REG_R1,UC_ARM_REG_R2)])
+        uc.reg_write(UC_ARM_REG_R0,result);uc.reg_write(UC_ARM_REG_PC,uc.reg_read(UC_ARM_REG_LR))
+    p.uc.hook_add(UC_HOOK_CODE,hook,begin=address,end=address)
+
+def controls(p,rnd,count=40):
+    for k in range(count):
+        j=rnd.randrange(10);which=rnd.randrange(6)
+        if which==0:p.run(0x80002918,[j,rnd.randrange(128),1])
+        elif which==1:p.run(0x80002928,[j,rnd.randrange(2),1])
+        elif which==2:p.run(0x80002878,[j,1+rnd.randrange(2),rnd.randrange(128),1])
+        elif which==3:p.run(0x80002890,[j,1+rnd.randrange(2),rnd.randrange(2),1])
+        elif which==4:p.run(0x80002ac0,[rnd.randrange(2),rnd.randrange(128),1])
+        else:p.run(0x800028d8,[rnd.randrange(4),rnd.randrange(128),1])
+
+def switch():
+    """Mono is stock exactly; holding AUX 1 + AUX 2 for 1.5 s toggles through Main."""
+    stock=Probe(False);p=Probe(True,stereo=False)
+    for q in (stock,p):
+        for j in range(10):q.floats(C+0x70+4*j,[1.0])
+        controls(q,random.Random(21))
+    assert p.raw(B+0x5e34,160)==stock.raw(B+0x5e34,160)          # all four rows, bit for bit
+    saves=[];stub(p,0x80006ab8,calls=saves)
+    stub(p,0x80076950,1);stub(p,0x800763d8,1)                     # LED lock take/give
+    p.uc.mem_write(0x801f9050,struct.pack('<I',30000))
+    p.run(NAMES['sa_toggle'],[0])
+    assert p.raw(MODE,2)==bytes([0xa5,0x5a]) and len(saves)==1
+    check_rows(p,'switched to stereo')
+    assert p.raw(LED(4),2)==bytes([0x10,1]) and p.raw(LED(5),2)==bytes([0x10,1])     # both blink: stereo
+    # AUX 2 edits while stereo are kept for mono.
+    rnd=random.Random(5)
+    for j in range(10):
+        v=rnd.randrange(128);p.run(0x80002878,[j,2,v,1]);stock.run(0x80002878,[j,2,v,1])
+    check_rows(p,'aux2 edits in stereo')
+    p.run(NAMES['sa_toggle'],[0])
+    assert p.raw(MODE,2)==bytes(2) and len(saves)==2
+    assert p.raw(LED(4),2)==bytes([0x10,0]) and p.raw(LED(5),2)==bytes([0x10,0])     # both steady: mono
+    assert p.raw(B+0x5e34,160)==stock.raw(B+0x5e34,160)          # back to stock, AUX 2 edits included
+    # After the show, the view indication comes back as stock draws it.
+    p.uc.mem_write(0x804430d8,b'\x05');p.run(NAMES['sa_restore'])
+    assert p.raw(LED(4),2)==bytes(2) and p.raw(LED(5),2)==bytes([0x10,0])
+    before=p.raw(B+0x5e34,160);p.run(NAMES['sa_toggle'],[1])     # recording: refused
+    assert p.raw(MODE,2)==bytes(2) and p.raw(B+0x5e34,160)==before and len(saves)==2
+    toggles,refused=(struct.unpack('<I',p.raw(NAMES[n],4))[0] for n in ('sa_toggles','sa_refused'))
+    assert (toggles,refused)==(2,1)
+    # The hold detector: both keys for 1.5 s posts once; less, one key, or a
+    # longer hold do not post again; a new hold does.
+    # The real key read: AUX 1/AUX 2 are bits 4/5 of the second key word.
+    p.uc.mem_write(0x808cb600,struct.pack('<I',0x30))
+    assert (p.run(0x80008478,[16]),p.run(0x80008478,[17]),p.run(0x80008478,[18]))==(1,1,0)
+    p.uc.mem_write(0x808cb600,struct.pack('<I',0x10));assert p.run(0x80008478,[17])==0
+    keys={16:0,17:0};posts=[]
+    def key(uc,a,size,u):
+        uc.reg_write(UC_ARM_REG_R0,keys.get(uc.reg_read(UC_ARM_REG_R0),0));uc.reg_write(UC_ARM_REG_PC,uc.reg_read(UC_ARM_REG_LR))
+    p.uc.hook_add(UC_HOOK_CODE,key,begin=0x80008478,end=0x80008478)
+    stub(p,0x80020ca0,calls=posts)
+    def poll(t,a1,a2):
+        keys[16],keys[17]=a1,a2;p.uc.mem_write(0x801f9050,struct.pack('<I',t));p.run(NAMES['sa_poll'])
+    toggles_posted=lambda:[q for q in posts if q[1]==0x4c364158]
+    for t in range(0,9990,50):poll(t,1,1)                         # the first 10 s after power-on: never
+    assert not toggles_posted()
+    def hold(start,stop,a1=1,a2=1):
+        for t in range(start,stop+1,50):poll(t,a1,a2)
+    T=40000
+    hold(T,T+2000,1,0);hold(T+2050,T+3500)                        # one key, then 1.45 s of both
+    assert not toggles_posted()
+    hold(T+3550,T+3600);assert len(toggles_posted())==1           # 1.5 s: toggles once
+    hold(T+3650,T+6000);assert len(toggles_posted())==1           # holding on: nothing more
+    hold(T+6050,T+6050,0,1);hold(T+6100,T+7700);assert len(toggles_posted())==2   # released, held again
+    hold(T+8000,T+8000,0,0)
+    hold(T+8050,T+9000);poll(T+9600,1,1)                          # a 600 ms stall: the hold restarts
+    hold(T+9650,T+11050);assert len(toggles_posted())==2
+    hold(T+11100,T+11150);assert len(toggles_posted())==3
+    # The LED show ends SHOW_TICKS after the toggle with a redraw request.
+    p.uc.mem_write(0x801f9050,struct.pack('<I',T+20000));posts.clear();p.run(NAMES['sa_toggle'],[0])
+    hold(T+20050,T+21950,0,0);assert not posts
+    hold(T+22000,T+22000,0,0);assert [q[:2] for q in posts]==[[3,0x4c364152]]
+    hold(T+22050,T+23000,0,0);assert len(posts)==1
+    # Main's receive hook routes the posted event to the toggle, refusing it
+    # while a take records (stock_recording, word 2 of the state).
+    state,packet=0x21010000,0x21020000
+    p.uc.mem_write(state,bytes(0x6000));p.uc.mem_write(NAMES['mr_state'],struct.pack('<I',state))
+    stub(p,0x80020690)                                            # stock receive: packet already in place
+    p.uc.mem_write(packet,struct.pack('<4I',3,0x4c364158,0,0))
+    mode=p.raw(MODE,2)
+    p.uc.mem_write(state+8,struct.pack('<I',1));p.run(NAMES['mr_main_receive'],[packet])
+    assert p.raw(MODE,2)==mode and struct.unpack('<I',p.raw(NAMES['sa_refused'],4))[0]==2
+    p.uc.mem_write(state+8,struct.pack('<I',0));p.uc.mem_write(0x80578ec0,struct.pack('<I',1))   # RecStop finalizing
+    p.run(NAMES['mr_main_receive'],[packet]);assert p.raw(MODE,2)==mode
+    p.uc.mem_write(0x80578ec0,struct.pack('<I',0))
+    p.uc.mem_write(packet,struct.pack('<4I',3,0x4c364d52,0,0));p.run(NAMES['mr_main_receive'],[packet])
+    assert p.raw(MODE,2)==mode                                    # another category-3 event: no toggle
+    p.uc.mem_write(packet,struct.pack('<4I',3,0x4c364158,0,0));p.run(NAMES['mr_main_receive'],[packet])
+    assert p.raw(MODE,2)!=mode
+    if p.raw(MODE,2)==bytes(2):p.run(NAMES['mr_main_receive'],[packet])   # end in stereo for the row check
+    assert p.raw(MODE,2)==bytes([0xa5,0x5a]);check_rows(p,'toggled through Main')
+    # The stock save request copies the global block, mode bytes included, into
+    # the image MacPrmSave writes to flash (P+0xf20 holds CONFIG+0x308...).
+    q=Probe(True);stub(q,0x800763d8,1)                            # semaphore give to MacPrmSave
+    q.uc.mem_write(0x804439a0+0xf25,bytes(2));q.run(0x80006ab8)
+    assert q.raw(0x804439a0+0xf25,2)==bytes([0xa5,0x5a])
+    return dict(mono_rows='stock bit for bit',hold_ms=1500,arm_ms=10000,show_ms=2000,
+                saved_at='P+0xf25 (flash image)')
+
 def master_unchanged():
     """The same control sequence leaves the master rows identical to stock."""
     rows=[]
@@ -276,6 +386,7 @@ def main():
     passed('the_real_ramp_task_moves_an_aux_pair_with_matching_768_sample_ramps',**ramp_machinery())
     passed('hooks_set_aux1_to_G_times_left_and_aux2_to_G_times_right_on_every_path',**prototype())
     passed('master_rows_are_unchanged_by_the_hooks',**master_unchanged())
+    passed('mono_is_stock_and_holding_aux1_aux2_toggles_with_save_and_leds',**switch())
     result=dict(passed=True,groups=len(cases),results=cases,firmware_sha256=hashlib.sha256(IMAGE).hexdigest(),
         elf_sha256=PLAN['elf_sha256'],limitations=[
             'The ramp request queue send is short-circuited; the ramp task is run separately with real slots',

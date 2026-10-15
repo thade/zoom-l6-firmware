@@ -4,6 +4,7 @@
  * with the Editor's select steps. Nothing here writes to the card. */
 #include <stddef.h>
 #include "master_ref.h"
+#include "stereo_aux.h"
 #include "../retention.h"
 
 #define LD(p) __atomic_load_n((p),__ATOMIC_ACQUIRE)
@@ -254,6 +255,9 @@ KEEP int32_t mr_main_receive(uint32_t *packet) {
     int32_t result=RECEIVE(packet);
     MasterRef *g=LD(&mr_state);if(!g)return result;
     if(packet[0]==MR_HANDOFF_EVENT && packet[1]==MR_HANDOFF_MAGIC)handoff(g,packet[2]);
+    if(packet[0]==MR_HANDOFF_EVENT && packet[1]==SA_TOGGLE_MAGIC && sa_toggle)
+        sa_toggle(LD(&g->stock_recording) || RECORDER_BUSY);
+    if(packet[0]==MR_HANDOFF_EVENT && packet[1]==SA_RESTORE_MAGIC && sa_restore)sa_restore();
     uint32_t storage=(packet[0]==0 && packet[2]>=0x32 && packet[2]<=0x35) ||
         (packet[0]==1 && packet[1]==0 && packet[2]<=5) ||
         (packet[0]==2 && (packet[2]==0xa2 || packet[2]==0xa3));
@@ -555,6 +559,7 @@ static void history_done(MasterRef *g,uint32_t status) {
 KEEP uint32_t mr_worker_step(void) {
     MasterRef *g=LD(&mr_state);if(!g)return 0;
     g->polls++;
+    if(sa_poll)sa_poll();   /* stereo builds: the AUX 1 + AUX 2 hold */
     uint32_t s=LD(&g->stopped);
     /* A take's history is finished before the next take is taken in. */
     if(s!=g->seen && !g->history_pending) {

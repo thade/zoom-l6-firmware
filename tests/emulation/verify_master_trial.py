@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Exact stereo AUX trial image and anchor file (experiment 30): take chain,
-take history and an always-on stereo AUX pair.
+"""Exact AUX switch trial image and anchor file (experiment 32): take chain,
+take history and a stereo AUX pair switchable by holding AUX 1 + AUX 2.
 
 The installed images of experiments 24 and 25 must still rebuild byte for byte
 (26 and 27 are checked by verify_master_everyday.py).
@@ -25,7 +25,7 @@ from scatter_codec import expand
 sys.path.insert(0,str(ROOT/'tools/device'))
 from l6_padref_probe import request,decode,validate_samples,validate_take
 
-IMAGE24,ANCHOR,MANIFEST,T=trial('stereo');TP=T['pack'];TN=TP['names'];OUT=MODES['stereo']['out']
+IMAGE24,ANCHOR,MANIFEST,T=trial('switch');TP=T['pack'];TN=TP['names'];OUT=MODES['switch']['out']
 EXPERIMENT24='cb6d34fd9d5f576469e89d440d8affad40345d62611d87a1c36e2b7705d72574'
 EXPERIMENT25='e3168b78c7d159678b7e7cc9762d5b724eaa05cd9ae740433a3ce678456e6713'
 
@@ -61,14 +61,14 @@ def main():
     old=trial('chain')[0];assert digest(old)==EXPERIMENT25==digest((MODES['chain']['out']/'trial_take_chain/L6.BIN').read_bytes())
     passed('experiment_24_and_25_installed_images_rebuild_byte_for_byte_from_their_pinned_sources',
            experiment24=EXPERIMENT24,experiment25=EXPERIMENT25)
-    assert (OUT/'trial_stereo_aux/L6.BIN').read_bytes()==IMAGE24 and (OUT/'anchor/MASTER.WAV').read_bytes()==ANCHOR
+    assert (OUT/'trial_aux_switch/L6.BIN').read_bytes()==IMAGE24 and (OUT/'anchor/MASTER.WAV').read_bytes()==ANCHOR
     validate(IMAGE24);assert len(IMAGE24)==len(IMAGE) and IMAGE24[0x2851f8:]==IMAGE[0x2851f8:]
     adapters=sorted(p['adapter'] for p in MANIFEST['patches'])
     assert len(adapters)==16 and adapters.count('mr_main_receive')==5 and not MANIFEST['DSP_patches']
     assert {'mr_admit_hook','mr_stop_hook','mr_play_hook','sa_ramp','sa_mono_pan','sa_balance','sa_reset1','sa_reset2','health_parser',
             'startup_init_hook','startup_idle_hook'}<=set(adapters)
     assert IMAGE24[SIZE_SITE-BIAS:SIZE_SITE-BIAS+4]==IMAGE[SIZE_SITE-BIAS:SIZE_SITE-BIAS+4]==bytes.fromhex('4af68011')
-    assert MANIFEST['experiment']==30 and MANIFEST['take_history'] and MANIFEST['stereo_aux'] and MANIFEST['minimum_take_seconds']==2 and len(MANIFEST['anchor']['card_paths'])==4 and not MANIFEST['files_created'] and MANIFEST['native_capacity_frames']==240000
+    assert MANIFEST['experiment']==32 and MANIFEST['take_history'] and MANIFEST['stereo_aux'] and MANIFEST['aux_switch'] and MANIFEST['minimum_take_seconds']==2 and len(MANIFEST['anchor']['card_paths'])==4 and not MANIFEST['files_created'] and MANIFEST['native_capacity_frames']==240000
     # The query's bounds words read the scatter records that place the code.
     words=struct.unpack_from('<IIII',IMAGE24,0x800a6930-BIAS)[:2]+struct.unpack_from('<II',IMAGE24,0x800a6940-BIAS)
     assert (words[0],words[0]+words[1],words[2],words[2]+words[3])==tuple(
@@ -81,7 +81,7 @@ def main():
     passed('original_reset_and_scatter_expand_the_image_with_the_stock_DSP_code')
 
     b=MasterBoot();b.boot()
-    assert b.created==[(b'L6PadRef\0',2048,1)] and b.word(TN['mr_startup_status'])==4
+    assert b.created==[(b'L6PadRef\0',2048,1)] and b.word(RIG['mr_startup_status'])==4   # the rig's own build
     passed('original_startup_registers_the_worker_at_priority_1_with_an_8_KiB_stack')
 
     # Anchor: the 512-byte header layout experiment 21's accepted files used.
@@ -94,7 +94,7 @@ def main():
 
     # Status: idle samples, then one emulated take decoded by the probe.
     r=TrialRig();r.set('task',0x80900000)
-    r.m.uc.mem_write(TN['mr_startup_status'],struct.pack('<I',4))   # as the boot group registered it
+    r.m.uc.mem_write(RIG['mr_startup_status'],struct.pack('<I',4))   # as the boot group registered it
     idle=[r.query()]
     idle[0].update(free_bytes=140936,minimum_free_bytes=140000,stack_used=1024,ccr=0x70200,
                    code_start=MANIFEST['code_start'],code_end=MANIFEST['code_end'],
@@ -114,6 +114,9 @@ def main():
     # Schema 4 reads the live AUX gain rows back as floats.
     r.m.uc.mem_write(0x20010a48+0x5e84,struct.pack('<20f',*[j/8 for j in range(20)]))
     rows=r.query();assert rows['aux1']==[j/8 for j in range(10)] and rows['aux2']==[j/8 for j in range(10,20)]
+    # Schema 5: the mode bytes (stereo only for A5 5A); the rig's build has no switch.
+    assert rows['schema']==5 and rows['aux_mode']==0 and not rows['aux_stereo'] and rows['aux_toggles']==0xffffffff
+    r.m.uc.mem_write(0x80440dc8+0x30d,bytes([0xa5,0x5a]));assert r.query()['aux_stereo']
     assert r.history(MASTER)==b'L6 HISTORY 1\nRECORDER/261011_140009\nSOUND SOUND_PAD/PAD2/GLORY_BOX.WAV\nEND 2\n'
     # Pad 2's hand-picked sound is overwritten; pad 3 already holds its take;
     # pad 4's non-take keeps its place past the end of the chain.

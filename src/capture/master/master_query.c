@@ -5,7 +5,9 @@
 #include "../retention.h"
 #define W(a) (*(volatile const uint32_t *)(a))
 #define LD(p) __atomic_load_n((p),__ATOMIC_ACQUIRE)
-#define VALUES 36u
+#define VALUES 39u
+#define AUX_MODE(i) (*(volatile const uint8_t *)(0x80440dc8u+0x30du+(i)))   /* A5 5A = stereo */
+extern uint32_t sa_toggles __attribute__((weak)),sa_refused __attribute__((weak));
 #define AUX_WORDS 20u
 #define AUX_GAINS ((volatile const uint32_t *)(0x20010a48u+0x5e84u))   /* AUX1 then AUX2 rows, raw floats */
 #define PAD_WORDS 4u     /* per pad: 16 characters, four 7-bit characters per word */
@@ -39,7 +41,7 @@ KEEP uint32_t mr_query(const uint8_t *packet) {
 #define F(x) (g?(x):0)
     /* Words are encoded straight into the reply (Main's stack is not measured). */
     uint8_t reply[8+5*(VALUES+AUX_WORDS+PATH_WORDS)];
-    uint32_t values[VALUES]={4,0x4c4d01,mr_startup_status,F(g->task),
+    uint32_t values[VALUES]={5,0x4c4d01,mr_startup_status,F(g->task),
         F(LD(&g->admitted)),F(LD(&g->stopped)),F(LD(&g->stock_recording)),F(g->stop_faults),
         F(LD(&g->revoked)),F(g->revoke_packet),F(LD(&g->file_open)),F(g->polls),
         F(g->checked),F(g->refused),F(g->last_status),F(g->master_bytes),
@@ -48,7 +50,8 @@ KEEP uint32_t mr_query(const uint8_t *packet) {
         /* Published bounds, read back from the scatter records that placed them. */
         W(0x800a6930u),W(0x800a6930u)+W(0x800a6934u),W(0x800a6940u),W(0x800a6940u)+W(0x800a6944u),
         W(0x80578ec0u),F(g->chain_mask),
-        F(g->history_written),F(g->history_failed),F(g->history_status),F(g->history_entries),F(g->stop_played_count)};
+        F(g->history_written),F(g->history_failed),F(g->history_status),F(g->history_entries),F(g->stop_played_count),
+        AUX_MODE(0)|AUX_MODE(1)<<8,&sa_toggles?sa_toggles:0xffffffffu,&sa_refused?sa_refused:0xffffffffu};
 #undef F
     for(uint32_t i=0;i<VALUES;i++)encode(reply,i,values[i]);
     for(uint32_t i=0;i<AUX_WORDS;i++)encode(reply,VALUES+i,AUX_GAINS[i]);
