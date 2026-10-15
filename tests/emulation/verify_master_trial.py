@@ -117,7 +117,7 @@ def main():
     # Schema 5: the mode bytes (stereo only for A5 5A); the rig's build has no switch.
     assert rows['schema']==5 and rows['aux_mode']==0 and not rows['aux_stereo'] and rows['aux_toggles']==0xffffffff
     r.m.uc.mem_write(0x80440dc8+0x30d,bytes([0xa5,0x5a]));assert r.query()['aux_stereo']
-    assert r.history(MASTER)==b'L6 HISTORY 1\nRECORDER/261011_140009\nSOUND SOUND_PAD/PAD2/GLORY_BOX.WAV\nEND 2\n'
+    assert r.history(MASTER)==b'L6 HISTORY 2\nRECORDER/261011_140009\nSOUND SOUND_PAD/PAD2/GLORY_BOX.WAV\nEND 2\n'
     # Pad 2's hand-picked sound is overwritten; pad 3 already holds its take;
     # pad 4's non-take keeps its place past the end of the chain.
     assert after['pads']==['261011_130947','261011_140009','261011_140008','#MASTER_01.WAV'] and after['chain_mask']==0b11

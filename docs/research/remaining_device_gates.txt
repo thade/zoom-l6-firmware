@@ -1,3 +1,6 @@
+SCOPE (15 October 2026): these gates are for the capture designs (experiments
+17-23), not for release 0.1.0, which needs none of the capture paths.
+
 Remaining deployment gates — updated 11 October 2026
 ===========================================
 

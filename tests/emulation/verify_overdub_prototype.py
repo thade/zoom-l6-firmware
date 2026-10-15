@@ -184,9 +184,10 @@ class Rig:
 
     def take(self,n):
         path=f'A:\\RECORDER\\TAKE{n:03}\\MASTER.WAV'
-        template=ROOT/'analysis/overdub_test/pass2/261002_181142/MASTER.WAV'
-        with template.open('rb') as f:header=bytearray(f.read(910))
-        assert header[902:906]==b'data'
+        # The stock master header (48 kHz stereo float, PAD to 902, data), as
+        # in the recording these fixtures were first taken from.
+        header=bytearray(b'RIFF')+bytes(4)+b'WAVEfmt '+struct.pack('<IHHIIHH',16,3,2,48000,384000,8,32)
+        header+=b'PAD '+struct.pack('<I',858)+bytes(858)+b'data'+bytes(4)
         samples=struct.pack('<ff',n/100,-n/100)*1024
         struct.pack_into('<I',header,4,len(header)+len(samples)-8)
         struct.pack_into('<I',header,906,len(samples))

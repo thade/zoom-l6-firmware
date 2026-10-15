@@ -1,32 +1,22 @@
 #!/usr/bin/env python3
-"""Prepare the master-reference trials locally. No device access.
+"""Build the master-reference images locally: the 0.1.0 release and every
+earlier experiment, byte for byte. No device access.
 
-reference (experiment 24): pad 1 plays the last take's master. Rebuilt from
-          the sources it was installed from.
-chain     (experiment 25): pads 1-4 play the last four takes, newest on pad 1.
-          Rebuilt from the sources it was installed from.
-minimum   (experiment 26): as chain, but takes under 2 seconds stay off the pads.
-          Rebuilt from the sources it was installed from.
-everyday  (experiment 27): the experiment 26 behaviour without diagnostics: no
-          status query (and its Editor parser hook) and no stack measurement.
-          Rebuilt from the sources it was installed from.
-history   (experiment 28): the chain plus a HISTORY.TXT in each take folder,
-          listing the recordings it includes (trial build with the query).
-          Rebuilt from the sources it was installed from.
-daily     (experiment 29): the experiment 28 behaviour without diagnostics.
-          Rebuilt from the sources it was installed from.
-stereo    (experiment 30): experiment 28 plus an always-on stereo AUX pair
-          (AUX 1 left, AUX 2 right), trial build with the query.
-          Rebuilt from the sources it was installed from.
-daily_stereo (experiment 31): the experiment 30 behaviour without diagnostics.
-          Rebuilt from the sources it was installed from.
-switch    (experiment 32): experiment 30 with a mono/stereo AUX switch (hold
-          AUX 1 + AUX 2 for 1.5 s), trial build with the query.
-          Rebuilt from the sources it was installed from.
-daily_switch (experiment 33): the experiment 32 behaviour without diagnostics,
-          with the review fixes: refused during every recording (pad
-          recordings too), stock mono if the switch cannot run, and an LED
-          show that always ends.
+Every mode but `release` is pinned to the commit its image was built from and
+must reproduce that image's hash exactly (24-26, 28-30, 32 and 33 were
+installed; 27 and 31 were prepared and superseded before installation).
+
+reference    (24) pad 1 plays the last take's master
+chain        (25) pads 1-4 play the last four takes, newest on pad 1
+minimum      (26) as chain; takes under 2 s stay off the pads
+everyday     (27) 26 without diagnostics (no status query, no stack paint)
+history      (28) the chain plus HISTORY.TXT in each take folder
+daily        (29) 28 without diagnostics
+stereo       (30) 28 plus an always-on stereo AUX pair (AUX 1 left, AUX 2 right)
+daily_stereo (31) 30 without diagnostics
+switch       (32) 30 with the mono/stereo switch (hold AUX 1 + AUX 2 for 1.5 s)
+daily_switch (33) 32 without diagnostics, with the switch review fixes
+release      (34) version 0.1.0: 33 plus the release review fixes (default)
 
 Writes the trial image and the anchor file: a short silent 48 kHz stereo
 32-bit float WAV with the same 512-byte header layout as the extra files the
@@ -43,17 +33,35 @@ from plan_master_ref import plan
 ANCHOR_FRAMES=4800   # 0.1 s of silence
 PINNED_SOURCES=('src/capture/master','src/capture/hook_macros.inc','src/capture/retention.h',
                 'src/diagnostics/health_hooks.S','tests/fixtures/capture_source_reuse.ld')
-MODES=dict(reference=dict(experiment=24,out=ROOT/'deployment/24_master_ref',image='trial_master_ref',pin='5765dbf',pads=1),
-           chain=dict(experiment=25,out=ROOT/'deployment/25_take_chain',image='trial_take_chain',pin='2fc1c7d',pads=4),
-           minimum=dict(experiment=26,out=ROOT/'deployment/26_short_takes',image='trial_short_takes',pin='da89fc3',pads=4),
-           everyday=dict(experiment=27,out=ROOT/'deployment/27_everyday',image='everyday',pin='068a5cc',pads=4,trial=False),
-           history=dict(experiment=28,out=ROOT/'deployment/28_take_history',image='trial_take_history',pin='5c39ab8',pads=4),
-           daily=dict(experiment=29,out=ROOT/'deployment/29_daily',image='daily',pin='f8f2170',pads=4,trial=False),
-           stereo=dict(experiment=30,out=ROOT/'deployment/30_stereo_aux',image='trial_stereo_aux',pin='cce6f50',pads=4,stereo=True),
-           daily_stereo=dict(experiment=31,out=ROOT/'deployment/31_daily_stereo',image='daily_stereo',pin='cda0f26',pads=4,trial=False,stereo=True),
-           switch=dict(experiment=32,out=ROOT/'deployment/32_aux_switch',image='trial_aux_switch',pin='3f8e199',pads=4,stereo=True),
-           daily_switch=dict(experiment=33,out=ROOT/'deployment/33_daily_switch',image='daily_switch',pads=4,trial=False,stereo=True))
-OUT=MODES['reference']['out']
+D='deployment/'
+# Each mode: its experiment, output folder and image name, the commit its
+# sources are pinned to and the image hash that must come out (installed or
+# released images rebuild byte for byte), the pads it uses, whether it is a
+# diagnostic (trial) build, and its features.
+MODES=dict(
+    reference=dict(experiment=24,out=ROOT/D/'24_master_ref',image='trial_master_ref',pin='5765dbf',pads=1,
+                   sha='cb6d34fd9d5f576469e89d440d8affad40345d62611d87a1c36e2b7705d72574'),
+    chain=dict(experiment=25,out=ROOT/D/'25_take_chain',image='trial_take_chain',pin='2fc1c7d',pads=4,
+               sha='e3168b78c7d159678b7e7cc9762d5b724eaa05cd9ae740433a3ce678456e6713'),
+    minimum=dict(experiment=26,out=ROOT/D/'26_short_takes',image='trial_short_takes',pin='da89fc3',pads=4,minimum=True,
+                 sha='268f1a76a4f8c49a4498cf8d9881201effe83484cd19845a6ed38b62e2c6edf9'),
+    everyday=dict(experiment=27,out=ROOT/D/'27_everyday',image='everyday',pin='068a5cc',pads=4,trial=False,minimum=True,
+                  sha='5b9bb4e56abaf1d4890e92f301804834cd5f8c2dacdb7345cf55592574d12300'),
+    history=dict(experiment=28,out=ROOT/D/'28_take_history',image='trial_take_history',pin='5c39ab8',pads=4,minimum=True,history=True,
+                 sha='e22e388293f4b0ce84e09fac3fc5d9bb8db6670189fad5a1db290d0bc0944f2c'),
+    daily=dict(experiment=29,out=ROOT/D/'29_daily',image='daily',pin='f8f2170',pads=4,trial=False,minimum=True,history=True,
+               sha='510a057e866963243018a0a9025185af6071b9d79538ce4084a01f4251474fde'),
+    stereo=dict(experiment=30,out=ROOT/D/'30_stereo_aux',image='trial_stereo_aux',pin='cce6f50',pads=4,minimum=True,history=True,stereo=True,
+                sha='5b3ad135ebd19d31aa5f1acd8c6030b6a870344536c881f881be58d6c70eeb31'),
+    daily_stereo=dict(experiment=31,out=ROOT/D/'31_daily_stereo',image='daily_stereo',pin='cda0f26',pads=4,trial=False,minimum=True,
+                      history=True,stereo=True,sha='c618db4e8c1dcb3f9f7130bcde30c22c48397e0b489bfa9073a2446807ff818b'),
+    switch=dict(experiment=32,out=ROOT/D/'32_aux_switch',image='trial_aux_switch',pin='3f8e199',pads=4,minimum=True,history=True,
+                stereo=True,switch=True,sha='8acd59d46f9274c7c2c933f28b978b03a17335036b122db2431e313e3f1c721f'),
+    daily_switch=dict(experiment=33,out=ROOT/D/'33_daily_switch',image='daily_switch',pin='cccb5b6',pads=4,trial=False,minimum=True,
+                      history=True,stereo=True,switch=True,sha='36f2025bb62ad9d655e02f24769fcbede910cb53a26e87782cabfa9157e04ab9'),
+    # Release 0.1.0: experiment 33 plus the release review fixes. Pinned once installed.
+    release=dict(experiment=34,out=ROOT/D/'34_release',image='release',pads=4,trial=False,minimum=True,
+                 history=True,stereo=True,switch=True,version='0.1.0'))
 
 @contextlib.contextmanager
 def trial_elf(m):
@@ -79,11 +87,16 @@ def trial(mode='reference'):
     with trial_elf(m) as elf:t=plan(elf,trial=diagnostic);elf_sha=digest(elf.read_bytes())
     p=t['pack']
     data=assemble(stock,t);names=p['names'];wav=anchor()
+    # The features the mode promises are the hooks the plan patched.
+    adapters={q['adapter'] for q in t['patches']}
+    for hook,wanted in (('health_parser',diagnostic),('mr_play_hook',m.get('history',False)),('sa_ramp',m.get('stereo',False))):
+        require((hook in adapters)==wanted,f'{mode}: {hook} patched: {hook in adapters}, expected {wanted}')
+    if 'sha' in m:require(digest(data)==m['sha'],f'{mode}: image {digest(data)} differs from the expected {m["sha"]}')
     pads=[f'A:\\SOUND_PAD\\PAD{n}\\MASTER.WAV' for n in range(1,m['pads']+1)]
-    report=dict(experiment=m['experiment'],mode='master' if mode=='reference' else mode,
-        minimum_take_seconds=2 if mode in ('minimum','everyday','history','daily','stereo','daily_stereo','switch','daily_switch') else None,
-        take_history=mode in ('history','daily','stereo','daily_stereo','switch','daily_switch'),stereo_aux=m.get('stereo',False),
-        aux_switch=mode in ('switch','daily_switch'),status='prepared_locally_not_staged',trial_sha256=digest(data),
+    report=dict(experiment=m['experiment'],mode='master' if mode=='reference' else mode,version=m.get('version'),
+        minimum_take_seconds=2 if m.get('minimum') else None,
+        take_history=m.get('history',False),stereo_aux=m.get('stereo',False),
+        aux_switch=m.get('switch',False),status='built',expected_sha256=m.get('sha'),trial_sha256=digest(data),
         stock_sha256=STOCK_SHA,elf_sha256=elf_sha,patches=t['patches'],DSP_patches=[],
         metadata_edits=p['edits'],code_bytes=len(p['code']),globals_bytes=t['globals_bytes'],
         spare_bytes=t['packing']['spare_bytes'],
@@ -105,25 +118,26 @@ def trial(mode='reference'):
             ['First hardware run of four queued assignments per take (one per pad)',
              'Stock reload keeps each reference only while that pad folder lists MASTER.WAV',
              'Four masters play from A:\\RECORDER while a take records: card load is untested']+
-            (['Takes under 2 s (96,000 frames, from the master header) are refused as short'] if mode in ('minimum','everyday','history','daily','stereo','daily_stereo','switch','daily_switch') else [])+
+            (['Takes under 2 s (96,000 frames, from the master header) are refused as short'] if m.get('minimum') else [])+
             (['First hardware run of the AUX 1 + AUX 2 hold switch, its LED feedback and the mode bytes in the internal settings',
               'Starts in mono until switched; factory reset leaves the mode as it was'] if mode=='switch' else [])+
             (['First hardware run of the review fixes: refusal during pad recordings, the LED show ending from Main, stock mono without the worker',
               'Keeps the mode stored by experiment 32 (stereo when last switched to stereo)'] if mode=='daily_switch' else [])+
+            (['History newest first, at most 100 lines (OMITTED), version 2; file calls also wait during pad recordings and playback'] if mode=='release' else [])+
             (['First hardware run of the stereo AUX pair: jack order, separation, level, delay and the per-bus limiters are unmeasured',
               'Startup restore relies on the stock bulk recompute after the direct unity reset'] if mode=='stereo' else [])+
             (['First hardware run of the pad-start hook (0x80018316) and of writing HISTORY.TXT into take folders'] if mode=='history' else [])+
-            (['Power loss during the history write (directory sector shared with the take files) is untested'] if mode in ('history','daily','stereo','daily_stereo','switch','daily_switch') else [])+
+            (['Power loss during the history write (directory sector shared with the take files) is untested'] if m.get('history') else [])+
             (['Stereo AUX is always on; mono-channel pan, scene recall and Editor changes are verified in emulation only'] if mode=='daily_stereo' else [])+
             (['No status query: hardware behaviour is checked by ear and from the saved pad paths'] if not diagnostic else []))+[
-            'Deleting a referenced take folder is untested',
+            *(['Deleting a referenced take folder is untested'] if m['experiment']<29 else []),
             *(['Worker stack is measured by painting 7 KiB below its entry frame'] if diagnostic else []),
             'Early-hang recovery (experiment 18) is parked and unproven',
             'No installation, staging or installed-flash readback is performed by this builder'])
     return data,wav,report,t
 
 def main():
-    a=argparse.ArgumentParser(description=__doc__);a.add_argument('mode',nargs='?',choices=MODES,default='daily_switch')
+    a=argparse.ArgumentParser(description=__doc__);a.add_argument('mode',nargs='?',choices=MODES,default='release')
     mode=a.parse_args().mode;m=MODES[mode];out=m['out']
     data,wav,report,_=trial(mode)
     for path,content in ((out/m['image']/'L6.BIN',data),(out/'anchor'/'MASTER.WAV',wav)):

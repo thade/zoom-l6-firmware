@@ -1,7 +1,8 @@
-/* Pad 1 references the last ordinary take's stock master, for stock L6 v1.10.
- * The recorder task notes the take folder at RecStop; a low-priority worker
- * waits for RecStop to finish and checks the file; Main assigns it to pad 1
- * with the Editor's select steps. Nothing here writes to the card. */
+/* The pads reference the last ordinary takes' stock masters, for stock L6
+ * v1.10. The recorder task notes the take folder at RecStop; a low-priority
+ * worker waits for the recorder, checks the master and writes the take's
+ * HISTORY.TXT (its only card writes); Main assigns the chain with the
+ * Editor's select steps. */
 #include <stddef.h>
 #include "master_ref.h"
 #include "stereo_aux.h"
@@ -17,6 +18,7 @@
 #define TAKE_DIR ((const volatile uint16_t *)0x8060ff80u)
 #define REC_STOP_RETURN 0x8004ba4du   /* RecStop's call of the setter; PlayStop also calls it */
 #define RECORDER_BUSY W(0x80578ec0u)  /* RecPlayCtl is running a callback (RecStop includes finalize) */
+#define REC_STATE B8(0x80578ebcu)     /* stock recorder: 1 recording (any target), 2 playing, else 0 */
 
 typedef int32_t (*Open)(uint32_t*,const uint16_t*,uint32_t,uint32_t);
 #define OPEN ((Open)0x8005ffe9u)
@@ -128,7 +130,7 @@ KEEP void mr_admit(void) {
     MasterRef *g=LD(&mr_state);if(!g)return;
     /* Any admission ends a take whose stop never reached the setter (card
      * cleanup finalizes without it). */
-    g->open_take=0;ST(&g->played_open,0);
+    ST(&g->stock_recording,0);ST(&g->played_open,0);
     if(!normal_recording() || interrupt()){ST(&g->stock_recording,0);return;}
     g->admit_revoked=LD(&g->revoked);
     /* A fresh played set, then open it, then add the pads already playing. */
@@ -136,7 +138,7 @@ KEEP void mr_admit(void) {
     ST(&g->played_gen,gen);g->played_overflow=0;ST(&g->played_count,0);
     ST(&g->played_open,1);
     for(uint32_t p=0;p<MR_PADS;p++)if(ACTIVE(p))record_played(g,p,gen);
-    ST(&g->stock_recording,1);g->open_take=1;
+    ST(&g->stock_recording,1);
     ST(&g->admitted,g->admitted+1);
 }
 /* Stock stop cursor setter (0x80006918), inside RecStop before the stock
@@ -146,9 +148,9 @@ KEEP void mr_stop(uint32_t selected,uint32_t caller) {
     MasterRef *g=LD(&mr_state);if(!g)return;
     if(caller!=REC_STOP_RETURN)return;
     ST(&g->played_open,0);   /* first: later pad starts belong to no take */
+    uint32_t open=LD(&g->stock_recording);
     ST(&g->stock_recording,0);
-    if(!g->open_take)return;
-    g->open_take=0;
+    if(!open)return;
     /* Build locally: stop_path changes only together with stopped. */
     uint16_t path[MR_PATH];uint32_t n=0;
     while(n<MR_DIR && TAKE_DIR[n]){path[n]=TAKE_DIR[n];n++;}
@@ -276,6 +278,11 @@ KEEP int32_t mr_main_receive(uint32_t *packet) {
 }
 
 /* ---- Worker ---- */
+/* The card belongs to the recorder while any recording or playback runs
+ * (pad recordings included) or a RecPlayCtl callback does: the worker makes
+ * no file call then. The stock filesystem locks have no priority
+ * inheritance, so a priority-1 holder could stall the recorder's file work. */
+static int recorder_busy(const MasterRef *g) {return LD(&g->stock_recording) || REC_STATE || RECORDER_BUSY;}
 static void post(MasterRef *g) {
     g->handoff_posts++;g->handoff_posted_at=g->polls;
     POST(MR_HANDOFF_EVENT,MR_HANDOFF_MAGIC,g->handoff_serial,0,0);
@@ -350,12 +357,17 @@ static uint32_t check(MasterRef *g) {
     return playable(head,got,bytes);
 }
 /* ---- Worker: HISTORY.TXT in the new take folder ----
- * "L6 HISTORY 1", one line per included recording folder (RECORDER/<take>)
- * or hand-picked sound (SOUND <path>), no repeats, optionally TRUNCATED,
- * then "END <entries>". For each pad file that played during the take: a
- * take adds its own history's entries and then its folder; any other file
- * adds a SOUND line. Folders are relative to the card root, '/' separated. */
-static const char HEADER[]="L6 HISTORY 1\n";
+ * "L6 HISTORY 2", one line per included recording folder (RECORDER/<take>)
+ * or hand-picked sound (SOUND <path>), no repeats, newest first: the pad
+ * files that played during the take (a take's folder, or a SOUND line), then
+ * each played take's own history in turn. At most MR_ENTRIES lines: the rest
+ * (the oldest) is left out and an OMITTED line says so; each listed take's
+ * own HISTORY.TXT still lists what it included. TRUNCATED marks a list that
+ * is incomplete (a history that could not be read or written, or 4 KiB
+ * reached). Then "END <entries>". Folders are relative to the card root, '/'
+ * separated. Version 1 files (oldest first, no limit) are read too. */
+static const char HEADER[]="L6 HISTORY 2\n";
+#define HEADER_VERSION 11u      /* index of the version digit */
 static const uint16_t HISTORY[]=u"\\HISTORY.TXT";
 static const uint16_t HISTORY_TMP[]=u"\\HISTORY.TMP";
 static uint32_t text(char *out,uint32_t at,const char *s) {
@@ -375,10 +387,11 @@ static int listed(const MasterRef *g,uint32_t used,const char *line,uint32_t n) 
     return 0;
 }
 /* Append one entry line (without its newline) unless present; room is kept
- * for "TRUNCATED\n" and "END nnn\n". */
+ * for "OMITTED\n", "TRUNCATED\n" and "END nnn\n". */
 static uint32_t entry(MasterRef *g,uint32_t used,const char *line,uint32_t n) {
     if(!n || listed(g,used,line,n))return used;
-    if(used+n+1>MR_HISTORY-24){g->history_truncated=1;return used;}
+    if(g->history_entries>=MR_ENTRIES){g->history_omitted=1;return used;}
+    if(used+n+1>MR_HISTORY-32){g->history_truncated=1;return used;}
     for(uint32_t k=0;k<n;k++)g->history[used+k]=line[k];
     g->history[used+n]='\n';g->history_entries++;
     return used+n+1;
@@ -400,12 +413,11 @@ static uint32_t card_line(char *line,uint32_t size,const char *prefix,const uint
     }
     return n;
 }
-/* File calls for the history: only while the recorder is idle (the stock
- * filesystem locks have no priority inheritance, so a priority-1 holder can
- * stall the recorder's priority-28 file worker), and inside file_open so
- * Main's storage-change wait covers them. Returns 0 to make no call. */
+/* File calls for the history: only while the recorder is idle, and inside
+ * file_open so Main's storage-change wait covers them. Returns 0 to make no
+ * call. */
 static int io_begin(MasterRef *g) {
-    if(LD(&g->stock_recording) || RECORDER_BUSY){g->history_defer=1;return 0;}
+    if(recorder_busy(g)){g->history_defer=1;return 0;}
     __atomic_store_n(&g->file_open,1,__ATOMIC_SEQ_CST);
     __atomic_thread_fence(__ATOMIC_SEQ_CST);
     if(revoked(g)){ST(&g->file_open,0);return 0;}
@@ -432,7 +444,8 @@ static int32_t read_backing(MasterRef *g,const uint16_t *file,uint32_t *bytes) {
     if(!ok)return -2;
     const char *b=g->backing;
     if(got<sizeof(HEADER)-1+6 || b[got-1]!='\n')return -2;
-    for(uint32_t k=0;k<sizeof(HEADER)-1;k++)if(b[k]!=HEADER[k])return -2;
+    for(uint32_t k=0;k<sizeof(HEADER)-1;k++)if(k!=HEADER_VERSION && b[k]!=HEADER[k])return -2;
+    if(b[HEADER_VERSION]!='1' && b[HEADER_VERSION]!='2')return -2;
     uint32_t last=got-1;while(last>0 && b[last-1]!='\n')last--;
     if(got-last<6 || b[last]!='E' || b[last+1]!='N' || b[last+2]!='D' || b[last+3]!=' ')return -2;
     uint32_t count=0;
@@ -457,6 +470,10 @@ static int unwritten(const MasterRef *g,const uint16_t *folder,uint32_t n) {
         }
     return 0;
 }
+static int is_line(const char *line,uint32_t len,const char *text) {
+    uint32_t k=0;while(k<len && text[k] && line[k]==text[k])k++;
+    return k==len && !text[k];
+}
 /* Add a played take's own entries, if its history is complete. */
 static uint32_t inherit(MasterRef *g,uint32_t used,const uint16_t *folder,uint32_t n) {
     uint16_t file[MR_PATH];
@@ -477,9 +494,8 @@ static uint32_t inherit(MasterRef *g,uint32_t used,const uint16_t *folder,uint32
     for(uint32_t at=sizeof(HEADER)-1;at<end;) {
         uint32_t stop=at;while(stop<end && g->backing[stop]!='\n')stop++;
         const char *line=g->backing+at;uint32_t len=stop-at;
-        static const char truncated[]="TRUNCATED";
-        uint32_t k=0;while(k<len && k<9 && line[k]==truncated[k])k++;
-        if(len==9 && k==9)g->history_truncated=1;
+        if(is_line(line,len,"TRUNCATED"))g->history_truncated=1;
+        else if(is_line(line,len,"OMITTED"))g->history_omitted=1;
         else {used=entry(g,used,line,len);entries++;}
         at=stop+1;
     }
@@ -507,27 +523,37 @@ static uint32_t write_file(MasterRef *g,const uint16_t *tmp,const uint16_t *fina
     io_end(g);
     return status;
 }
+/* A played path that is a take master: the length of its folder, else 0. */
+static uint32_t take_folder(const uint16_t *path,uint32_t n) {
+    uint32_t tail=sizeof(MASTER)/2-1;
+    return n<MR_PATH && n>tail && prefix16(path,RECORDER) && same16(path+n-tail,MASTER,tail+1)?n-tail:0;
+}
 /* Build and write the new take's history; MR_H_PENDING to retry later. */
 static uint32_t history(MasterRef *g) {
     g->history_defer=0;
-    if(LD(&g->stock_recording) || RECORDER_BUSY)return MR_H_PENDING;
+    if(recorder_busy(g))return MR_H_PENDING;
     if(revoked(g))return MR_H_REVOKED;
-    g->history_entries=0;g->history_truncated=g->work_overflow;
+    g->history_entries=0;g->history_truncated=g->work_overflow;g->history_omitted=0;
     uint32_t used=text(g->history,0,HEADER);
     char line[MR_LONG*3+8];
+    /* First the pad files that played (at most MR_PLAYED, so all fit). */
     for(uint32_t i=0;i<g->work_count;i++) {
         const uint16_t *path=g->work_played[i].path;
         uint32_t n=0;while(n<MR_LONG && path[n])n++;
-        uint32_t tail=sizeof(MASTER)/2-1,len;
-        int take=n<MR_PATH && n>tail && prefix16(path,RECORDER) && same16(path+n-tail,MASTER,tail+1);
-        if(take) {
-            used=inherit(g,used,path,n-tail);
-            len=card_line(line,sizeof(line),"",path,n-tail);
-        } else len=card_line(line,sizeof(line),"SOUND ",path,n);
+        uint32_t folder=take_folder(path,n);
+        uint32_t len=folder?card_line(line,sizeof(line),"",path,folder):card_line(line,sizeof(line),"SOUND ",path,n);
         if(len)used=entry(g,used,line,len);else g->history_truncated=1;
+    }
+    /* Then what each played take included, nearest first. */
+    for(uint32_t i=0;i<g->work_count;i++) {
+        const uint16_t *path=g->work_played[i].path;
+        uint32_t n=0;while(n<MR_LONG && path[n])n++;
+        uint32_t folder=take_folder(path,n);
+        if(folder)used=inherit(g,used,path,folder);
     }
     if(g->history_defer)return MR_H_PENDING;   /* a take started: build it again later */
     if(revoked(g))return MR_H_REVOKED;
+    if(g->history_omitted)used=text(g->history,used,"OMITTED\n");
     if(g->history_truncated)used=text(g->history,used,"TRUNCATED\n");
     char end[16];uint32_t e=0,v=g->history_entries,digits=1;
     for(uint32_t d=v;d>=10;d/=10)digits*=10;
@@ -575,8 +601,9 @@ KEEP uint32_t mr_worker_step(void) {
     }
     if(g->pending) {
         /* Our stop ran inside a RecStop callback; once RecPlayCtl is idle
-         * (or recording again), that callback has finalized every file. */
-        if(LD(&g->stock_recording) || RECORDER_BUSY)return 10;
+         * that callback has finalized every file. The check waits while the
+         * recorder records or plays. */
+        if(recorder_busy(g))return 10;
         g->pending=0;g->checked++;
         uint32_t status=check(g);
         g->last_status=status;

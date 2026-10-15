@@ -92,7 +92,7 @@ exhaustively covered. Firmware images and raw device evidence remain private.
 The preceding diagnostic14 image and settings are backed up. Settings and all
 156 recording/pad file metadata entries are unchanged, with no audio scan.
 Normal Eject, transfer exit, original pads/MIDI and retained health replies pass;
-free heap is163104 bytes. The original first four PIO records still match their
+free heap is 163104 bytes. The original first four PIO records still match their
 pre-transfer values. After the user's update and normal reboot, all eleven
 schema2 replies now verify execution of the detail revision. Installed flash
 bytes have not been read back.
@@ -111,7 +111,7 @@ enabled. This closes the missing trace and reset-timing observations; it does
 not prove exclusion of earlier sources or authorize capture.
 
 Original pad names/counts, MIDI ports and retained health replies pass after
-the update. Free heap remains163104 bytes, and three paired memory-configuration
+the update. Free heap remains 163104 bytes, and three paired memory-configuration
 snapshots agree. No audio test or card-file scan was performed in this check.
 Private evidence: `deployment/14_sd_startup_detail/installed_startup_verification.json`
 and `first-boot-interpretation.json` in the same directory.
@@ -126,12 +126,12 @@ not read the controller from the outer, potentially clock-gated dispatcher.
 This revision passes 66 offline groups, including all 53 retained diagnostics,
 the original high-speed card path, bounded journal overflow, deferred reset clear
 and unchanged original command/wait/register behavior. Diagnostic14's original
-image rebuilds byte-for-byte and passes65 groups. The cold-start suite separately
-passes10 groups; the last full capture run remains824 groups across74 suites.
+image rebuilds byte-for-byte and passes 65 groups. The cold-start suite separately
+passes 10 groups; the last full capture run remains 824 groups across 74 suites.
 
 Image: `deployment/14_sd_startup_detail/trial_sd_startup_detail/L6.BIN`.
 SHA256: `551d67a35fa6249496ed7d9815ba1d518a0e8d20775026ee48ae4f2e235f831c`.
-Code/state:9652 bytes, including1780 persistent bytes; this is488 additional
+Code/state: 9652 bytes, including 1780 persistent bytes; this is 488 additional
 loaded bytes, of which360 are persistent state. Modeled enumeration stack remains
 892 bytes. No additional audio buffer, heap request, task, command, register write,
 reset/retry behavior or capture permission is added. Precise hardware timing and
@@ -143,7 +143,7 @@ python tests/emulation/verify_sd_startup_probe.py --detail
 python tools/device/l6_sd_startup_probe.py --output deployment/14_sd_startup_detail/first-boot.jsonl
 ```
 
-The host reads the summary first, recognizes schema1 or2, then requests only the
+The host reads the summary first, recognizes schema1 or 2, then requests only the
 corresponding six or eleven pages. It retains missing/overflow/inconsistent
 observations as incomplete and never reports physical completion. A clear later
 reset snapshot is still not the missing source-exclusion proof.

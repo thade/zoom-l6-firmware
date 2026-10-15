@@ -1,3 +1,7 @@
+RESEARCH CODE (15 October 2026): not part of release 0.1.0, which is built
+from src/capture/master/ (see ../README.md). "Current" below means as of the
+date given.
+
 CURRENT WORKFLOW NOTICE
 This is the earlier master-copy prototype. The clarified goal preserves the
 normal master and adds a separate pre-master stereo recording for the pad.

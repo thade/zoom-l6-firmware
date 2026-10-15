@@ -30,6 +30,10 @@ emulation covers them. Evidence stays in `deployment/28_take_history/`.
 
 ## The file
 
+This is version 1, as written by experiments 28–33. Release 0.1.0 writes
+version 2 (newest first, at most 100 lines): see the
+[history format](../../docs/history-format.md).
+
 `A:\RECORDER\<take>\HISTORY.TXT`, plain text:
 
 ```

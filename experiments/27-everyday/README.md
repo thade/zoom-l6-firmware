@@ -5,7 +5,9 @@ as a clean build for normal use: no status query, so no hook on the Editor's
 MIDI parser, and no worker stack measurement. Behaviour is otherwise
 identical.
 
-**Prepared locally; not staged or installed.** The mixer runs experiment 26.
+**Prepared 13 October 2026; never installed.** Superseded by
+[experiment 28](../28-take-history/README.md), whose everyday build is
+[experiment 29](../29-daily/README.md).
 Recovery from an image that fails before Main remains unproven
 ([experiment 18](../18-recovery-hang/README.md) is parked).
 

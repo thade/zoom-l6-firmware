@@ -1,3 +1,7 @@
+RESEARCH CODE (15 October 2026): not part of release 0.1.0, which is built
+from src/capture/master/ (see ../README.md). "Current" below means as of the
+date given.
+
 ADDITIONAL PRE-MASTER PAD RECORDING — OFFLINE PROTOTYPE
 
 CURRENT DESIGN (2026-10-05): capture-only is the default build. The worker uses

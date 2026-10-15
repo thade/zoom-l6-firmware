@@ -6,8 +6,9 @@ by holding **AUX 1** + **AUX 2** for 1.5 s) as a clean build for normal use:
 no status query, so no hook on the Editor's MIDI parser, and no worker stack
 measurement. It also carries three fixes from a review of the switch.
 
-**Installed (15 October 2026)** and in everyday use. The hardware checks of
-the review fixes are still to do (see Results). Recovery from an image that
+**Installed 15 October 2026** and used daily; superseded by the 0.1.0 release
+([experiment 34](../34-release/README.md)), which carries these fixes and
+takes over their hardware checks (see Results). Recovery from an image that
 fails before Main remains unproven
 ([experiment 18](../18-recovery-hang/README.md) is parked).
 

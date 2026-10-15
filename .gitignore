@@ -1,6 +1,7 @@
 # Vendor downloads, firmware images and local device/deployment evidence.
 /Reference/
 /deployment/
+/release/
 
 # Local reports, recordings, device inventories and session state.
 # Public research lives in docs/research/.

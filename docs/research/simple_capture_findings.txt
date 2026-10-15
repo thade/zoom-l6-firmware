@@ -1,3 +1,7 @@
+SUPERSEDED (15 October 2026): this capture was installed later as
+experiments 19-23, then set aside for the master reference that release
+0.1.0 uses (see master_reference_findings.txt).
+
 Simplified pre-compressor capture — 11 October 2026
 ====================================================
 

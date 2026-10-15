@@ -1,4 +1,5 @@
-/* Shared save/restore convention for offline hook experiments. */
+/* Shared save/restore convention for the hook adapters (installed builds and
+ * offline experiments). */
 .syntax unified
 .thumb
 .fpu fpv5-d16

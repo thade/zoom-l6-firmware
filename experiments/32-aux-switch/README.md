@@ -5,8 +5,8 @@ between the stock two mono sends and the stereo pair by holding the **AUX 1**
 and **AUX 2** buttons together for 1.5 seconds. The choice is kept in the
 mixer's internal settings and survives power-off.
 
-**Passed on the mixer (15 October 2026)** and installed: a trial build with
-the status query.
+**Passed on the mixer (15 October 2026)**: a trial build with the status
+query. Superseded by [experiment 33](../33-daily-switch/README.md).
 
 ## Results
 

@@ -7,8 +7,8 @@ The mixer still makes its ordinary master and channel recordings.
 **Superseded; do not stage.** This image carries the earlier capture
 composition, which the [simplified capture](../../docs/research/simple_capture_findings.txt)
 replaces. A dormant trial should be rebuilt from the simplified build, after the
-[early-hang recovery check](../18-recovery-hang/README.md). Diagnostic16 remains
-on the mixer.
+[early-hang recovery check](../18-recovery-hang/README.md). Diagnostic16 stayed
+on the mixer at the time; later experiments replaced it.
 No mixer controls, levels, pad assignments or card contents were changed while
 preparing this trial.
 
@@ -18,7 +18,7 @@ disable the optional witness for that boot. This does not authorize capture.
 
 The image enables only startup, startup observations, existing Main closure and
 a fixed read-only status query. Original DSP, recording controls and SD driver
-paths remain unhooked. The already-tried223104-frame native ring capacity is
+paths remain unhooked. The already-tried 223104-frame native ring capacity is
 retained. There is no capture release command or automatic pad assignment.
 Earlier passive diagnostic queries are replaced by this smaller status query;
 normal Editor and pad messages still use the original handlers.
@@ -41,7 +41,7 @@ hardware cache effects and physical storage behavior remain modeled.
 Four further groups execute the original task creator and ready-list/initial
 frame setup. Stack-allocation failure stays closed; task-object allocation
 failure frees its stack while retaining the arena, without a retry. A successful
-initial saved frame reserves76 bytes; that is not a runtime stack measurement.
+initial saved frame reserves 76 bytes; that is not a runtime stack measurement.
 
 ## When the user is available
 
@@ -58,7 +58,7 @@ initial saved frame reserves76 bytes; that is not a runtime stack measurement.
    the worker stays asleep. No recording or knob changes are needed for this
    first trial.
 
-Expected initial observations: startup registered, witness READY9, worker
+Expected initial observations: startup registered, witness READY 9, worker
 WAITING4, manager RESET4, lease CLOSED0, zero physical ports and active capture
 hooks, correct code/global bounds, both caches enabled, and a worker poll count
 that advances at the idle interval. Missing readiness or unexpected activity is

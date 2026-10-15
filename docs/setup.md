@@ -1,84 +1,95 @@
-# Research setup
+# Build from source
 
-Run commands from the repository root. Use Python 3 and a virtual environment:
+Everything here runs offline on your computer; nothing talks to the mixer
+until you install (see the [README](../README.md#install)).
+
+## 1. Requirements
+
+- macOS or Linux, **git** and **Python 3.12 or newer** (macOS's built-in
+  Python 3.9 is too old: rebuilding earlier experiments needs 3.12's archive
+  extraction). The compiler comes as a Python package (zig 0.13).
+- A **full clone**: `git clone https://github.com/thade/zoom-l6-firmware.git`.
+  A ZIP download or `--depth 1` clone builds the release but cannot rebuild the
+  earlier experiments the checks compare against.
+
+## 2. Python environment
+
+Run commands from the repository root:
 
 ```sh
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements-research.txt
 ```
 
-Obtain official **L6 v1.10** firmware from [Zoom's support page](https://zoomcorp.com/en/us/digital-mixer-multi-track-recorders/digital-mixer-recorder/livetrak-l6-final/l6-support/). Place its `L6.BIN` at `Reference/L6_v1.10_E/L6.BIN`. The tools check this SHA256:
+## 3. Zoom's v1.10 firmware
+
+Download **L6 v1.10** from Zoom's
+[L6 support page](https://zoomcorp.com/en/us/digital-mixer-multi-track-recorders/digital-mixer-recorder/livetrak-l6-final/l6-support/)
+(the LiveTrak **L6**, not the L6max, which has its own v1.10). In October
+2026 the file was `L6_v1.10_E.zip` (2,901,772 bytes, SHA256
+`a02888a0d03f06d314e5625c14866f5c5f0e32ea778406751d50ee6848a72f1c`), at
+https://zoomcorp.com/documents/3581/L6_v1.10_E.zip. Unzip it and copy
+`L6_v1.10_E/L6.BIN` to `Reference/L6_v1.10_E/L6.BIN`, then check it:
+
+```sh
+shasum -a 256 Reference/L6_v1.10_E/L6.BIN
+```
 
 ```text
 64f1f36b8383176b5d841911fbf3c16205139a313ee88be906f313b1a98a33fb
 ```
 
-Build and verify the code-marker experiment offline:
+The tools refuse any other file. `Reference/` is ignored by git: Zoom's
+firmware is never committed.
+
+## 4. Build and check the release
 
 ```sh
-python tools/firmware/build_code_probe.py
-python tests/emulation/verify_code_probe.py
+python tools/firmware/verify_release.py
 ```
 
-Build and verify the current redesign (all offline):
+This builds the emulator fixtures, builds the release, and runs its offline
+checks (about a minute). It prints the release folder and image hash. The
+image alone:
+
+```sh
+python tools/firmware/build_release.py
+```
+
+Both write `release/0.1.0/`: `L6.BIN`, `MASTER.WAV`, `SHA256SUMS` and
+`manifest.json`. The 0.1.0 image is reproducible: its SHA256 is published in
+the release notes and in `tools/firmware/build_master_trial.py`, and the
+build stops if yours differs. Then [install](../README.md#install).
+
+## Rebuilding earlier experiments
+
+`tools/firmware/build_master_trial.py <mode>` rebuilds any installed
+experiment image from 24 on, byte for byte, from the commit it was built from
+(modes are listed in its docstring); `deployment/` holds the output and is
+ignored by git. The experiment READMEs in `experiments/` describe each one.
+
+## Full research regression
 
 ```sh
 python tools/firmware/verify_redesign.py
 ```
 
-Build only the capture-first candidate:
-
-```sh
-python tools/firmware/build_extra_capture.py
-```
-
-Run the separate offline stereo AUX feasibility checks (no custom ELF needed):
-
-```sh
-python tests/emulation/verify_stereo_aux.py
-```
-
-These execute original mixer/control/output windows with synthetic state. The
-proposed stereo gains are modeled; this does not create or install a stereo AUX
-firmware feature. See the [findings](research/stereo_aux_findings.txt).
-
-Build the smaller offline hook fixture and run its native capture checks:
-
-```sh
-python tools/firmware/build_extra_capture.py --layout placement --hooks-fixture --minimal-link
-python tests/emulation/verify_capture_minimal.py
-```
-
-This variant retains all proposed hook targets while dropping unreachable
-research entry points. It is still an emulator artifact. The
-[remaining device gates](research/remaining_device_gates.txt) explain the
-hardware evidence needed before creating an installable capture image.
-
-Build the historical emulator prototypes before running their individual tests:
-
-```sh
-python tools/firmware/build_overdub_prototype.py
-python tools/firmware/build_extra_capture.py --profile research
-python tests/emulation/verify_extra_capture.py
-python tests/emulation/verify_recorder_file_worker.py
-```
-
-The ELF files use emulator addresses and must not be installed on the mixer. These build and verification commands do not access the device.
-
-File-workflow tests use synthetic recordings and do not access MIDI or a card:
-
-```sh
-python -m unittest discover -s tests/device -p 'test_*.py'
-```
+Runs every offline suite in the repository (about 100, including the
+research toward 0.1.0: the overdub prototype, the capture designs and the
+hardware probes). Some research suites need local images from earlier
+experiments or private recordings that are not included, so this is a
+development tool, not part of the release checks. The live device helpers in
+`tools/device/` use macOS frameworks (CoreMIDI, `/Volumes`); the emulator
+checks need no mixer.
 
 ## Local files
 
-- `Reference/`: downloaded vendor firmware and manuals.
-- `deployment/`: generated probe images, manifests and local device evidence.
-- `analysis/`: generated reports, disassembly, private recordings and session state.
-- `src/**/*.elf`: generated emulator executables.
+- `Reference/`: Zoom's firmware download and manuals.
+- `release/`: built release images and card backups made by the installer.
+- `deployment/`: experiment images, manifests and device evidence.
+- `analysis/`: generated reports and private recordings.
+- `.zig-cache/`, `src/**/*.elf`: build output.
 
-These files stay ignored. Public experiment summaries live in `experiments/`, and written research lives in `docs/research/`.
-
-Some older tests require private recording fixtures that are intentionally not included. In particular, `verify_overdub_prototype.py` uses a historical recording for its full-file test; many other suites reuse its harness with synthetic files. The `analyze_*` scripts additionally require those recordings and NumPy. This is not yet a fully portable test package. Live device helpers use macOS frameworks; emulator checks do not require a connected mixer.
+All are ignored by git. Public experiment summaries live in `experiments/`
+and written research in `docs/research/`.

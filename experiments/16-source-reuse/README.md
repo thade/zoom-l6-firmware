@@ -44,17 +44,17 @@ It does not scan audio. Normal Eject and transfer exit precede the physical
 update. Keep the current comfortable volume; no level change is needed.
 
 The user confirmed idle before staging. The copied image matches the exact
-verified hash; settings and all156 recording/pad metadata entries are unchanged,
+verified hash; settings and all 156 recording/pad metadata entries are unchanged,
 without audio scans. Normal Eject and transfer exit pass. Existing pad names and
 counts, all three MIDI ports, retained health and diagnostic15's loader reply
-pass after reconnection; free heap is163104 bytes. After the user's physical
-update/reboot, the new query executes marker0x4c36, reports a zero region and the
+pass after reconnection; free heap is 163104 bytes. After the user's physical
+update/reboot, the new query executes marker 0x4c36, reports a zero region and the
 exact expected scatter records, with instruction/data caches enabled. All three
 MIDI ports, retained health and the complete first-enumeration trace pass.
 
-An automated18.005333-second USB capture identifies pad1's backing with0.999027
-whole-source correlation, no host callback errors and1,163 native data waits
-without new detail conditions or omissions. Pad assignments and163104-byte free
+An automated 18.005333-second USB capture identifies pad1's backing with 0.999027
+whole-source correlation, no host callback errors and 1,163 native data waits
+without new detail conditions or omissions. Pad assignments and 163104-byte free
 heap are unchanged. No level, effect or assignment change was made.
 
 Private evidence: `deployment/16_source_reuse/hardware-summary.json`,

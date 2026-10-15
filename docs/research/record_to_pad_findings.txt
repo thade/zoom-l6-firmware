@@ -1,3 +1,10 @@
+SUPERSEDED (15 October 2026): This note concludes the master must be copied into a pad folder
+because the post-record helper keeps only a basename; the stock assignment
+0x80008c68 stores a full path, which works while the pad folder lists the
+same name (an anchor). Release 0.1.0 plays the stock
+MASTER.WAV in place instead (see master_reference_findings.txt). Kept as
+research record.
+
 ZOOM L6: RECORDING FINALIZATION AND LIVE PAD CATALOGUE INSERTION
 Investigation: 2 October 2026
 

@@ -7,7 +7,8 @@ philmillman/zoom-l6-companion (MIT) and Magicking/L6-MassStorage: identity,
 editor open, then activate; exiting needs an editor session kept alive with
 heartbeats, primed once first. Success is judged by the card volume appearing
 or disappearing, never by the acknowledgement alone. Quit the official Editor
-first so the two do not interleave sessions on the same port.
+first so the two do not interleave sessions on the same port. macOS only
+(CoreMIDI and /Volumes); the card is any mounted volume laid out as an L6 card.
 
 Stock session states (parser 0x800301f0, executed offline): identity moves
 0 -> 1 and replies, but moves 1 -> 0 silently; editor open moves 1 -> 2 and
@@ -23,9 +24,8 @@ hardware), which confirms each change independently of the acknowledgement.
 import argparse,ctypes as C,json,queue,subprocess,sys,time
 from pathlib import Path
 import l6_midi_probe as midi
-from l6_pad_fixture_test import ENDPOINT
 
-CARD=Path('/Volumes/L6_SD')
+ENDPOINT='L6 for L6 Editor Port'
 IDENTITY=bytes((0xf0,0x7e,0x00,0x06,0x01,0xf7))
 EDITOR_OPEN=bytes((0xf0,0x52,0,0,0x2b,0xf7))
 HEARTBEAT=bytes((0xf0,0x52,0,0,0x31,0x0b,0xf7))
@@ -105,9 +105,13 @@ class EditorLink:
             else:time.sleep(.1)
         time.sleep(.26)
 
+def mounted_cards():
+    """Mounted volumes laid out as an L6 card (SOUND_PAD/PAD1..PAD4), whatever their name."""
+    return [v for v in Path('/Volumes').glob('*') if all((v/'SOUND_PAD'/f'PAD{n}').is_dir() for n in range(1,5))]
 def card_ready():
-    """The volume exists and disk arbitration can describe it (safe to inspect/eject)."""
-    return CARD.exists() and subprocess.run(['/usr/sbin/diskutil','info',str(CARD)],capture_output=True).returncode==0
+    """A card volume exists and disk arbitration can describe it (safe to inspect/eject)."""
+    cards=mounted_cards()
+    return bool(cards) and all(subprocess.run(['/usr/sbin/diskutil','info',str(c)],capture_output=True).returncode==0 for c in cards)
 
 def wait_for(predicate,timeout):
     deadline=time.monotonic()+timeout
@@ -124,7 +128,7 @@ def session(log):
     return dict(session=bool(reply),transfer_mode=reply[MODE_BYTE] if reply else None)
 
 def enter(log):
-    if CARD.exists():return dict(already=True,card_mounted=True)
+    if mounted_cards():return dict(already=True,card_mounted=True)
     link=EditorLink(log)
     try:
         reply=link.open_session()
@@ -135,7 +139,7 @@ def enter(log):
     return dict(session=True,acknowledged=bool(ack),card_mounted=wait_for(card_ready,30))
 
 def exit_(log,attempts=2):
-    if CARD.exists():raise SystemExit('Eject the card normally before leaving File Transfer Mode')
+    if mounted_cards():raise SystemExit('Eject the card normally before leaving File Transfer Mode')
     result=dict(card_mounted=False,transfer_mode=None)
     for attempt in range(attempts):
         link=EditorLink(log)
@@ -150,8 +154,9 @@ def exit_(log,attempts=2):
         # stale without a run loop, so confirm from a fresh process.
         time.sleep(3);state=dict(session=False,transfer_mode=None);deadline=time.monotonic()+40
         while time.monotonic()<deadline and not state['session']:
-            r=subprocess.run([sys.executable,__file__,'session'],capture_output=True,text=True,timeout=30)
-            if r.returncode==0:state=json.loads(r.stdout)
+            try:r=subprocess.run([sys.executable,__file__,'session'],capture_output=True,text=True,timeout=30)
+            except subprocess.TimeoutExpired:r=None
+            if r and r.returncode==0:state=json.loads(r.stdout)
             if not state['session']:time.sleep(2)
         result.update(attempt=attempt+1,acknowledged=bool(ack),transfer_mode=state['transfer_mode'])
         if state['transfer_mode']!=1:break # resend only if the mixer still reports transfer mode

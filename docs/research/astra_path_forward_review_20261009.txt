@@ -87,13 +87,13 @@ not the final integrated handoff allocation. The current normal handoff ELF adds
 from the minimal packed candidate: do not extrapolate a final packed fit. Handoff
 can remain a later stopped-state milestone, after capture-only TMP qualification.
 
-Sources: /Users/thade/src/zoom_l6_fw/tests/fixtures/capture_composed_startup.c:6;
-/Users/thade/src/zoom_l6_fw/src/capture/native_arena.c:22;
-/Users/thade/src/zoom_l6_fw/src/capture/capture.h:7;
-/Users/thade/src/zoom_l6_fw/tools/firmware/plan_capture_transitions.py:8;
-/Users/thade/src/zoom_l6_fw/analysis/storage_transitions_verification.json:8;
-/Users/thade/src/zoom_l6_fw/src/capture/backing_handoff.c:4;
-/Users/thade/src/zoom_l6_fw/src/capture/backing_native.c:13 and :73.
+Sources: tests/fixtures/capture_composed_startup.c:6;
+src/capture/native_arena.c:22;
+src/capture/capture.h:7;
+tools/firmware/plan_capture_transitions.py:8;
+analysis/storage_transitions_verification.json:8;
+src/capture/backing_handoff.c:4;
+src/capture/backing_native.c:13 and :73.
 
 What appears correct within the offline scope
 --------------------------------------------
@@ -119,21 +119,21 @@ What appears correct within the offline scope
   provider. Post-read invalidation is after the modeled join and uses the saved
   original span, not an advancing completion-time DMA address.
 
-Relevant exact source: /Users/thade/src/zoom_l6_fw/src/capture/history_storage.c:11;
-/Users/thade/src/zoom_l6_fw/src/capture/exchange.h:17;
-/Users/thade/src/zoom_l6_fw/src/capture/session_manager.c:36, :130 and :187;
-/Users/thade/src/zoom_l6_fw/src/capture/storage_lease.c:48 and :71;
-/Users/thade/src/zoom_l6_fw/src/capture/storage_transition.c:10;
-/Users/thade/src/zoom_l6_fw/tests/fixtures/sd_admission_probe.c:83;
-/Users/thade/src/zoom_l6_fw/tests/fixtures/sd_transfer_probe.c:85 and :145;
-/Users/thade/src/zoom_l6_fw/tests/fixtures/sd_transfer_probe_hooks.S:103.
+Relevant exact source: src/capture/history_storage.c:11;
+src/capture/exchange.h:17;
+src/capture/session_manager.c:36, :130 and :187;
+src/capture/storage_lease.c:48 and :71;
+src/capture/storage_transition.c:10;
+tests/fixtures/sd_admission_probe.c:83;
+tests/fixtures/sd_transfer_probe.c:85 and :145;
+tests/fixtures/sd_transfer_probe_hooks.S:103.
 
 Prioritized findings: deployment constraints, not new corrective bugs
 -------------------------------------------------------------------
 P1 — Whole native requests still have no safe deferral binding.
 
-/Users/thade/src/zoom_l6_fw/src/capture/storage_transition.h:5 and
-/Users/thade/src/zoom_l6_fw/tests/emulation/verify_storage_transitions.py:149
+src/capture/storage_transition.h:5 and
+tests/emulation/verify_storage_transitions.py:149
 explicitly leave retention/retry to a test caller. A transition while an extra
 write is pending must defer the original request before ANY preceding effects,
 then execute its continuation exactly once. Replacing only 80009b18/8000c288 with
@@ -146,7 +146,7 @@ New verification: packets {2,4,a2,0,0} and {2,4,a3,0,0} respectively reach
 packets are removed but neither parent runs. The four assertions passed in this
 review; they are separate from the 774 groups. Lower USB effects were hooked at
 those parent entries; receive/category routing were original instructions.
-Original evidence: /Users/thade/src/zoom_l6_fw/analysis/main_linear_disassembly.txt:59909
+Original evidence: analysis/main_linear_disassembly.txt:59909
 and :60468 (8002c960 restricts alternate category-2 handling to 4b..53).
 
 The timer setters 80020cc0/80020d08 overwrite one 12-byte slot. Service 8004ae90
@@ -159,10 +159,10 @@ Do not repurpose these channels as generic retry slots. Source lines :43215,
 
 P1 — The nominal predicate remains conditional on real source and span ownership.
 
-/Users/thade/src/zoom_l6_fw/tests/fixtures/sd_admission_probe.c:49 calls explicit
+tests/fixtures/sd_admission_probe.c:49 calls explicit
 MODEL QUIET; :104 is a nominal predicate under that contract. A late old physical
 completion is not tagged by a software generation. A lying QUIET provider still
-passes at /Users/thade/src/zoom_l6_fw/tests/emulation/verify_sd_chunk_admission.py:229.
+passes at tests/emulation/verify_sd_chunk_admission.py:229.
 The test labels that limit correctly. Current raw/detail/command observations
 support normal-mode characterization; they do not make this premise true.
 If enabled without it, an early native return could reuse staging or close a
@@ -178,7 +178,7 @@ every failure affects only the optional file.
 
 P2 — The integrated candidate's size and service margin are not yet established.
 
-/Users/thade/src/zoom_l6_fw/tools/firmware/build_extra_capture.py:65 and :75
+tools/firmware/build_extra_capture.py:65 and :75
 keep the SD and lease/transition work in different builds. The 1,212 packed-byte
 remainder excludes the necessary source/SD binding, Main adapter and observations.
 The existing packing check is good; integrate the minimum real code soon so it
@@ -187,9 +187,9 @@ in the device candidate, or assume that fitting each fixture separately implies
 a combined fit. Retain only selected-mode admission, raw observation, per-chunk
 success checks, a retained-fault path and required cache maintenance.
 
-/Users/thade/src/zoom_l6_fw/src/capture/native_worker.c:101 and :106 bound steps
+src/capture/native_worker.c:101 and :106 bound steps
 and deliberately sleep; they do not bound elapsed blackout. The repeated-stall
-case at /Users/thade/src/zoom_l6_fw/tests/emulation/verify_capture_composed.py:175
+case at tests/emulation/verify_capture_composed.py:175
 deliberately supplies catch-up service. It verifies protocol behavior under that
 schedule, not actual priority, stack, interrupts or throughput. This is correctly
 documented, and it calls for one measured candidate trial rather than more
@@ -216,7 +216,7 @@ any producer that might be blocked holding the UI mutex? Trace exactly:
   outstanding control entries/callbacks -> RecPlayCtl marker -> hook detach.
 RecPlayCtl is task slot 80446dc0, queue slot 801f8f38, producer mutex 80446894;
 its original dispatch is 80034bc8. The UI queue/mutex are different (801f8f28 /
-80446810). /Users/thade/src/zoom_l6_fw/src/capture/control_transport.c:197 and :219
+80446810). src/capture/control_transport.c:197 and :219
 show the actual drain dependency. Include held producers, queued ordinary STOP,
 file completion, queue saturation and the relevant close/error paths.
 
@@ -277,7 +277,7 @@ Ranked work after that slice, with finite acceptance
    descriptor/cache bounds, direct/computed accesses, aliases and transitions
    need a supported bound or an enforced exclusion in the admitted mode. Follow
    the existing eight-entry ledger at
-   /Users/thade/src/zoom_l6_fw/docs/research/segmented_history_findings.txt:64,
+   docs/research/segmented_history_findings.txt:64,
    particularly computed-copy setup 8001dc10 and destinations 80445308/80445310.
    No requirement to prove every pointer in every unsupported mode; no permission
    inferred from intact guards or omitted historical observations either.
@@ -313,7 +313,7 @@ Ranked work after that slice, with finite acceptance
    Exercise actual intervening effects returns and active master compression,
    with distinct backing/live markers, verifying that the selected tap includes
    the intended mix and excludes late gain/dynamics. The earlier tap test omits
-   these paths: /Users/thade/src/zoom_l6_fw/tests/emulation/verify_uncompressed_tap.py:96
+   these paths: tests/emulation/verify_uncompressed_tap.py:96
    and :128. This is signal qualification, not a restart of the deferred level
    investigation. After reliable capture, seal the completed TMP, insert/assign
    pad 1, verify load/settings and release at a stopped, joined boundary. Reuse
@@ -343,9 +343,9 @@ A. Direct reference: pad 1 plays the finalized RECORDER/.../MASTER.WAV in place.
    This avoids payload copying and extra on-card audio. It is not supported by
    the current assignment adapter: basename lookup and resolved path must match
    the pad catalogue exactly at
-   /Users/thade/src/zoom_l6_fw/src/overdub/stock_pad_adapter.c:43.
+   src/overdub/stock_pad_adapter.c:43.
    The current handoff also deliberately accepts only OD_*.TMP under PADn
-   (/Users/thade/src/zoom_l6_fw/src/capture/backing_handoff.c:39).
+   (src/capture/backing_handoff.c:39).
    Native loader 800092a0 accepts a path, which is a concrete lead, not evidence
    of complete catalogue/settings/reboot support. A bounded fallback investigation
    must test exact path load, re-trigger, settings save/reload, reboot/remount,
@@ -398,7 +398,7 @@ actual scheduling/latency/preemption/stack margin or full effects/dynamics at th
 tap. Several compositions are layered fixtures, not one interrupt-driven boot and
 concurrent whole device. In native-extra-file suites the ordinary seven files
 retain an independent logical backend, explicitly stated at
-/Users/thade/src/zoom_l6_fw/tests/emulation/verify_capture_native_files.py:1.
+tests/emulation/verify_capture_native_files.py:1.
 Byte-identical ordinary files there are valuable functional regression evidence,
 not a shared physical-card contention test with eight native streams.
 

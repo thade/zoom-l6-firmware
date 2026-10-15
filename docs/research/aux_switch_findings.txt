@@ -3,8 +3,10 @@ AUX mono/stereo switch: options (stock L6 v1.10, 15 October 2026)
 
 Research for switching the stereo AUX pair (experiments 30-31) back to two
 independent mono sends and back. Static reading plus emulation of original
-instructions; nothing here is hardware evidence. Scratch work:
-scratchpad/aux-switch/ (not in the repository).
+instructions; nothing here is hardware evidence. Chosen and built
+(experiment 32, passed on the mixer; release fixes in 33-34): the spare
+settings bytes (section 2) and a runtime AUX1+AUX2 hold (section 4), polled
+by the worker every 25 ms and toggled on Main.
 
 1. Switching mechanics (emulated)
 A mode flag read by the stereo filter (pass everything through when mono),
@@ -49,7 +51,8 @@ Panel MCU messages parsed on SubMcuRX (0x800393d0) post {0, press/release,
 key} to Main (dispatcher 0x8002c9d8). AUX1/AUX2 (keys 16/17) select views in
 0x8003dd00 (held byte 0x804430d9); AUX + MUTE mutes that send. AUX1 held +
 AUX2 pressed just switches to the AUX2 view; there is no long-press timer for
-AUX, so a 1.5 s two-button hold timed on Main (tick 0x80077690) is free.
+AUX, so a 1.5 s two-button hold is free (as built, the worker polls the keys
+through 0x80008478 and posts the toggle to Main).
 LEDs: table 0x8062939c (2 bytes per LED: level 0x10 on, mode 1 blinks; mutex
 [0x80446840]). The select LEDs (view EQ/AUX1/AUX2/EFX/PAN/LEVEL) are written
 by 0x800075d8(sel, on) at index sel+0xc (AUX1/AUX2 = sel 4/5 at

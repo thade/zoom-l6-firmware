@@ -30,13 +30,13 @@ Actionable finding
 [P1] Resume the common queue sender before its mandatory FIFO-mode initializer.
 
 Primary location:
-  /Users/thade/src/zoom_l6_fw/src/capture/emulator_hooks.S:69
+  src/capture/emulator_hooks.S:69
 
 Related specification and test locations:
-  /Users/thade/src/zoom_l6_fw/tools/firmware/plan_capture_hooks.py:24
-  /Users/thade/src/zoom_l6_fw/tests/emulation/verify_capture_hooks.py:137
-  /Users/thade/src/zoom_l6_fw/tests/emulation/verify_capture_hooks.py:144
-  /Users/thade/src/zoom_l6_fw/tests/emulation/verify_capture_integration.py:129
+  tools/firmware/plan_capture_hooks.py:24
+  tests/emulation/verify_capture_hooks.py:137
+  tests/emulation/verify_capture_hooks.py:144
+  tests/emulation/verify_capture_integration.py:129
 
 The encoded ct_stock_send replays PUSH and MOV.W r2,#-1, then jumps to
 0x80048400 (Thumb literal 0x80048401). However, its six-byte replaced span ends
@@ -87,13 +87,13 @@ queue case with a preexisting message so FIFO equivalence is checked by original
 instructions. The expected result must come from stock behavior, not another
 append-only fixture. Recheck packed sizes after rebuilding. Qualify/update the
 preservation claims at:
-  /Users/thade/src/zoom_l6_fw/docs/research/capture_hooks_findings.txt:49
-  /Users/thade/src/zoom_l6_fw/docs/architecture.md:245
+  docs/research/capture_hooks_findings.txt:49
+  docs/architecture.md:245
 until the corrected checks pass.
 
 Minimal reproduction of observable native behavior
 -------------------------------------------------
-Run from /Users/thade/src/zoom_l6_fw using /tmp/l6-re-tools/bin/python. Unicorn
+Run from the repository root with the project venv. Unicorn
 requires execution outside the sandbox on this host. This only changes emulator
 memory; it writes no firmware, source, or verification report.
 
@@ -145,7 +145,7 @@ Evidence and limits
   regression was not rerun merely to duplicate its existing passing report.
 - Recomputed current ELF hashes and all PT_LOAD address/size/content fingerprints
   for capture-only, placement, and startup. They match
-  /Users/thade/src/zoom_l6_fw/analysis/capture_profile_stability.json.
+  analysis/capture_profile_stability.json.
   The report records the prior comparison; this review did not independently
   reconstruct that historical build. Normal-profile byte stability does not
   imply correctness of the new encoded-hook profiles.

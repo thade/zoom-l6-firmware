@@ -1,3 +1,10 @@
+STATUS (15 October 2026): built. This feasibility study (6 October) found the
+route; experiments 30-34 implemented it: a filter on the gain-ramp request
+0x80010398 turns each AUX 1 request into a left/right pair, and the mono pan,
+stereo balance and Editor reset veneers refresh it (src/capture/master/
+stereo_aux.c). Statements below that no mode exists or nothing was measured
+are as of 6 October; hardware results are in experiments/30-stereo-aux.
+
 Stereo AUX feasibility — 6 October 2026
 =======================================
 

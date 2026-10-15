@@ -1,3 +1,9 @@
+SUPERSEDED (15 October 2026): The banner below (3 October) made a separate pre-master
+file the plan and called reusing the master historical. That plan was built
+and set aside (experiments 19-23). Release 0.1.0 plays the stock
+MASTER.WAV in place instead (see master_reference_findings.txt). Kept as
+research record.
+
 CURRENT SCOPE UPDATE — 3 October 2026
 The user clarified that the ordinary processed master must remain alongside the
 input files, with an ADDITIONAL pre-master stereo file for the pad. Replacement,

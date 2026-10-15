@@ -1,3 +1,7 @@
+NOTE (15 October 2026): written before any image was built. Modified images
+have since been installed many times (experiments 1-34); the container,
+checksum and update findings below still hold.
+
 L6 ON-DEVICE OVERDUB INVESTIGATION — 2 OCTOBER 2026
 
 ASSESSMENT

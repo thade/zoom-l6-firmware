@@ -2,7 +2,9 @@ Master reference findings (stock v1.10)
 =======================================
 
 Goal: after each ordinary take, pad 1 plays that take's stock master
-A:\RECORDER\<take>\MASTER.WAV in place, with no extra recording. Static
+A:\RECORDER\<take>\MASTER.WAV in place, with no extra recording; sections 7-10
+extend it to the four-pad chain, the take history and release 0.1.0.
+Sections 1-5 describe the first, pad-1-only design (experiment 24). Static
 analysis plus emulation of original instructions; nothing here is hardware
 evidence. Implementation: src/capture/master/; checks:
 tests/emulation/verify_master_ref.py and verify_master_trial.py.
@@ -85,8 +87,8 @@ Confirmed: 32-bit float masters play in place from RECORDER; pad 1 plays the
 previous master while the next take records to the same card; the reference
 survives a cold reboot and a File Transfer Mode cycle with the anchor present
 (saved path read back from L6PADSETTING.ZST); the anchor is catalogued as
-MASTER.WAV. Still open: behaviour when the referenced folder is deleted over
-USB, and split takes.
+MASTER.WAV. Still open then: a deleted folder (resolved in section 9) and
+split takes (refused by the check, not exercised on the mixer).
 
 7. Take chain (experiment 25)
 All four pads hold the last takes, newest on pad 1. The stock saved pad paths
@@ -134,3 +136,16 @@ fails to open the missing master and clears the pad (config NO ASSIGN, pad
 unloaded; pressing it is silent). An empty pad is not a take, so the next
 chain shift closes up over it and no history can include it. A later reload
 gives the empty pad its folder's first valid file, the anchor (emulated).
+
+10. Release 0.1.0 (experiments 26 and 34)
+Takes shorter than 96,000 frames (2 s at 48 kHz, from the master header) are
+refused as short and stay off the pads; they still get a history. The take
+check and every history file call wait while the stock recorder state
+0x80578ebc is 1 (recording, ordinary or to a pad) or 2 (playing): stored by
+the record start callback 0x8004b9a0 (at 0x8004ba18) and the play start
+callback (at 0x8004b8e8), cleared by RecStop (0x8004bae4), PlayStop
+(0x8004b966) and the reset 0x80034de8 (at 0x80034e0e). The
+ordinary-take flag alone missed pad recordings and playback. HISTORY.TXT
+version 2 lists the played pad files first and then each played take's own
+history, newest first, at most 100 entries (OMITTED marks the rest);
+version 1 files are read too (docs/history-format.md).

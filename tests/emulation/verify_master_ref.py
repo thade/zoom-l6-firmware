@@ -21,20 +21,21 @@ from verify_stock_pad_adapter import CONFIG,SETTINGS
 import verify_pad_reload as V
 from capture_jump_patches import symbols
 from build_master_ref import build
-from plan_master_ref import plan,TRIAL_ELF,ELF
+from plan_master_ref import plan
 import sys
 
-# 'everyday' runs every group on the clean build (no status query or stack paint).
+# 'everyday' runs every group on the release link: the clean build (no status
+# query or stack paint) with the stereo AUX module, as the release image is built.
 EVERYDAY=__name__=='__main__' and sys.argv[1:]==['everyday']
-build(trial=not EVERYDAY);PLAN=plan(trial=not EVERYDAY);PACK=PLAN['pack'];N=symbols(ELF if EVERYDAY else TRIAL_ELF)
-FIELDS=('admitted stopped stock_recording open_take stop_faults stop_revoked admit_revoked revoked revoke_packet main_timed_out handled '
+BUILT=build(trial=not EVERYDAY,stereo=EVERYDAY);PLAN=plan(BUILT,trial=not EVERYDAY);PACK=PLAN['pack'];N=symbols(BUILT)
+FIELDS=('admitted stopped stock_recording stop_faults stop_revoked admit_revoked revoked revoke_packet main_timed_out handled '
         'task polls seen pending file_open take_revoked checked refused last_status master_bytes '
         'handoff_state handoff_result handoff_serial handoff_posts handoff_posted_at handoff_revoked chain_mask').split()
 OFF={n:4*i for i,n in enumerate(FIELDS)};STOP_PATH=4*len(FIELDS);PATH=STOP_PATH+160;POSTED=PATH+160
 NEXT=POSTED+160;ASSIGNED=NEXT+4*160
 HFIELDS=('played_open played_count played_overflow played_gen history_pending history_defer unwritten_next '
          'stop_played_count stop_played_overflow work_count work_overflow '
-         'history_written history_failed history_status history_entries history_truncated').split()
+         'history_written history_failed history_status history_entries history_truncated history_omitted').split()
 PLAYED_OPEN=ASSIGNED+4*160;OFF.update({n:PLAYED_OPEN+4*i for i,n in enumerate(HFIELDS)})
 PLAYED=PLAYED_OPEN+4*len(HFIELDS);ENTRY=528;STOP_PLAYED=PLAYED+8*ENTRY
 HISTORY_BUF=(PLAYED+3*8*ENTRY+8*64*2+31)&~31
@@ -67,9 +68,9 @@ def load(m,state=STATE):
                           PLAYED_OPEN,PLAYED,HISTORY_BUF) and layout[12]==ENTRY,layout
     m.uc.mem_write(state,bytes(layout[0]));put32(m,N['mr_state'],state)
     return layout[0]
-def history_text(*entries,truncated=False):
-    return ('L6 HISTORY 1\n'+''.join(e+'\n' for e in entries)+('TRUNCATED\n' if truncated else '')+
-            f'END {len(entries)}\n').encode()
+def history_text(*entries,truncated=False,omitted=False,version=2):
+    return (f'L6 HISTORY {version}\n'+''.join(e+'\n' for e in entries)+('OMITTED\n' if omitted else '')+
+            ('TRUNCATED\n' if truncated else '')+f'END {len(entries)}\n').encode()
 def take_folder(path):return path[:-len('\\MASTER.WAV')]
 def entry(path):return take_folder(path)[3:].replace('\\','/')
 def normal_recording_state(m):
@@ -271,7 +272,7 @@ def main():
     assert made==['261011_130946','261011_130947'] and getstr(m,TAKE_DIR)==FOLDER
     recorder_master=getstr(m,m.invoke(0x80022c80,[10,1]));stock_second=getstr(m,m.invoke(0x80022c80,[10,2]))
     # This machine is not M-profile (no IPSR), so admission is set directly.
-    state=0x80f00000;load(m,state);put32(m,state+OFF['open_take'],1)
+    state=0x80f00000;load(m,state);put32(m,state+OFF['stock_recording'],1)
     m.invoke(N['mr_stop'],[0,REC_STOP])
     assert getstr(m,state+STOP_PATH)==recorder_master==MASTER and word(m,state+OFF['stopped'])==1
     assert stock_second==FOLDER+'\\MASTER_01.WAV'
@@ -351,11 +352,11 @@ def main():
     r=MasterRig();normal_recording_state(r.m);r.m.uc.mem_write(0x801f5f00,b'\x00') # pad record target
     r.m.invoke(N['mr_admit'],[]);r.m.invoke(N['mr_stop'],[0,REC_STOP])
     assert r.field('admitted')==0 and r.field('stopped')==0;r.settle();assert not r.posts and not r.probes
-    # A take cut off without a setter call (card cleanup) leaves open_take;
-    # the next admission, ordinary or not, closes it.
+    # A take cut off without a setter call (card cleanup) stays open; the
+    # next admission, ordinary or not, closes it.
     r=MasterRig();normal_recording_state(r.m);r.m.invoke(N['mr_admit'],[])
     r.m.uc.mem_write(0x801f5f00,b'\x00');r.m.invoke(N['mr_admit'],[])
-    assert r.field('open_take')==0 and r.field('stock_recording')==0
+    assert r.field('stock_recording')==0
     r.m.invoke(N['mr_stop'],[0,REC_STOP]);assert r.field('stopped')==0
     # A storage change during the take refuses it at RecStop.
     r=MasterRig();normal_recording_state(r.m);r.m.invoke(N['mr_admit'],[]);r.main_receive(0,0,0x32,0)
@@ -477,31 +478,35 @@ def main():
 
     # The design's branch example: A, then B over A, C over B, then D over A.
     # Each take's history lists every recording folder it includes, and no
-    # other; B and C keep theirs.
+    # other, newest first; B and C keep theirs.
     r=MasterRig();A,B,C,D=t[0],t[1],t[2],t[3]
     r.chain_take(A);r.chain_take(B,during=[0]);r.chain_take(C,during=[0])
     assert r.pads()[:3]==[C,B,A]
     r.chain_take(D,during=[2])
     files={k:r.history(v) for k,v in dict(A=A,B=B,C=C,D=D).items()}
-    assert files==dict(A=history_text(),B=history_text(entry(A)),C=history_text(entry(A),entry(B)),
+    assert files==dict(A=history_text(),B=history_text(entry(A)),C=history_text(entry(B),entry(A)),
                        D=history_text(entry(A))),files
     assert r.field('history_written')==4 and r.field('history_failed')==0
     assert not any(k.endswith('HISTORY.TMP') for k in r.card)
     passed('histories_follow_the_backing_actually_played_including_a_branch',
            histories={k:v.decode() for k,v in files.items()})
 
-    # Several pads: their entries combined without repeats; a hand-picked
-    # sound is listed (UTF-8); a take without history adds just its folder;
-    # an unreadable history is flagged TRUNCATED.
+    # Several pads: the pad files played first, then what each played take
+    # included, without repeats; a hand-picked sound is listed (UTF-8); a take
+    # without history adds just its folder; an unreadable history is flagged
+    # TRUNCATED; a version 1 file is read.
     r=MasterRig();sound='A:\\SOUND_PAD\\PAD2\\GLÖRY BOX.WAV'
     r.card[take_folder(t[1])+'\\HISTORY.TXT']=(lambda b:(len(b),b))(history_text(entry(t[0])))
     for p,path in enumerate((t[1],sound,t[0],t[5])):putstr(r.m,config(p),path)
     r.chain_take(t[6],during=[0,1,2,3])
-    assert r.history(t[6])==history_text(entry(t[0]),entry(t[1]),'SOUND SOUND_PAD/PAD2/GLÖRY BOX.WAV',entry(t[5]))
+    assert r.history(t[6])==history_text(entry(t[1]),'SOUND SOUND_PAD/PAD2/GLÖRY BOX.WAV',entry(t[0]),entry(t[5]))
+    r=MasterRig();putstr(r.m,config(0),t[1])
+    r.card[take_folder(t[1])+'\\HISTORY.TXT']=(lambda b:(len(b),b))(history_text(entry(t[0]),entry(t[2]),version=1))
+    r.chain_take(t[6],during=[0]);assert r.history(t[6])==history_text(entry(t[1]),entry(t[0]),entry(t[2]))
     for label,content in (('bad_count',b'L6 HISTORY 1\nRECORDER/X\nEND 5\n'),('bad_header',b'HISTORY\nEND 0\n')):
         r=MasterRig();putstr(r.m,config(0),t[1]);r.card[take_folder(t[1])+'\\HISTORY.TXT']=(len(content),content)
         r.chain_take(t[6],during=[0])
-        want=(entry(t[1]),) if label=='bad_header' else ('RECORDER/X',entry(t[1]))
+        want=(entry(t[1]),) if label=='bad_header' else (entry(t[1]),'RECORDER/X')
         assert r.history(t[6])==history_text(*want,truncated=True),(label,r.history(t[6]))
     passed('several_pads_combine_without_repeats_sounds_are_listed_and_incomplete_lineage_is_flagged')
 
@@ -559,9 +564,21 @@ def main():
     for _ in range(3):r.step()
     assert r.field('history_pending')==1 and r.field('checked')==1        # still waiting; take 2 untouched
     put32(r.m,RECORDER_BUSY,0);r.step()
-    assert r.history(t[2])==history_text(entry(t[0]),entry(t[1])) and r.field('checked')==1
+    assert r.history(t[2])==history_text(entry(t[1]),entry(t[0])) and r.field('checked')==1
     r.settle();assert r.history(t[3])==history_text() and r.field('history_written')==2
     passed('a_history_write_waits_while_a_new_take_records_and_takes_stay_in_order')
+
+    # Nor during a pad recording or playback (stock recorder state 1 or 2,
+    # which the ordinary-take flag does not cover): the take is checked and its
+    # history written once the recorder is idle.
+    for state in (1,2):
+        r=MasterRig();r.card[t[2]]=stock_master(10**6);r.quick_take(take_folder(t[2]))
+        r.m.uc.mem_write(0x80578ebc,bytes([state]));calls=len(r.calls)+len(r.probes)
+        for _ in range(5):r.step()
+        assert r.field('checked')==0 and len(r.calls)+len(r.probes)==calls and r.history(t[2]) is None,state
+        r.m.uc.mem_write(0x80578ebc,b'\x00');r.settle()
+        assert r.field('checked')==1 and r.history(t[2])==history_text(),state
+    passed('the_take_check_and_history_wait_during_pad_recordings_and_playback')
 
     # A pad whose reassignment is still loading is flagged, not guessed.
     r=MasterRig();putstr(r.m,config(0),t[1]);r.m.uc.mem_write(0x8044337f,b'\x01')
@@ -571,17 +588,26 @@ def main():
     assert r.history(t[4])==history_text(truncated=True)
     passed('a_pad_started_mid_reassignment_is_flagged_TRUNCATED')
 
-    # Bounded size: a long inherited list stops at 4 KiB with TRUNCATED and a
-    # consistent END count; more than eight pad files in one take is flagged.
+    # Bounded: at most 100 lines, the played take first and then the nearest
+    # of what it included; the oldest are left out and OMITTED says so (also
+    # when a played take's own history left some out). Past 4 KiB a list
+    # stops with TRUNCATED; the END count stays consistent. More than eight
+    # pad files in one take is flagged.
     r=MasterRig();long=[f'RECORDER/LAYER_{i:04d}_XXXXXXXXXX' for i in range(131)]
-    big=history_text(*long);assert len(big)<4096
+    big=history_text(*long,version=1);assert len(big)<4096
     r.card[take_folder(t[1])+'\\HISTORY.TXT']=(len(big),big);putstr(r.m,config(0),t[1]);r.chain_take(t[6],during=[0])
     out=r.history(t[6]).decode().split('\n');count=int(out[-2].split()[1])
-    # Lines that fit are kept in order (the take's own shorter folder line still
-    # fits after a longer inherited one did not).
+    assert count==100 and out[1:101]==[entry(t[1])]+long[:99] and out[101:]==['OMITTED',f'END {count}','']
+    r=MasterRig();putstr(r.m,config(0),t[1])
+    r.card[take_folder(t[1])+'\\HISTORY.TXT']=(lambda b:(len(b),b))(history_text(entry(t[0]),omitted=True))
+    r.chain_take(t[6],during=[0]);assert r.history(t[6])==history_text(entry(t[1]),entry(t[0]),omitted=True)
+    r=MasterRig();wide=[f'RECORDER/{i:02d}_'+'W'*77 for i in range(45)]
+    big=history_text(*wide);assert len(big)<4096
+    r.card[take_folder(t[1])+'\\HISTORY.TXT']=(len(big),big);putstr(r.m,config(0),t[1]);r.chain_take(t[6],during=[0])
+    out=r.history(t[6]).decode().split('\n');count=int(out[-2].split()[1])
     kept=out[1:1+count]
-    assert len(r.history(t[6]))<=4096 and out[-3]=='TRUNCATED' and count==len(out)-4
-    assert kept[:-1]==long[:count-1] and kept[-1]==entry(t[1])
+    assert len(r.history(t[6]))<=4096 and out[-3]=='TRUNCATED' and count==len(out)-4 and count<46
+    assert kept==[entry(t[1])]+wide[:count-1]
     r=MasterRig();normal_recording_state(r.m);putstr(r.m,TAKE_DIR,take_folder(t[4]));r.m.invoke(N['mr_admit'],[])
     for i in range(9):putstr(r.m,config(0),f'A:\\SOUND_PAD\\PAD1\\S{i}.WAV');r.play(0)
     r.m.invoke(N['mr_stop'],[0,REC_STOP]);r.silence();r.card[t[4]]=stock_master(10**6);r.settle()
