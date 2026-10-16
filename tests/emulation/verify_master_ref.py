@@ -504,6 +504,9 @@ def main():
     for p,path in enumerate((t[1],sound,t[0],t[5])):putstr(r.m,config(p),path)
     r.chain_take(t[6],during=[0,1,2,3])
     assert r.history(t[6])==history_text(entry(t[1]),'SOUND SOUND_PAD/PAD2/GLÖRY BOX.WAV',entry(t[0]),entry(t[5]))
+    r=MasterRig();putstr(r.m,config(0),t[1])                                   # an empty version 1 file
+    r.card[take_folder(t[1])+'\\HISTORY.TXT']=(lambda b:(len(b),b))(history_text(version=1))
+    r.chain_take(t[6],during=[0]);assert r.history(t[6])==history_text(entry(t[1]))
     r=MasterRig();putstr(r.m,config(0),t[1])
     r.card[take_folder(t[1])+'\\HISTORY.TXT']=(lambda b:(len(b),b))(history_text(entry(t[0]),entry(t[2]),version=1))
     r.chain_take(t[6],during=[0]);assert r.history(t[6])==history_text(entry(t[1]),entry(t[2]),entry(t[0]))
@@ -795,6 +798,10 @@ def main():
         n=len(r.posts);r.step()
         if len(r.posts)>n and r.posts[-1][:2]==(3,ANCHOR_MAGIC):reposts+=1;r.main_receive(*r.posts[-1][:4])
     assert reposts==30 and r.field('anchor_relists')==30 and r.field('anchor_relist')==0 and lookup(r,0)<0,reposts   # then dropped
+    r.main_receive(0,0,0x32,0);r.step();assert r.field('anchor_relists')==0                    # a new card: asked again
+    # A write that fails removes the temp file and counts the folder failed.
+    r=anchor_rig();r.write_fault='short';r.step()
+    assert (r.field('anchor_status'),r.field('anchor_failed'))==(3,1) and TMP1 not in r.card and PAD1 not in r.card and ('unlink',TMP1) in r.calls
     # Off: no folder is checked, not even after a storage change; switching
     # the chain on checks every one.
     r=anchor_rig();r.m.uc.mem_write(CHAIN,bytes(2))

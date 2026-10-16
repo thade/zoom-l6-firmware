@@ -28,6 +28,11 @@ Recovery from a firmware that hangs at startup was shown in
   new history stays newest first; one shared header (`stock.h`) for the stock
   addresses, with `panel_recording` next to `recorder_busy`.
 
+Known limit: while an anchor is written (about a dozen file calls in one
+worker step), the switch-hold detector does not poll; on a slow card an
+EFX + PAN or AUX 1 + AUX 2 hold in progress may restart. It happens only
+when an anchor is created (the first switch-on, or after one was deleted).
+
 ## Checks
 
 - `tools/firmware/verify_release.py`: the exact image (sites, boot, every

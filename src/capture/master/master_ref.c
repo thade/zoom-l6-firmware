@@ -456,9 +456,10 @@ static uint32_t card_line(char *line,uint32_t size,const char *prefix,const uint
     }
     return n;
 }
-/* File calls for the history: only while the recorder is idle, and inside
- * file_open so Main's storage-change wait covers them. Returns 0 to make no
- * call. */
+/* File calls for the history (and the anchors): only while the recorder is
+ * idle, and inside file_open so Main's storage-change wait covers them.
+ * Returns 0 to make no call. A busy recorder sets history_defer even for an
+ * anchor; history() clears it before use. */
 static int io_begin(MasterRef *g) {
     if(recorder_busy(g)){g->history_defer=1;return 0;}
     __atomic_store_n(&g->file_open,1,__ATOMIC_SEQ_CST);

@@ -12,9 +12,12 @@ reuse_packing, build_simple_trial.py assemble):
 The compressed DSP stream is a token stream whose literal bytes are the stock
 DSP bytes in order. The recipe keeps only the tokens (the skeleton) and
 reinserts the literals from the user's own stock file, so neither the
-compressor nor any stock byte ships. Patch bytes that equal stock bytes at
+compressor nor any stock data ships. Patch bytes that equal stock bytes at
 another place (the scatter records the new table moves) become copy
-operations from the user's file. The browser patcher (patcher/patcher.js)
+operations from the user's file. Our packed code is our compiler's output;
+like any Thumb code it shares short instruction sequences with stock code
+(the few displaced stock instructions each hook replays, common prologues),
+which stock_bytes() therefore does not audit. The browser patcher (patcher/patcher.js)
 executes the same steps as rebuild() below, then refuses any result that does
 not hash to the recipe's published image hash.
 """

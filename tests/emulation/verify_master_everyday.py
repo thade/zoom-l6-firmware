@@ -86,12 +86,14 @@ def main():
     boot()
     passed('original_reset_and_scatter_expand_the_image_with_the_stock_DSP_code')
     # The browser patcher's recipe rebuilds this image from stock (make()
-    # checks it), ships no stock bytes, and the committed copy is current.
+    # checks it) and ships no stock data; once the release is pinned, the
+    # committed copy the hosted patcher serves is current.
     recipe=recipes.make(IMAGE,DATA,TP,MANIFEST['version'])
     assert recipes.stock_bytes(IMAGE,recipe)==0 and recipes.rebuild(IMAGE,recipe)==DATA
-    shelf=ROOT/'patcher/recipes';committed=json.loads((shelf/f"{MANIFEST['version']}.json").read_text())
-    assert committed==recipe,'patcher/recipes is stale: run tools/firmware/build_release.py'
-    assert json.loads((shelf/'index.json').read_text())['current']==MANIFEST['version']
+    if MANIFEST['expected_sha256']:
+        shelf=ROOT/'patcher/recipes';committed=json.loads((shelf/f"{MANIFEST['version']}.json").read_text())
+        assert committed==recipe,'patcher/recipes is stale: run tools/firmware/build_release.py'
+        assert json.loads((shelf/'index.json').read_text())['current']==MANIFEST['version']
     passed('the_patcher_recipe_rebuilds_the_image_without_stock_bytes',ops=len(recipe['ops']),
            skeleton_bytes=len(recipes.unb64(recipe['span']['skeleton'])))
     result=dict(passed=True,passed_groups=len(cases),results=cases,trial_sha256=MANIFEST['trial_sha256'])
