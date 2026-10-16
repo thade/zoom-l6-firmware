@@ -8,8 +8,27 @@
 #define VALUES 39u
 #define AUX_MODE(i) (*(volatile const uint8_t *)(0x80440dc8u+0x30du+(i)))   /* A5 5A = stereo */
 extern uint32_t sa_toggles __attribute__((weak)),sa_refused __attribute__((weak));
+#ifdef PANEL_DIAG
+/* Schema 6 (experiment 37): the panel switch diagnostics replace the AUX gain
+ * rows: chain mode, chain toggles and refusals, the ticks when Main first
+ * received and the mixer first issued a gain request, the worker's first
+ * poll, longest poll interval and polls over 100 ms apart, the ring index,
+ * then pd_counts (2 holds x 9) and pd_ring (32). */
+#define SCHEMA 6u
+#define CHAIN_MODE(i) (*(volatile const uint8_t *)(0x80440dc8u+0x30fu+(i)))
+extern uint32_t mr_chain_toggles,mr_chain_refused,mr_first_receive,sa_first_ramp __attribute__((weak));
+extern uint32_t pd_counts[2][9],pd_ring[32],pd_ring_next,pd_max_interval,pd_first_poll,pd_slow_polls;
+#define AUX_WORDS (9u+18u+32u)
+static uint32_t extra(uint32_t i) {
+    uint32_t head[9]={CHAIN_MODE(0)|CHAIN_MODE(1)<<8,mr_chain_toggles,mr_chain_refused,mr_first_receive,
+                      &sa_first_ramp?sa_first_ramp:0,pd_first_poll,pd_max_interval,pd_slow_polls,pd_ring_next};
+    return i<9u?head[i]:i<27u?pd_counts[(i-9u)/9u][(i-9u)%9u]:pd_ring[i-27u];
+}
+#else
+#define SCHEMA 5u
 #define AUX_WORDS 20u
 #define AUX_GAINS ((volatile const uint32_t *)(0x20010a48u+0x5e84u))   /* AUX1 then AUX2 rows, raw floats */
+#endif
 #define PAD_WORDS 4u     /* per pad: 16 characters, four 7-bit characters per word */
 #define PATH_WORDS (MR_PADS*PAD_WORDS)
 #define CONFIG_PATH(p) ((const volatile uint16_t *)(0x80440dc8u+0x798u+(p)*0x20au))
@@ -39,9 +58,14 @@ KEEP uint32_t mr_query(const uint8_t *packet) {
     uint32_t ipsr;__asm__ volatile("mrs %0,ipsr":"=r"(ipsr));if(ipsr)return 0;
     const MasterRef *g=LD(&mr_state);
 #define F(x) (g?(x):0)
-    /* Words are encoded straight into the reply (Main's stack is not measured). */
+    /* Words are encoded straight into the reply (Main's stack is not measured;
+     * the larger diagnostic reply lives in the globals instead). */
+#ifdef PANEL_DIAG
+    static uint8_t reply[8+5*(VALUES+AUX_WORDS+PATH_WORDS)];
+#else
     uint8_t reply[8+5*(VALUES+AUX_WORDS+PATH_WORDS)];
-    uint32_t values[VALUES]={5,0x4c4d01,mr_startup_status,F(g->task),
+#endif
+    uint32_t values[VALUES]={SCHEMA,0x4c4d01,mr_startup_status,F(g->task),
         F(LD(&g->admitted)),F(LD(&g->stopped)),F(LD(&g->stock_recording)),F(g->stop_faults),
         F(LD(&g->revoked)),F(g->revoke_packet),F(LD(&g->file_open)),F(g->polls),
         F(g->checked),F(g->refused),F(g->last_status),F(g->master_bytes),
@@ -54,7 +78,11 @@ KEEP uint32_t mr_query(const uint8_t *packet) {
         AUX_MODE(0)|AUX_MODE(1)<<8,&sa_toggles?sa_toggles:0xffffffffu,&sa_refused?sa_refused:0xffffffffu};
 #undef F
     for(uint32_t i=0;i<VALUES;i++)encode(reply,i,values[i]);
+#ifdef PANEL_DIAG
+    for(uint32_t i=0;i<AUX_WORDS;i++)encode(reply,VALUES+i,extra(i));
+#else
     for(uint32_t i=0;i<AUX_WORDS;i++)encode(reply,VALUES+i,AUX_GAINS[i]);
+#endif
     /* Each pad's saved path as the stock loader left it: the take folder of
      * a take master, else '#' and the file name. Non-ASCII ends a name. */
     for(uint32_t p=0;p<MR_PADS;p++) {

@@ -280,8 +280,14 @@ static void chain_toggle(void) {
 }
 
 /* ---- Main: five original receive calls ---- */
+#ifdef PANEL_DIAG
+KEEP uint32_t mr_first_receive;   /* tick when Main first returned from a receive (diagnostic builds) */
+#endif
 KEEP int32_t mr_main_receive(uint32_t *packet) {
     int32_t result=RECEIVE(packet);
+#ifdef PANEL_DIAG
+    if(!mr_first_receive)mr_first_receive=W(0x801f9050u)|1u;
+#endif
     MasterRef *g=LD(&mr_state);if(!g)return result;
     if(packet[0]==MR_HANDOFF_EVENT && packet[1]==MR_HANDOFF_MAGIC)handoff(g,packet[2]);
     if(packet[0]==MR_HANDOFF_EVENT && packet[1]==MR_CHAIN_MAGIC)chain_toggle();

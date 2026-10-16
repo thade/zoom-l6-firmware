@@ -44,11 +44,52 @@ static volatile uint32_t showing,shown_at;   /* set by Main (show), cleared by M
  * caller read the time is not yet due. */
 static int due(uint32_t now) {return showing && (int32_t)(now-shown_at)>=(int32_t)SHOW_TICKS;}
 
+#ifdef PANEL_DIAG
+/* Diagnostic builds only: the release loop below with the keys read first,
+ * and a record of every key change and hold event for the status query.
+ * pd_counts per hold: polls with both keys, one key, starts, restarts after
+ * 500 ms unseen, misreads ignored, releases, toggles, longest hold (ms),
+ * longest unseen while holding (ms). pd_ring: (tick & 0xffffff) | a<<24 |
+ * b<<25 | event<<26 | hold<<30, events 0 key change, 1 start, 2 restart,
+ * 3 misread ignored, 4 release, 5 toggle. */
+KEEP uint32_t pd_counts[2][9],pd_ring[32],pd_ring_next,pd_max_interval,pd_first_poll,pd_slow_polls;
+static uint32_t pd_last_poll,pd_keys[2];
+static void pd_log(uint32_t i,uint32_t event,uint32_t now,uint32_t a,uint32_t b) {
+    pd_ring[pd_ring_next++%32u]=(now&0xffffffu)|(a==1)<<24|(b==1)<<25|event<<26|i<<30;
+}
+static void pd_poll(uint32_t now) {
+    if(!pd_first_poll)pd_first_poll=now|1u;
+    else {uint32_t d=now-pd_last_poll;if(d>pd_max_interval)pd_max_interval=d;if(d>100u)pd_slow_polls++;}
+    pd_last_poll=now;
+}
+static void hold_step(Hold *h,const Pair *k,uint32_t now,uint32_t ka,uint32_t kb) {
+    if(now<ARM_TICKS || ka!=1 || kb!=1) {
+        if(h->holding && now>=ARM_TICKS && ++h->up<RELEASE_POLLS)return;
+        h->holding=h->fired=h->up=0;return;
+    }
+    h->up=0;
+    uint32_t unseen=now-h->seen;h->seen=now;
+    if(!h->holding || unseen>GAP_TICKS){h->holding=1;h->held_since=now;return;}
+    if(!h->fired && now-h->held_since>=HOLD_TICKS){h->fired=1;POST(MR_HANDOFF_EVENT,k->magic,0,0,0);}
+}
+static void pd_note(uint32_t i,uint32_t now,uint32_t a,uint32_t b,const Hold *was,const Hold *h) {
+    uint32_t *c=pd_counts[i],keys=(a==1)|(b==1)<<1;
+    if(keys==3)c[0]++;else if(keys)c[1]++;
+    if(keys!=pd_keys[i]){pd_keys[i]=keys;pd_log(i,0,now,a,b);}
+    if(!was->holding && h->holding){c[2]++;pd_log(i,1,now,a,b);}
+    if(was->holding && h->holding && h->held_since!=was->held_since){c[3]++;pd_log(i,2,now,a,b);}
+    if(was->holding && h->holding && was->up && !h->up){c[4]++;pd_log(i,3,now,a,b);}
+    if(was->holding && h->holding && keys==3 && now-was->seen>c[8])c[8]=now-was->seen;
+    if(was->holding && !h->holding){c[5]++;pd_log(i,4,now,a,b);if(now-was->held_since>c[7])c[7]=now-was->held_since;}
+    if(!was->fired && h->fired){c[6]++;pd_log(i,5,now,a,b);}
+}
+#endif
 /* Worker: each hold that lasts HOLD_TICKS posts its event to Main, once per
  * hold; a due show is asked to end. */
 KEEP void panel_poll(void) {
     uint32_t now=TICKS;
     if(due(now) && now-restore_posted>=RETRY_TICKS){restore_posted=now;POST(MR_HANDOFF_EVENT,PANEL_RESTORE_MAGIC,0,0,0);}
+#ifndef PANEL_DIAG
     for(uint32_t i=0;i<HOLDS;i++) {
         Hold *h=&holds[i];const Pair *k=&PAIRS[i];
         if(now<ARM_TICKS || KEY(k->a)!=1 || KEY(k->b)!=1) {
@@ -62,6 +103,15 @@ KEEP void panel_poll(void) {
         if(!h->holding || unseen>GAP_TICKS){h->holding=1;h->held_since=now;continue;}   /* unseen for long: may hide a release */
         if(!h->fired && now-h->held_since>=HOLD_TICKS){h->fired=1;POST(MR_HANDOFF_EVENT,k->magic,0,0,0);}
     }
+#else
+    pd_poll(now);
+    for(uint32_t i=0;i<HOLDS;i++) {
+        Hold before=holds[i];const Pair *k=&PAIRS[i];
+        uint32_t ka=KEY(k->a),kb=KEY(k->b);   /* both read, unlike the release's short circuit */
+        hold_step(&holds[i],k,now,ka,kb);
+        pd_note(i,now,ka,kb,&before,&holds[i]);
+    }
+#endif
 }
 /* Main: switches are refused while any recording runs or finalizes. */
 KEEP int panel_recording(void) {return RECORDING==1u || RECORDER_BUSY;}

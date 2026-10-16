@@ -19,6 +19,7 @@ daily_switch (33) 32 without diagnostics, with the switch review fixes
 review       (34) 33 plus the release review fixes
 chain_switch (35) 34 plus the PAN + LEVEL chain on/off switch
 release      (36) version 0.1.0: 35 with misread-tolerant switch holds (default)
+panel_diag   (37) diagnostic: 36 with the status query and switch diagnostics
 
 Writes the trial image and the anchor file: a short silent 48 kHz stereo
 32-bit float WAV with the same 512-byte header layout as the extra files the
@@ -70,13 +71,17 @@ MODES=dict(
     # the current sources (so a ZIP download builds it too); once installed it is
     # held to its published hash, and pinned to the v0.1.0 tag when these
     # sources change.
+    # Diagnostic: the release with the status query and the panel switch
+    # diagnostics (key changes, hold events, poll intervals, startup ticks).
+    panel_diag=dict(experiment=37,out=ROOT/D/'37_panel_diag',image='panel_diag',pads=4,minimum=True,history=True,
+                    stereo=True,switch=True,chain_switch=True,diag=True),
     release=dict(experiment=36,out=ROOT/D/'36_release',image='release',pads=4,trial=False,minimum=True,
                  history=True,stereo=True,switch=True,chain_switch=True,version='0.1.0'))
 
 @contextlib.contextmanager
 def trial_elf(m):
     """The ELF: current sources, or the pinned commit's in a temporary tree."""
-    if 'pin' not in m:yield build(trial=m.get('trial',True),stereo=m.get('stereo',False));return
+    if 'pin' not in m:yield build(trial=m.get('trial',True),stereo=m.get('stereo',False),diag=m.get('diag',False));return
     archive=subprocess.run(['git','archive',m['pin'],*PINNED_SOURCES],cwd=ROOT,capture_output=True,check=True).stdout
     with tempfile.TemporaryDirectory(prefix='l6-pinned-') as tree:
         tarfile.open(fileobj=io.BytesIO(archive)).extractall(tree,filter='data')
@@ -117,6 +122,7 @@ def trial(mode='reference'):
                     format='48 kHz stereo 32-bit float, 0.1 s silence, 512-byte header'),
         protocol=('6F/6E kind7 schema1; recorder/worker/handoff/heap words and the assigned path' if mode=='reference'
                   else 'none: no status query' if not diagnostic
+                  else '6F/6E kind7 schema6; schema 5 with the panel switch diagnostics in place of the AUX gain rows' if m.get('diag')
                   else '6F/6E kind7 schema5; as schema 4 plus the AUX mode, toggles and refusals' if mode=='switch'
                   else '6F/6E kind7 schema4; as schema 3 plus the AUX1 and AUX2 gain rows' if mode=='stereo'
                   else '6F/6E kind7 schema3; as schema 2 plus history written/failed/status/entries and pad files played' if mode=='history'

@@ -56,7 +56,13 @@ static int stereo(void) {
  * runtime coefficient change uses (task context only). An AUX 1 request
  * carries G[j]: it becomes a request for each side of the pair. AUX 2
  * requests are dropped; everything else passes through unchanged. */
+#ifdef PANEL_DIAG
+KEEP uint32_t sa_first_ramp;      /* tick of the first gain request: the mixer settings applied (diagnostic builds) */
+#endif
 KEEP uint32_t sa_ramp(volatile float *dst,uint32_t ms,void *state,float target) {
+#ifdef PANEL_DIAG
+    if(!sa_first_ramp)sa_first_ramp=(*(volatile uint32_t *)0x801f9050u)|1u;
+#endif
     uint32_t offset=(uint32_t)dst-AUX1_ROW;
     if(offset>=0x50u || !stereo())return sa_ramp_original(dst,ms,state,target);
     if(offset>=0x28u)return 0;
