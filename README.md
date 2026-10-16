@@ -1,8 +1,8 @@
-# Overdub firmware for the Zoom LiveTrak L6
+# Overdub/stereo AUX firmware for the Zoom LiveTrak L6
 
 Unofficial custom firmware for the original **Zoom LiveTrak L6** (not the
-L6max) that adds an overdub workflow using only the mixer. Version **0.1.0**,
-built on Zoom's firmware **v1.10**.
+L6max) that adds an overdub workflow using only the mixer and a switchable
+stereo AUX send. Version **0.1.0**, built on Zoom's firmware **v1.10**.
 
 Independent work, not affiliated with or endorsed by Zoom. Zoom's firmware is
 not included: you download it from Zoom and build the image yourself.
