@@ -5,8 +5,9 @@ Every earlier restoration started from an image that booted. Experiment 17 and
 any capture image add code that runs before Main, so this question should be
 answered before they are installed.
 
-**Parked (11 October 2026).** Prepared locally, not staged. Trials continue
-without this check, so recovery from an image that fails before Main is unproven.
+**Passed on the mixer (16 October 2026).** The hang image left the mixer dark
+and absent from USB; holding PLAY/STOP at power-on installed Zoom's v1.10 from
+the card, and the mixer started normally. See Results.
 
 ## Image
 
@@ -67,3 +68,25 @@ advantage of a known cause.
    card with a computer card reader. The mixer cannot enter transfer mode while hung.
 4. Hold PLAY/STOP at power-on. Rapid green followed by a normal stock boot passes.
    Check USB name `L6`, MIDI ports, Editor connection and existing pad assignments.
+
+## Results (16 October 2026)
+
+Run after the bootloader was read and emulated
+([bootloader findings](../../docs/research/bootloader_findings.txt)).
+
+1. Staged `d5254eba…` through File Transfer Mode (read back), then the
+   PLAY/STOP update: slow green, then rapid green.
+2. Power-on: no lights at all and no USB device. The image hangs before the
+   application turns on any LED.
+3. With the card in a computer card reader, staged Zoom's v1.10 `L6.BIN`
+   (`64f1f36b…`, read back).
+4. Card back in, the mixer fully powered off, PLAY/STOP held at power-on:
+   the update ran, and the next power-on started stock v1.10. USB product
+   `L6` (ZOOM Corporation), an Editor session opened, and the diagnostic
+   status query got no reply, as expected on stock.
+
+**Power it fully off first.** The L6 can be powered from either USB port or
+from batteries. A hung mixer shows no lights, so it looks dead or switched
+off while it is in fact still powered and stuck. Unplug both USB cables and
+take out the batteries before the PLAY/STOP power-on, or the button press
+does nothing and the mixer can seem bricked.

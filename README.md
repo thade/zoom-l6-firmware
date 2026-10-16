@@ -26,11 +26,12 @@ not included: you download it from Zoom and build the image yourself.
 
 ## Before you install: risks
 
-- This changes your mixer's firmware. A firmware that fails early at startup
-  could leave the mixer unable to boot, and a way to recover from that has not
-  been proven. Every update during development started from a working
-  firmware, and reinstalling Zoom's own firmware has worked, but there is no
-  guarantee.
+- This changes your mixer's firmware. The SD-card updater is in the mixer's
+  bootloader, which these images never change, and it runs before the
+  firmware does when PLAY/STOP is held at power-on. A deliberately broken
+  firmware that hung at startup was recovered this way (see
+  [If the mixer won't start](#if-the-mixer-wont-start)). That is good
+  evidence, not a guarantee.
 - Zoom's firmware licence notice forbids altering or reverse engineering its
   firmware without permission. Building and installing this is your decision
   and your responsibility. The MIT licence below covers this project's code
@@ -137,6 +138,23 @@ The anchor files and `HISTORY.TXT` files can stay too (stock firmware ignores
 them), and pads keep playing the takes last assigned to them. A factory reset
 does not clear the stored AUX and chain settings, but stock firmware ignores
 them.
+
+## If the mixer won't start
+
+A firmware that hangs at startup leaves the L6 dark (no lights, no USB
+device), which looks as if it won't switch on. It is still powered, and stuck.
+
+1. Put Zoom's v1.10 `L6.BIN` on the card with a computer card reader
+   (`python tools/device/install_release.py --stock --card /Volumes/<card> --eject`),
+   since the mixer cannot enter File Transfer Mode, and put the card back.
+2. **Power it fully off:** unplug both USB cables and take out the batteries.
+   Either USB port, or the batteries, can keep it powered.
+3. Reconnect USB power, then hold PLAY/STOP and press POWER, holding PLAY/STOP
+   until the power light comes on. It updates as usual, then switch off and on.
+
+This works because the bootloader reads PLAY/STOP and runs the update before
+the firmware is started ([experiment 18](experiments/18-recovery-hang/README.md),
+[bootloader findings](docs/research/bootloader_findings.txt)).
 
 ## Known limitations
 

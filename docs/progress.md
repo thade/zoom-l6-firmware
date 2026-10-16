@@ -56,7 +56,7 @@ Open work: [future work](future-work.md). The detailed log up to 0.1.0 is in
 | 15 | [Startup loader](../experiments/15-loader/README.md) | Installed |
 | 16 | [Source reuse](../experiments/16-source-reuse/README.md) | Installed; the release layout |
 | 17 | [Dormant boot](../experiments/17-dormant-boot/README.md) | Superseded, not installed |
-| 18 | [Early-hang recovery](../experiments/18-recovery-hang/README.md) | Parked, not installed |
+| 18 | [Early-hang recovery](../experiments/18-recovery-hang/README.md) | Passed (16 October, after experiment 39) |
 | 19 | [Capture: tap](../experiments/19-simple-tap/README.md) | Installed; passed |
 | 20 | [Capture: takes](../experiments/20-simple-take/README.md) | Installed; passed |
 | 21 | [Capture: pad handoff](../experiments/21-simple-handoff/README.md) | Installed; first overdub loop on the mixer |
