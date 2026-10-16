@@ -24,6 +24,60 @@ static uint32_t extra(uint32_t i) {
                       &sa_first_ramp?sa_first_ramp:0,pd_first_poll,pd_max_interval,pd_slow_polls,pd_ring_next};
     return i<9u?head[i]:i<27u?pd_counts[(i-9u)/9u][(i-9u)%9u]:pd_ring[i-27u];
 }
+#elif defined(FLASH_DIAG)
+/* Schema 7 (experiment 39): the chain and anchor state and the flash-read
+ * counters replace the AUX gain rows. */
+#define SCHEMA 7u
+#define CHAIN_MODE(i) (*(volatile const uint8_t *)(0x80440dc8u+0x30fu+(i)))
+extern uint32_t mr_main_ready;
+extern MasterRef *mr_state;
+KEEP uint32_t mq_flash_reads,mq_flash_refused;
+#define AUX_WORDS 10u
+static uint32_t extra(uint32_t i) {
+    const MasterRef *g=__atomic_load_n(&mr_state,__ATOMIC_ACQUIRE);
+    uint32_t w[10]={CHAIN_MODE(0)|CHAIN_MODE(1)<<8,mr_main_ready,g?g->anchor_pending:0,g?g->anchor_existed:0,
+        g?g->anchor_created:0,g?g->anchor_failed:0,g?g->anchor_listed:0,g?g->anchor_status:0,mq_flash_reads,mq_flash_refused};
+    return w[i];
+}
+/* Kind 8: read-only flash read through the stock serial-flash read 0x8001aee8
+ * (offset, destination, length; it waits for the chip to be idle first).
+ * Request F0 52 00 00 6F 08 <token> <offset: 4 x 7 bits> <length: 2 x 7 bits> F7,
+ * length 1-256; reply F0 52 00 00 6E 08 <token> <offset> <length> <status>
+ * <data, 7 bytes per 8: a byte of top bits, then the 7 low parts> F7.
+ * Status 0 read, 1 bad request, 2 refused (the recorder records, plays or is
+ * busy), 3 the read failed. */
+#define FLASH_READ ((int32_t (*)(uint32_t,void*,uint32_t))0x8001aee9u)
+#define FLASH_CHUNK 256u
+#define REC_STATE (*(volatile const uint8_t *)0x80578ebcu)
+static void cache_lines(const void *p,uint32_t n) {   /* clean and invalidate */
+    uint32_t a=(uint32_t)p&~31u,end=((uint32_t)p+n+31u)&~31u;
+    __asm__ volatile("dsb":::"memory");
+    for(;a<end;a+=32)*(volatile uint32_t *)0xe000ef70u=a;
+    __asm__ volatile("dsb\n\tisb":::"memory");
+}
+static uint32_t flash_query(const uint8_t *p) {
+    static _Alignas(32) uint8_t data[FLASH_CHUNK];
+    static uint8_t reply[14+(FLASH_CHUNK+6u)/7u*8u+1u];
+    uint32_t off=p[7]|p[8]<<7|p[9]<<14|(uint32_t)p[10]<<21,n=p[11]|p[12]<<7,status=0,len=14;
+    if(!n || n>FLASH_CHUNK || off+n>0x400000u)status=1;
+    else if(REC_STATE==1 || REC_STATE==2 || W(0x80578ec0u)){status=2;mq_flash_refused++;}
+    else {
+        cache_lines(data,FLASH_CHUNK);
+        status=FLASH_READ(off,data,n)?3:0;
+        cache_lines(data,FLASH_CHUNK);
+        if(!status)mq_flash_reads++;
+    }
+    for(uint32_t i=0;i<13;i++)reply[i]=p[i];
+    reply[4]=0x6e;reply[13]=(uint8_t)status;
+    if(!status)for(uint32_t i=0;i<n;i+=7) {
+        uint8_t *group=reply+len,top=0;len++;
+        for(uint32_t k=0;k<7 && i+k<n;k++){top|=(uint8_t)((data[i+k]>>7)<<k);reply[len++]=data[i+k]&127;}
+        *group=top;
+    }
+    reply[len++]=0xf7;
+    ((void (*)(const uint8_t*,uint32_t,uint32_t))0x80031649u)(reply,len,2);
+    return 1;
+}
 #else
 #define SCHEMA 5u
 #define AUX_WORDS 20u
@@ -52,6 +106,14 @@ static void encode(uint8_t *reply,uint32_t i,uint32_t v) {
 }
 KEEP uint32_t mr_query(const uint8_t *packet) {
     const uint8_t *p=packet+4;
+#ifdef FLASH_DIAG
+    if(*(const uint32_t*)packet==14 && p[0]==0xf0 && p[1]==0x52 && !p[2] && !p[3] && p[4]==0x6f && p[5]==8 &&
+       p[13]==0xf7 && *(volatile const uint8_t*)0x80629b60u==2) {
+        for(uint32_t i=6;i<13;i++)if(p[i]>127)return 0;
+        uint32_t ipsr;__asm__ volatile("mrs %0,ipsr":"=r"(ipsr));if(ipsr)return 0;
+        return flash_query(p);
+    }
+#endif
     if(*(const uint32_t*)packet!=8 || p[0]!=0xf0 || p[1]!=0x52 || p[2] || p[3] ||
        p[4]!=0x6f || p[5]!=7 || p[6]>127 || p[7]!=0xf7 ||
        *(volatile const uint8_t*)0x80629b60u!=2)return 0;
@@ -60,7 +122,7 @@ KEEP uint32_t mr_query(const uint8_t *packet) {
 #define F(x) (g?(x):0)
     /* Words are encoded straight into the reply (Main's stack is not measured;
      * the larger diagnostic reply lives in the globals instead). */
-#ifdef PANEL_DIAG
+#if defined(PANEL_DIAG) || defined(FLASH_DIAG)
     static uint8_t reply[8+5*(VALUES+AUX_WORDS+PATH_WORDS)];
 #else
     uint8_t reply[8+5*(VALUES+AUX_WORDS+PATH_WORDS)];
@@ -78,7 +140,7 @@ KEEP uint32_t mr_query(const uint8_t *packet) {
         AUX_MODE(0)|AUX_MODE(1)<<8,&sa_toggles?sa_toggles:0xffffffffu,&sa_refused?sa_refused:0xffffffffu};
 #undef F
     for(uint32_t i=0;i<VALUES;i++)encode(reply,i,values[i]);
-#ifdef PANEL_DIAG
+#if defined(PANEL_DIAG) || defined(FLASH_DIAG)
     for(uint32_t i=0;i<AUX_WORDS;i++)encode(reply,VALUES+i,extra(i));
 #else
     for(uint32_t i=0;i<AUX_WORDS;i++)encode(reply,VALUES+i,AUX_GAINS[i]);

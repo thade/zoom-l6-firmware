@@ -25,8 +25,13 @@ hardware result. An emulator result does not complete a hardware item.
       poll, harmless); keep inherited version 1 history lines newest first;
       one shared header for stock addresses (`RECORDING`, `POST`, `SAVE`,
       the tick counter) and `panel_recording` next to `recorder_busy`.
-- [ ] Recovery from an image that hangs before startup completes
-      ([experiment 18](../experiments/18-recovery-hang/README.md), parked).
+- [ ] 0.2.0: recovery from an image that hangs before start-up completes.
+      First a full flash backup and a reading of the bootloader's update path
+      ([experiment 39](../experiments/39-flash-diag/README.md)), then
+      [experiment 18](../experiments/18-recovery-hang/README.md) on the mixer.
+- [ ] 0.2.0: the firmware writes the pad folders' `MASTER.WAV` anchors itself
+      (experiment 39), so installing needs only `L6.BIN`; then drop the
+      anchor from the installer, the patcher and the guides.
 
 ## Four-pad take history
 

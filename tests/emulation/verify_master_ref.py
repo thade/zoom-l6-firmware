@@ -35,7 +35,8 @@ OFF={n:4*i for i,n in enumerate(FIELDS)};STOP_PATH=4*len(FIELDS);PATH=STOP_PATH+
 NEXT=POSTED+160;ASSIGNED=NEXT+4*160
 HFIELDS=('played_open played_count played_overflow played_gen history_pending history_defer unwritten_next '
          'stop_played_count stop_played_overflow work_count work_overflow '
-         'history_written history_failed history_status history_entries history_truncated history_omitted').split()
+         'history_written history_failed history_status history_entries history_truncated history_omitted '
+         'anchor_pending anchor_boot anchor_existed anchor_created anchor_failed anchor_listed anchor_status').split()
 PLAYED_OPEN=ASSIGNED+4*160;OFF.update({n:PLAYED_OPEN+4*i for i,n in enumerate(HFIELDS)})
 PLAYED=PLAYED_OPEN+4*len(HFIELDS);ENTRY=528;STOP_PLAYED=PLAYED+8*ENTRY
 HISTORY_BUF=(PLAYED+3*8*ENTRY+8*64*2+31)&~31
@@ -68,6 +69,7 @@ def load(m,state=STATE):
                           PLAYED_OPEN,PLAYED,HISTORY_BUF) and layout[12]==ENTRY,layout
     m.uc.mem_write(state,bytes(layout[0]));put32(m,N['mr_state'],state)
     m.uc.mem_write(CONFIG+0x30f,bytes([0xc3,0x3c]))   # the chain switched on (off until switched)
+    put32(m,state+OFF['anchor_boot'],1)                 # start-up anchor check done (groups that test it clear this)
     return layout[0]
 def history_text(*entries,truncated=False,omitted=False,version=2):
     return (f'L6 HISTORY {version}\n'+''.join(e+'\n' for e in entries)+('OMITTED\n' if omitted else '')+
@@ -95,11 +97,11 @@ class MasterRig(PlacementRig):
         open_stock,info_stock,close_stock=m.hooks[0x8005ffe8],m.hooks[0x8005ef40],m.hooks[0x8005c1f8]
         def open_(a):
             path=getstr(m,a[1])
-            if not path.startswith('A:\\RECORDER\\'):return open_stock(a)
+            if not path.startswith(('A:\\RECORDER\\','A:\\SOUND_PAD\\')):return open_stock(a)
             put32(m,a[0],0)
-            if 'HISTORY' in path:assert self.field('file_open')==1,('file_open',path)
-            if (a[2],a[3])==(0x501,0x80):   # create new (history temp file)
-                assert path.endswith('\\HISTORY.TMP'),path;self.calls.append(('create',path))
+            if 'HISTORY' in path or 'SOUND_PAD' in path:assert self.field('file_open')==1,('file_open',path)
+            if (a[2],a[3])==(0x501,0x80):   # create new (history or anchor temp file)
+                assert path.endswith(('\\HISTORY.TMP','\\MASTER.TMP')),path;self.calls.append(('create',path))
                 if path in self.faults:return self.faults[path]
                 if path in self.card:return EXISTS
                 h=self.next_probe;self.next_probe+=1;self.writing[h]=[path,bytearray()];put32(m,a[0],h);return 0
@@ -200,7 +202,7 @@ class MasterRig(PlacementRig):
         self.packet=packet;self.delays=0
         return self.m.invoke(N['mr_main_receive'],[PACKET])
     def deliver(self,serial=None):
-        _,magic,posted,_,_=self.posts[-1]
+        _,magic,posted,_,_=[q for q in self.posts if q[:2]==(3,MAGIC)][-1]   # the chain's own handoff post
         self.main_receive(3,magic,posted if serial is None else serial,0)
     def count(self,pad=0):return self.m.invoke(0x80008ee8,[pad])
     def take(self,folder=FOLDER,blocks=6,busy_after=False,during=()):
@@ -677,6 +679,50 @@ def main():
     assert len(chain_posts())==3
     poll(33750,1,1);assert len(chain_posts())==4                       # 1.5 s after the re-press
     passed('the_chain_switch_keeps_takes_off_the_pads_while_off_and_persists_in_the_settings')
+
+    # Anchors: while the chain is on, the worker gives each pad folder without
+    # MASTER.WAV the installers' anchor (byte for byte, written as MASTER.TMP
+    # and renamed), never replaces one, waits while the recorder records, and
+    # Main lists each new one in its pad's file list (stock code), after which
+    # the chain can use that pad.
+    from build_master_trial import anchor as installer_anchor
+    ANCHOR_MAGIC=0x4c36414e;names=0x23001a00
+    def lookup(r,pad):putstr(r.m,names,'MASTER.WAV');return struct.unpack('<i',struct.pack('<I',r.m.invoke(0x80008ec0,[pad,names])))[0]
+    r=MasterRig(catalogue=('BACKING.WAV',),anchors=());saves=[]
+    pad2='A:\\SOUND_PAD\\PAD2\\MASTER.WAV';r.card[pad2]=(4,b'mine')           # someone else's MASTER.WAV
+    r.set('anchor_boot',0);put32(r.m,N['mr_main_ready'],1001)
+    r.m.uc.mem_write(0x80578ebc,b'\x01');r.step()                              # recording: nothing yet
+    assert r.field('anchor_pending')==0xf and r.field('anchor_created')==0 and not any('SOUND_PAD' in c[1] for c in r.calls)
+    r.m.uc.mem_write(0x80578ebc,b'\x00')
+    for _ in range(4):r.step()
+    assert (r.field('anchor_created'),r.field('anchor_existed'),r.field('anchor_failed'),r.field('anchor_pending'))==(3,1,0,0)
+    made=[f'A:\\SOUND_PAD\\PAD{n}\\MASTER.WAV' for n in (1,3,4)]
+    assert all(r.card[x]==(len(installer_anchor()),installer_anchor()) for x in made) and r.card[pad2]==(4,b'mine')
+    assert not any(k.endswith('MASTER.TMP') for k in r.card)
+    posts=[q[2] for q in r.posts if q[:2]==(3,ANCHOR_MAGIC)];assert posts==[0,2,3],posts
+    assert all(lookup(r,p)<0 for p in range(4))
+    for pad in posts:r.main_receive(3,ANCHOR_MAGIC,pad,0)
+    r.main_receive(3,ANCHOR_MAGIC,0,0)                                         # listed already: nothing more
+    assert [lookup(r,p)>=0 for p in range(4)]==[True,False,True,True] and r.field('anchor_listed')==3
+    r.chain_take(A);assert r.pads()[0]==A                                      # pad 1 usable at once, no rescan
+    for _ in range(3):r.step()
+    assert r.field('anchor_created')==3                                        # checked once per start-up
+    # Off: no folder is checked; switching the chain on checks every one.
+    r=MasterRig(catalogue=('BACKING.WAV',),anchors=());r.m.uc.mem_write(CHAIN,bytes(2))
+    r.m.hooks.update({0x80006ab8:lambda a:saves.append(1) or 0,0x80076950:lambda a:1,0x800763d8:lambda a:1})
+    r.set('anchor_boot',0);put32(r.m,N['mr_main_ready'],1001)
+    for _ in range(3):r.step()
+    assert r.field('anchor_pending')==0 and r.field('anchor_created')==0
+    r.main_receive(3,MAGIC_CHAIN,0,0);assert r.field('anchor_pending')==0xf
+    for _ in range(4):r.step()
+    assert r.field('anchor_created')==4
+    # A folder that cannot take the file is counted as failed, not retried.
+    r=MasterRig(catalogue=('BACKING.WAV',),anchors=());r.faults['A:\\SOUND_PAD\\PAD1\\MASTER.TMP']=0xffffd825
+    r.set('anchor_boot',0);put32(r.m,N['mr_main_ready'],1001)
+    for _ in range(4):r.step()
+    assert (r.field('anchor_created'),r.field('anchor_failed'),r.field('anchor_status'))==(3,1,0)
+    passed('the_worker_writes_missing_pad_anchors_and_main_lists_them_while_the_chain_is_on',
+           anchor_bytes=len(installer_anchor()))
 
     # Original reload, assignment and settings code: with the anchor the
     # reference survives the queued assignment, a save, a cold-boot load and

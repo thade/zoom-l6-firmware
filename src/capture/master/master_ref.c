@@ -41,6 +41,7 @@ typedef int32_t (*Open)(uint32_t*,const uint16_t*,uint32_t,uint32_t);
 /* Stock pad calls, as used by the Editor's select handler 0x80009ba0. */
 #define POST ((void (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t))0x80020ca1u)
 #define LOOKUP ((int32_t (*)(uint32_t,const uint16_t*))0x80008ec1u)
+#define LIST_FILE ((int32_t (*)(uint32_t,const uint16_t*,uint32_t))0x80008dd9u)   /* add a name to a pad's file list */
 #define PATH_OF ((const uint16_t *(*)(uint32_t,int32_t))0x80008e89u)
 #define COUNT ((uint32_t (*)(uint32_t))0x80008ee9u)
 #define VALIDATE ((uint32_t (*)(const uint16_t*,uint32_t,int32_t))0x80009569u)
@@ -74,6 +75,7 @@ static const uint16_t MASTER[]=u"\\MASTER.WAV";
 static const uint16_t SPLIT[]=u"\\MASTER_01.WAV";   /* the second part of a split take */
 static const uint16_t ANCHOR[]=u"MASTER.WAV";
 static const uint16_t ANCHOR_PATH[]=u"A:\\SOUND_PAD\\PAD1\\MASTER.WAV";
+static const uint16_t ANCHOR_TMP[]=u"A:\\SOUND_PAD\\PAD1\\MASTER.TMP";
 #define ANCHOR_DIGIT 16u        /* index of the pad digit in ANCHOR_PATH */
 
 static uint32_t interrupt(void) {uint32_t v;__asm__ volatile("mrs %0, ipsr":"=r"(v));return v;}
@@ -270,13 +272,21 @@ static void handoff(MasterRef *g,uint32_t serial) {
 /* Off: takes stay off the pads (each still gets its history). Refused while
  * any recording runs or finalizes. EFX and PAN blink (on) or light steadily
  * (off) for 2 s. */
-static void chain_toggle(void) {
+static void chain_toggle(MasterRef *g) {
     if(panel_recording()){mr_chain_refused++;return;}
     int to_on=!chain_on();
     CHAIN_MODE[0]=to_on?CHAIN_ON_A:0;CHAIN_MODE[1]=to_on?CHAIN_ON_B:0;
     SAVE();
     panel_show(SEL_EFX,SEL_PAN,(uint32_t)to_on);
     mr_chain_toggles++;
+    if(to_on)__atomic_store_n(&g->anchor_pending,(1u<<MR_PADS)-1u,__ATOMIC_RELEASE);   /* check every pad folder */
+}
+/* Main: a pad folder gained the anchor: add it to that pad's file list (as
+ * the stock post-record step does for a new pad recording) unless listed, so
+ * the chain can use the pad without a rescan. Not while an assignment loads. */
+static void list_anchor(MasterRef *g,uint32_t pad) {
+    if(pad>=MR_PADS || PENDING(pad) || LOOKUP(pad,ANCHOR)>=0)return;
+    if(!LIST_FILE(pad,ANCHOR,0))g->anchor_listed++;
 }
 
 /* ---- Main: five original receive calls ---- */
@@ -286,7 +296,8 @@ KEEP int32_t mr_main_receive(uint32_t *packet) {
     if(!mr_main_ready)__atomic_store_n(&mr_main_ready,W(0x801f9050u)|1u,__ATOMIC_RELAXED);
     MasterRef *g=LD(&mr_state);if(!g)return result;
     if(packet[0]==MR_HANDOFF_EVENT && packet[1]==MR_HANDOFF_MAGIC)handoff(g,packet[2]);
-    if(packet[0]==MR_HANDOFF_EVENT && packet[1]==MR_CHAIN_MAGIC)chain_toggle();
+    if(packet[0]==MR_HANDOFF_EVENT && packet[1]==MR_CHAIN_MAGIC)chain_toggle(g);
+    if(packet[0]==MR_HANDOFF_EVENT && packet[1]==MR_ANCHOR_MAGIC)list_anchor(g,packet[2]);
     if(packet[0]==MR_HANDOFF_EVENT && packet[1]==SA_TOGGLE_MAGIC && sa_toggle)sa_toggle();
     panel_restore();   /* ends a due switch LED show on any event */
     uint32_t storage=(packet[0]==0 && packet[2]>=0x32 && packet[2]<=0x35) ||
@@ -611,6 +622,75 @@ static void history_done(MasterRef *g,uint32_t status) {
     for(uint32_t i=0;i<n && i<MR_DIR-1;i++)slot[i]=g->path[i];
     slot[n<MR_DIR-1?n:MR_DIR-1]=0;
 }
+/* ---- Worker: the pad folders' anchor files ----
+ * Stock reload keeps a pad's path only while the pad's folder lists a file of
+ * the same name, so each pad the chain uses needs A:\SOUND_PAD\PADn\MASTER.WAV.
+ * While the chain is on (once after start-up, and whenever it is switched
+ * on), each folder without one gets it: the same 0.1 s silent 48 kHz stereo
+ * float file as the installers' anchor, written as MASTER.TMP and renamed (an
+ * existing MASTER.WAV, ours or not, is never replaced). Main then lists it. */
+enum {MR_A_OK=0,MR_A_EXISTED=1,MR_A_CREATE=2,MR_A_WRITE=3,MR_A_CLOSE=4,MR_A_RENAME=5,MR_A_PROBE=6,MR_A_DEFER=7};
+#define ANCHOR_HEADER 512u
+#define ANCHOR_BYTES (ANCHOR_HEADER+4800u*8u)   /* 38,912 */
+/* The anchor's 512-byte header: RIFF/WAVE, fmt (IEEE float, 2 ch, 48 kHz,
+ * 32-bit), a JUNK chunk to 504, then data. */
+static void anchor_header(uint8_t *h) {
+    static const uint8_t head[44]={'R','I','F','F',0xf8,0x97,0,0, 'W','A','V','E','f','m','t',' ',16,0,0,0,3,0,2,0,
+        0x80,0xbb,0,0, 0x00,0xdc,0x05,0, 8,0,32,0, 'J','U','N','K',0xcc,0x01,0,0};
+    for(uint32_t i=0;i<ANCHOR_HEADER;i++)h[i]=i<44?head[i]:0;
+    h[504]='d';h[505]='a';h[506]='t';h[507]='a';h[508]=0x00;h[509]=0x96;h[510]=0;h[511]=0;
+}
+static uint32_t make_anchor(MasterRef *g,uint32_t pad) {
+    uint16_t final[sizeof(ANCHOR_PATH)/2],tmp[sizeof(ANCHOR_TMP)/2];
+    for(uint32_t i=0;i<sizeof(final)/2;i++)final[i]=ANCHOR_PATH[i];
+    for(uint32_t i=0;i<sizeof(tmp)/2;i++)tmp[i]=ANCHOR_TMP[i];
+    final[ANCHOR_DIGIT]=tmp[ANCHOR_DIGIT]=(uint16_t)('1'+pad);
+    if(!io_begin(g))return MR_A_DEFER;
+    uint32_t bytes,handle=0,got=0,status=MR_A_OK;
+    int found=probe(final,&bytes,0,0);
+    if(found){io_end(g);return found>0?MR_A_EXISTED:MR_A_PROBE;}
+    int32_t created=OPEN(&handle,tmp,0x501,0x80);
+    if(created && !handle && (uint32_t)created==EXISTS && !revoked(g)) {
+        (void)UNLINK(tmp);created=OPEN(&handle,tmp,0x501,0x80);   /* left by an interrupted write */
+    }
+    if(created)status=MR_A_CREATE;
+    else {
+        /* The history buffer is free here (no history pending): the header,
+         * then zeros, in 4 KiB writes. */
+        char *buf=g->history;int wrote=1;
+        anchor_header((uint8_t *)buf);
+        for(uint32_t i=ANCHOR_HEADER;i<MR_HISTORY;i++)buf[i]=0;
+        for(uint32_t done=0;wrote && done<ANCHOR_BYTES;) {
+            uint32_t n=ANCHOR_BYTES-done<MR_HISTORY?ANCHOR_BYTES-done:MR_HISTORY;
+            coherent(buf,MR_HISTORY);
+            wrote=!revoked(g) && !WRITE(handle,buf,n,&got) && got==n;
+            if(!done)for(uint32_t i=0;i<ANCHOR_HEADER;i++)buf[i]=0;   /* later writes are all zeros */
+            done+=n;
+        }
+        int closed=!CLOSE(handle);
+        if(revoked(g))status=MR_A_DEFER;
+        else if(!wrote || !closed){(void)UNLINK(tmp);status=wrote?MR_A_CLOSE:MR_A_WRITE;}
+        else if(RENAME(tmp,final)){if(!revoked(g))(void)UNLINK(tmp);status=MR_A_RENAME;}
+    }
+    io_end(g);
+    return status;
+}
+/* One pad folder per step, while the recorder is idle and no take is being
+ * handled; a deferred folder is tried again. */
+static void anchors(MasterRef *g) {
+    if(!g->anchor_boot && chain_on() && LD(&mr_main_ready)) {
+        g->anchor_boot=1;__atomic_or_fetch(&g->anchor_pending,(1u<<MR_PADS)-1u,__ATOMIC_ACQ_REL);
+    }
+    uint32_t pending=LD(&g->anchor_pending);
+    if(!pending || !chain_on() || g->pending || g->history_pending || recorder_busy(g))return;
+    uint32_t pad=(uint32_t)__builtin_ctz(pending),status=make_anchor(g,pad);
+    g->anchor_status=status;
+    if(status==MR_A_DEFER)return;
+    __atomic_and_fetch(&g->anchor_pending,~(1u<<pad),__ATOMIC_ACQ_REL);
+    if(status==MR_A_EXISTED)g->anchor_existed++;
+    else if(status==MR_A_OK){g->anchor_created++;POST(MR_HANDOFF_EVENT,MR_ANCHOR_MAGIC,pad,0,0);}
+    else g->anchor_failed++;
+}
 KEEP uint32_t mr_worker_step(void) {
     MasterRef *g=LD(&mr_state);if(!g)return 0;
     g->polls++;
@@ -652,6 +732,7 @@ KEEP uint32_t mr_worker_step(void) {
         uint32_t status=history(g);
         if(status!=MR_H_PENDING)history_done(g,status);
     }
+    anchors(g);
     /* Repost a handoff Main has not handled (its queue may have been full). */
     if(LD(&g->handoff_state)==MR_HANDOFF_POSTED && g->polls-g->handoff_posted_at>=RETRY_POLLS) {
         uint32_t posted=MR_HANDOFF_POSTED;
