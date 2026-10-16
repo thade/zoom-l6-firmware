@@ -64,10 +64,12 @@ so an interrupted update leaves the mixer in update mode at the next
 power-on, with or without PLAY/STOP.
 
 3. Starting MAIN (0x81d8fc28)
-Reads the load length from flash 0x3f9ff8 (AUDIOGUIDE's trailer, package
+Returns at once unless its argument is 0 (the decision passes 0). Reads the
+load length from flash 0x3f9ff8 (AUDIOGUIDE's trailer, package
 offset 0x3951f8; stock 0xb5ae4), copies that many bytes from flash 0x65000 to
 0x80001000 in 0x1fb8-byte reads, switches to MSP, disables and clears every
-NVIC interrupt, stops SysTick, sets VTOR = 0x80001000, cleans and disables
+NVIC interrupt, stops SysTick and clears its pending bit, clears the
+SHCSR fault enables, sets VTOR = 0x80001000, cleans and disables
 the caches if enabled, and calls the reset handler [0x80001004]. There is no
 checksum, signature or version check of MAIN. Code beyond runtime
 0x80001000 + length (0x800b6ae4 for 0.1.0, which keeps the stock length) is
@@ -78,13 +80,15 @@ equal stock).
 4. Update mode (0x81d98470)
 Mounts the card (0x81d8fe80), shows the updating state (0x81d8fa80(2)), then
 returns an error code if any step fails (the error state is 0x81d8faf0(3)):
-  2  apparently low battery: 0x81d98068 >= 2 (taken to be the power
-     source) with the ADC reading 0x81d944a0 below 0x198; Zoom's guide asks
-     for USB power
+  2  low battery: 0x81d98068 (0, 1, or 2 for neither, set by 0x81d980c0
+     from key bits 17/18, taken to be the power source) >= 2 with the ADC
+     reading 0x81d944a0 below 0x198; Zoom's guide asks for USB power
   3, 4  no card, or the card cannot be used (0x81d8ff30, 0x81d8ff20)
   5  no A:\L6.BIN (parser 0x81d98c60, f_open 0x81da6fa8)
   6  flags byte at package 0x60 is zero, or the component check failed
-  1  the hardware mask at package 0x64 lacks this unit's bit (0x81d92648)
+  1  the hardware mask at package 0x64 lacks this unit's bit (0x81d92648;
+     the hardware id comes from GPIO2 pins 19-21 via 0x81d97d10; stock
+     mask 0x01)
   7, 8, 9  erase, write, verify failed (section 5)
 The flags byte selects the work: bit 0 updates the bootloader (0x81d98c00,
 using a BOOT descriptor at package 0x68: name, offset 0x6c, length 0x70, and
@@ -102,8 +106,12 @@ it is switched off; it does not start MAIN.
   data, read in 32 KiB chunks. Nothing is erased before this passes, so a
   damaged or truncated L6.BIN fails with error 6 and leaves the flash as it
   was.
-- Erase (0x81d90030): first the last 32 KiB block, 0x3f2000-0x3fa000, which
-  holds the marker, then 0x65000 up to it, in 32 KiB blocks (0x81d908f0).
+- Erase (0x81d90030): first the last 32 KiB, 0x3f2000-0x3fa000, which holds
+  the marker, then 0x65000 up to it, in 32 KiB requests to 0x81d908f0. That
+  primitive needs a 4 KiB-aligned start and erases 4 KiB sectors (command
+  0x20), using 64 KiB block erases (0xd8) only for whole aligned 64 KiB
+  inside the request, which 32 KiB requests never contain. So the update
+  erases exactly 0x65000-0x3fa000, never into BOOT or the tail.
 - Write (0x81d8ff40): data from package 0x200 to flash 0x65000 onwards, in
   32 KiB chunks (program 0x81d90da0), all but the last chunk.
 - Verify (0x81d90400): reads back and compares every written chunk with the
@@ -124,8 +132,9 @@ change the marker.
 7. Open points
 - The bootloader-update path 0x81d98c00 is not read in detail; we never use
   it.
-- "Recovery(" (UTF-16, used at 0x81da6f0a near the directory code that uses
-  "A:\*") is not yet understood.
+- "Recovery(" (UTF-16, at 0x81da6f90) belongs to the card mount's directory
+  scan 0x81da6c50, called only from the mount 0x81d8fe80 (update mode and
+  card-in events), after the decision: not a boot gate.
 - The LED patterns behind 0x81d8fa80/0x81d8faf0 are inferred from Zoom's
   guide, not read.
 - MAIN can write flash (settings saves); a MAIN bug that erased BOOT would
@@ -145,8 +154,22 @@ filesystem and the RTOS locks are modelled. Results:
 - Installing the hang image: 230 flash operations, the first erasing the
   marker block, the last programming the final 20 KiB that holds the
   marker; the flash then equals the package from 0x65000 to 0x3fa000 and
-  BOOT and the tail are unchanged. Idle boot starts MAIN (which would hang);
+  BOOT and the tail are unchanged; every erase and program lies inside
+  0x65000-0x3fa000. Idle boot starts MAIN (which would hang);
   PLAY/STOP reaches update mode; a stock update restores the flash.
 - Power cut before operation 0 (nothing erased) boots the old MAIN; a cut
   before any later operation (sampled through the erases and writes) boots
   into update mode, and a stock update from there restores the flash.
+
+9. Review (16 October 2026, fable sub-agent)
+Confirmed from the disassembly: the decision is the only path to MAIN
+(0x81d8fc28 is reached only from 0x81d98612, and 0x80001000 is referenced
+only inside it); PLAY/STOP is GPIO2_IO25, active low, the same pin MAIN's
+GPIO poller reads (0x80033f10, port table 0x800a209c), and nothing sets bit 1
+of the key word between sampling and the decision; the bootloader reads no
+flash MAIN writes (only 0x3f9ff8, 0x65000+, the marker and the version
+words); SystemInit disables the watchdogs, so a hanging MAIN stays hung
+rather than reset-looping; the erase granularity above. Verdict: experiment
+18 recovery expected to work; the remaining ways to stall are procedural
+(battery power, releasing PLAY/STOP too early, a damaged card file), none of
+which touch BOOT.

@@ -137,6 +137,7 @@ def main():
     b=Bootloader(backup,backup,hang);assert b.system_update()==0;ops=b.ops
     assert ops[0]==('erase',MARKER[0],MARKER[1]-MARKER[0]) and ops[-1][0]=='program' and ops[-1][1]<=0x3f9fc0<ops[-1][1]+ops[-1][2]
     assert span(b.flash)==hang[0x200:0x395200] and bytes(b.flash[:REGIONS[0]])==backup[:REGIONS[0]] and bytes(b.flash[REGIONS[1]:])==backup[REGIONS[1]:]
+    assert all(REGIONS[0]<=at and at+n<=REGIONS[1] for _,at,n in ops)        # every operation inside the update span
     after={'idle':b.boot()};b.press_play(True);after['play_stop']=b.boot();b.press_play(False)
     b.package=stock;assert b.system_update()==0 and span(b.flash)==stock[0x200:0x395200];after['restored']=b.boot()
     assert after==dict(idle='main',play_stop='update',restored='main'),after
