@@ -76,7 +76,7 @@ names=['build_profiles','capture_performance','native_writer_staging','stock_rin
        'sd_transfer_lifetime','sd_completion','sd_transfer_probe','sd_controller_setup','sd_cold_start','sd_cache_contract','sd_chunk_guard','sd_chunk_admission','sd_card_recovery',
        'sd_checked_recovery','sd_native_event','sd_event_sources',
        'read_producer','read_callback',
-       'ordinary_routing','publication_workflow','startup_sites','lz4_packing','capture_sd_retained','capture_boot_cache','sd_enumeration_guard','capture_source_reuse','usb_startup_ack','storage_boot','boot_probe','native_worker_allocation','simple_capture','simple_trial','simple_take','simple_pad_handoff','simple_handoff_trial','simple_diag_trial','simple_buffer_trial','master_ref','master_trial','master_ref_everyday','master_everyday','stereo_aux_hooks','stereo_aux_hooks_everyday','flash_diag']
+       'ordinary_routing','publication_workflow','startup_sites','lz4_packing','capture_sd_retained','capture_boot_cache','sd_enumeration_guard','capture_source_reuse','usb_startup_ack','storage_boot','boot_probe','native_worker_allocation','simple_capture','simple_trial','simple_take','simple_pad_handoff','simple_handoff_trial','simple_diag_trial','simple_buffer_trial','master_ref','master_trial','master_ref_everyday','master_everyday','stereo_aux_hooks','stereo_aux_hooks_everyday','flash_diag','bootloader']
 results=[]
 for name in names:
     r=run(f'tests/emulation/verify_{name}.py')
@@ -87,13 +87,14 @@ for name in names:
     else:
         data=json.loads(r.stdout)
         result['groups']=data.get('passed_groups',data.get('groups',0))
-        print(f'{name}: PASS ({result["groups"]})',flush=True)
+        if data.get('skipped'):result['skipped']=data['skipped'];print(f'{name}: SKIP ({data["skipped"]})',flush=True)
+        else:print(f'{name}: PASS ({result["groups"]})',flush=True)
     results.append(result)
-report=dict(passed=all(r['passed'] for r in results),suites=len(results),
+report=dict(passed=all(r['passed'] for r in results),suites=len(results),skipped=[r['suite'] for r in results if r.get('skipped')],
             groups=sum(r.get('groups',0) for r in results),results=results,
             limitations=['Offline emulation with modeled storage, fence and scheduling ports.',
                          'No firmware image, physical placement or device safety claim.'])
 out=ROOT/'analysis/redesign_verification.json';out.parent.mkdir(exist_ok=True)
 out.write_text(json.dumps(report,indent=2)+'\n')
-print(json.dumps({k:report[k] for k in ('passed','suites','groups')}),flush=True)
+print(json.dumps({k:report[k] for k in ('passed','suites','groups','skipped')}),flush=True)
 sys.exit(not report['passed'])

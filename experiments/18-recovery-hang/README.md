@@ -42,6 +42,12 @@ it directly (16 October 2026, static reading):
 - BOOT is never written by a package with the stock header, which every image
   we build keeps.
 
+The bootloader's own instructions, emulated over modelled flash, card and GPIO
+(`tests/emulation/verify_bootloader.py`), reproduce this: with this image
+installed, PLAY/STOP held reaches update mode and a stock update restores the
+flash, and a power cut at any point of an update leaves the mixer in update
+mode at the next power-on.
+
 ## Risk
 
 If recovery works, the mixer returns to stock with one more update. If it does

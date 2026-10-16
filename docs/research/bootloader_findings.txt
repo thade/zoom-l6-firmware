@@ -6,9 +6,11 @@ region (0x000000-0x065000), taken from the full flash backup of experiment 39
 (Reference/flash-backup/l6-flash-20261016-194251.bin, SHA-256 c5997ccc...).
 The bootloader is Zoom's code and is not in the public update file: it stays
 in the ignored Reference/ folder and is never committed or published. This
-note gives addresses and behaviour only. Nothing here is emulated yet; the
-update was observed on hardware only as Zoom's normal PLAY/STOP update, which
-every installed image so far has used.
+note gives addresses and behaviour only. Sections 2-5 are also executed:
+tests/emulation/verify_bootloader.py runs the bootloader's own instructions
+for the key sampling, the decision, the package check and the whole system
+update (section 8). On hardware the update has been seen only as Zoom's
+normal PLAY/STOP update, which every installed image so far has used.
 
 Summary for recovery: the SD updater lives entirely in BOOT. It is entered
 when PLAY/STOP is held at power-on, read from an MCU GPIO pin before MAIN is
@@ -46,8 +48,9 @@ Before it, the Main task's init 0x81d90f08 samples the keys synchronously
 (0x81d940f0) into the active-low key word [0x81f481c0+0x54], with the same
 layout as MAIN's GPIO copy [0x8060e350+0x54] (read by 0x8001fca0): bit 0
 POWER, bit 1 PLAY/STOP, bits 2-5 pads 1-4, bit 6 TAP, bit 10 card detect.
-PLAY/STOP is GPIO port index 2, pin 25 (0x81d97d40 -> 0x81d97730), read
-directly, not through the panel controller.
+PLAY/STOP is GPIO2_IO25 (port table 0x81dc8370 entry 2 = GPIO2 at
+0x401bc000; 0x81d97d40 -> 0x81d97730 reads its data register), read
+directly, not through the panel controller. Card detect is GPIO2_IO28.
   if key(5) == pressed            (0x81d8fb60(5): key table 2,3,4,5,6,1,0 -> bit 1)
      or marker_invalid()          (0x81d98540)
       -> update mode 0x81d98470
@@ -119,8 +122,6 @@ BOOT descriptor. No image we build can select the bootloader update or
 change the marker.
 
 7. Open points
-- Not yet emulated: the decision, the package check against our images, and
-  the erase/write/verify order with power loss at each step (next step).
 - The bootloader-update path 0x81d98c00 is not read in detail; we never use
   it.
 - "Recovery(" (UTF-16, used at 0x81da6f0a near the directory code that uses
@@ -129,3 +130,23 @@ change the marker.
   guide, not read.
 - MAIN can write flash (settings saves); a MAIN bug that erased BOOT would
   defeat this recovery. Our code only requests the stock settings save.
+
+8. Emulation (tests/emulation/verify_bootloader.py, 16 October 2026)
+The bootloader's own code runs from the backup at its load address over a
+modelled flash (erase sets 0xff, programming clears bits), a modelled
+A:\L6.BIN and GPIO data registers; the flash and SD drivers, the
+filesystem and the RTOS locks are modelled. Results:
+- Key sampling 0x81d940f0 then the decision: idle -> MAIN; GPIO2_IO25 low
+  (PLAY/STOP held) -> update mode; marker block erased, or its version byte
+  unprintable -> update mode.
+- Package check: stock, release 0.1.0 and the experiment 18 hang image pass;
+  one flipped bit or a truncated file fails, and the update then returns 6
+  with no flash operation.
+- Installing the hang image: 230 flash operations, the first erasing the
+  marker block, the last programming the final 20 KiB that holds the
+  marker; the flash then equals the package from 0x65000 to 0x3fa000 and
+  BOOT and the tail are unchanged. Idle boot starts MAIN (which would hang);
+  PLAY/STOP reaches update mode; a stock update restores the flash.
+- Power cut before operation 0 (nothing erased) boots the old MAIN; a cut
+  before any later operation (sampled through the erases and writes) boots
+  into update mode, and a stock update from there restores the flash.
