@@ -81,11 +81,12 @@ MODES=dict(
                     stereo=True,switch=True,chain_switch=True,diag=True,
                     sha='b4c1c3c7fd99fa64627abdc52d9615be04e9bb3e8c3df5b37af637413d9985ae'),
     # Release 0.1.0: 36 with the chain switched by EFX + PAN and the switches
-    # armed 1 s after Main is ready. Built from the current sources (so a ZIP
-    # download builds it too); once installed it is held to its published
-    # hash, and pinned to the v0.1.0 tag when these sources change.
+    # armed 1 s after Main is ready; installed 16 October 2026. Built from the
+    # current sources (so a ZIP download builds it too) and held to its
+    # published hash; pin it to the v0.1.0 tag when these sources change.
     release=dict(experiment=38,out=ROOT/D/'38_release',image='release',pads=4,trial=False,minimum=True,
-                 history=True,stereo=True,switch=True,chain_switch=True,version='0.1.0'))
+                 history=True,stereo=True,switch=True,chain_switch=True,version='0.1.0',
+                 sha='99ded4b1fcefa1d968a7317e5df4ee65c670018c4a495cfc1ed903aa5aa70bb0'))
 
 @contextlib.contextmanager
 def trial_elf(m):

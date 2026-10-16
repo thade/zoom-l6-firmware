@@ -4,14 +4,23 @@
 diagnostic build ([experiment 37](../37-panel-diag/README.md)). Everyday
 build. This is release 0.1.0.
 
-**Prepared locally; not yet installed.** The mixer runs experiment 37.
-Recovery from an image that fails before Main remains unproven
+**Installed 16 October 2026; passed. This is release 0.1.0.** Recovery from
+an image that fails before Main remains unproven
 ([experiment 18](../18-recovery-hang/README.md) is parked).
+
+## Results
+
+Installed over experiment 37 with `tools/device/install_release.py` (image
+read back identical; the previous image and settings file backed up). The
+user held EFX + PAN about ten times after power-on, including quick and
+uneven presses: **every hold worked** (experiment 37 had 6 of about 10 PAN +
+LEVEL holds fail). Evidence stays in `deployment/38_release/`.
 
 | | Experiment 36 | 0.1.0 (experiment 38) |
 |---|---|---|
 | Patch sites | 15 | 15 |
 | Code | 9,172 bytes | 9,236 bytes |
+| Image SHA256 | `c796f4e6…` | `99ded4b1fcefa1d968a7317e5df4ee65c670018c4a495cfc1ed903aa5aa70bb0` |
 
 ## Changes
 
