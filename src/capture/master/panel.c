@@ -8,10 +8,10 @@
 #include <stdint.h>
 #include "../retention.h"
 #include "master_ref.h"
+#include "stock.h"
 #include "stereo_aux.h"
 
 #define KEY ((uint32_t (*)(uint32_t))0x80008479u)         /* live key state: 1 pressed */
-#define TICKS (*(volatile uint32_t *)0x801f9050u)        /* 1 ms */
 #define HOLD_TICKS 1500u
 #define ARM_TICKS 1000u       /* switching arms this long after Main first received an event */
 #define GAP_TICKS 500u        /* both keys unseen for longer restarts a hold (a stall may hide a release) */
@@ -19,7 +19,6 @@
                                  25 ms polls, 20-30 ms at 10 ms): a one-off misread does not */
 #define SHOW_TICKS 2000u      /* how long the LEDs show the new state */
 #define RETRY_TICKS 250u      /* the worker repeats its redraw request until Main has done it */
-#define POST ((void (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t))0x80020ca1u)
 #define SELECT_LED ((void (*)(uint32_t,uint32_t))0x800075d9u)   /* stock select LED: on/off, steady */
 #define SELECT_LEDS 9u                                          /* HIGH FREQ MID LOW AUX1 AUX2 EFX PAN LEVEL */
 #define VIEW (*(volatile uint8_t *)0x804430d8u)                 /* stock selected view (sel of the lit LED) */
@@ -29,8 +28,6 @@
 #define LED(sel) ((volatile uint8_t *)(0x8062939cu+2u*((sel)+0xcu)))   /* select LED: level, mode (1 blinks) */
 /* Stock recorder state: 1 from record start (ordinary or to a pad) until
  * RecStop has finalized; the RecPlayCtl busy word covers both callbacks. */
-#define RECORDING (*(volatile uint8_t *)0x80578ebcu)
-#define RECORDER_BUSY (*(volatile uint32_t *)0x80578ec0u)
 
 /* The holds (constant, with the code) and their state (zeroed globals: the
  * layout carries no initialised data). */
@@ -94,7 +91,7 @@ KEEP void panel_poll(void) {
     uint32_t now=TICKS,main_ready=__atomic_load_n(&mr_main_ready,__ATOMIC_RELAXED);
     /* Armed ARM_TICKS after Main first received an event (it has started up,
      * settings loaded); about 4 s after power-on. */
-    int ready=main_ready && now-main_ready>=ARM_TICKS;
+    int ready=main_ready && (int32_t)(now-main_ready)>=(int32_t)ARM_TICKS;   /* signed: Main may store after our tick read */
     if(due(now) && now-restore_posted>=RETRY_TICKS){restore_posted=now;POST(MR_HANDOFF_EVENT,PANEL_RESTORE_MAGIC,0,0,0);}
 #ifndef PANEL_DIAG
     for(uint32_t i=0;i<HOLDS;i++) {
@@ -120,8 +117,6 @@ KEEP void panel_poll(void) {
     }
 #endif
 }
-/* Main: switches are refused while any recording runs or finalizes. */
-KEEP int panel_recording(void) {return RECORDING==1u || RECORDER_BUSY;}
 /* Both bytes of a select LED in one critical section, as the stock setters do. */
 static void led(uint32_t sel,uint8_t level,uint8_t mode) {
     LOCK(LED_LOCK,0xffffffffu);

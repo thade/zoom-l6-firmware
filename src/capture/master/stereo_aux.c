@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include "../retention.h"
 #include "master_ref.h"
+#include "stock.h"
 #include "stereo_aux.h"
 
 #define B 0x20010a48u
@@ -36,10 +37,8 @@ extern Ramp sa_ramp_original;   /* the stock request 0x80010398 (displaced prolo
  * or puts in scenes (CONFIG+0x30d/0x30e, saved to internal flash with the
  * other globals): stereo only for this exact pair, so anything else, such as
  * a never-written zero, is the stock mono. */
-#define MODE ((volatile uint8_t *)(0x80440dc8u+0x30du))
 #define STEREO_A 0xa5u
 #define STEREO_B 0x5au
-#define SAVE ((void (*)(void))0x80006ab9u)               /* request a settings save (as record start does) */
 #define SEL_AUX1 4u
 #define SEL_AUX2 5u
 
@@ -49,7 +48,7 @@ extern MasterRef *mr_state;
  * published before any task starts, so without it the mixer is stock mono
  * from power-on and a stored stereo mode cannot leave it stuck in stereo. */
 static int stereo(void) {
-    return MODE[0]==STEREO_A && MODE[1]==STEREO_B && __atomic_load_n(&mr_state,__ATOMIC_RELAXED);
+    return AUX_MODE[0]==STEREO_A && AUX_MODE[1]==STEREO_B && __atomic_load_n(&mr_state,__ATOMIC_RELAXED);
 }
 
 /* Replaces the entry of the stock gain-ramp request 0x80010398, which every
@@ -61,7 +60,7 @@ KEEP uint32_t sa_first_ramp;      /* tick of the first gain request: the mixer s
 #endif
 KEEP uint32_t sa_ramp(volatile float *dst,uint32_t ms,void *state,float target) {
 #ifdef PANEL_DIAG
-    if(!sa_first_ramp)sa_first_ramp=(*(volatile uint32_t *)0x801f9050u)|1u;
+    if(!sa_first_ramp)sa_first_ramp=TICKS|1u;
 #endif
     uint32_t offset=(uint32_t)dst-AUX1_ROW;
     if(offset>=0x50u || !stereo())return sa_ramp_original(dst,ms,state,target);
@@ -100,7 +99,7 @@ KEEP void sa_reset2(void) {RESET_FLAG=1;RESET2(0);if(stereo())RECOMPUTE(1);}
 KEEP void sa_toggle(void) {
     if(panel_recording()){sa_refused++;return;}
     int to_stereo=!stereo();
-    MODE[0]=to_stereo?STEREO_A:0;MODE[1]=to_stereo?STEREO_B:0;
+    AUX_MODE[0]=to_stereo?STEREO_A:0;AUX_MODE[1]=to_stereo?STEREO_B:0;
     RECOMPUTE(1);   /* every gain again, through the filter, as 16 ms ramps */
     SAVE();
     panel_show(SEL_AUX1,SEL_AUX2,(uint32_t)to_stereo);

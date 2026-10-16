@@ -46,8 +46,9 @@ layer, the list reads back through the layers in order.
 
 Version 1 files list each played take's history before the take itself
 (oldest first) and have no limit or `OMITTED` line. The firmware reads both
-versions when it builds a new history; lines inherited from a version 1 file
-keep their own (oldest-first) order inside the new file.
+versions when it builds a new history. From 0.2.0, lines inherited from a
+version 1 file are taken last first, so the new file stays newest first
+(0.1.0 kept their oldest-first order).
 
 ## Collecting everything behind a take
 

@@ -5,28 +5,18 @@
  * Editor's select steps. */
 #include <stddef.h>
 #include "master_ref.h"
+#include "stock.h"
 #include "stereo_aux.h"
 #include "../retention.h"
 
-#define LD(p) __atomic_load_n((p),__ATOMIC_ACQUIRE)
-#define ST(p,v) __atomic_store_n((p),(v),__ATOMIC_RELEASE)
-#define W(a) (*(volatile uint32_t *)(a))
-#define B8(a) (*(volatile uint8_t *)(a))
 
 /* Stock recorder state. The take folder (A:\RECORDER\<take>, UTF-16) is
  * written only at record start (0x80022de0) and stays put until the next. */
 #define TAKE_DIR ((const volatile uint16_t *)0x8060ff80u)
 #define REC_STOP_RETURN 0x8004ba4du   /* RecStop's call of the setter; PlayStop also calls it */
-#define RECORDER_BUSY W(0x80578ec0u)  /* RecPlayCtl is running a callback (RecStop includes finalize) */
-#define REC_STATE B8(0x80578ebcu)     /* stock recorder: 1 recording (any target), 2 playing, else 0 */
-/* The take chain's on/off setting: two global settings bytes stock code never
- * uses, checks or puts in scenes, saved to internal flash with the other
- * globals (next to the AUX mode). On only for this exact pair, so a mixer
- * that never switched (zero) keeps the stock pads: the chain is off. */
-#define CHAIN_MODE ((volatile uint8_t *)(0x80440dc8u+0x30fu))
+/* The take chain's on/off setting (CHAIN_MODE, stock.h): off until switched. */
 #define CHAIN_ON_A 0xc3u
 #define CHAIN_ON_B 0x3cu
-#define SAVE ((void (*)(void))0x80006ab9u)   /* request a settings save */
 #define SEL_EFX 6u
 #define SEL_PAN 7u
 
@@ -39,7 +29,6 @@ typedef int32_t (*Open)(uint32_t*,const uint16_t*,uint32_t,uint32_t);
 #define CREATE ((int32_t (*)(void (*)(void*),const char*,uint32_t,void*,uint32_t,uint32_t*))0x80076c61u)
 #define RECEIVE ((int32_t (*)(uint32_t*))0x80020691u)
 /* Stock pad calls, as used by the Editor's select handler 0x80009ba0. */
-#define POST ((void (*)(uint32_t,uint32_t,uint32_t,uint32_t,uint32_t))0x80020ca1u)
 #define LOOKUP ((int32_t (*)(uint32_t,const uint16_t*))0x80008ec1u)
 #define LIST_FILE ((int32_t (*)(uint32_t,const uint16_t*,uint32_t))0x80008dd9u)   /* add a name to a pad's file list */
 #define PATH_OF ((const uint16_t *(*)(uint32_t,int32_t))0x80008e89u)
@@ -49,7 +38,6 @@ typedef int32_t (*Open)(uint32_t*,const uint16_t*,uint32_t,uint32_t);
 #define STOP_PAD ((void (*)(uint32_t))0x80002d09u)
 #define ASSIGN ((void (*)(uint32_t,const uint16_t*,uint32_t,int32_t,uint32_t,uint32_t))0x80008c69u)
 #define RECORD_TARGET ((uint32_t (*)(void))0x80034da9u)
-#define CONFIG_PATH(p) ((const volatile uint16_t *)(0x80440dc8u+0x798u+(p)*0x20au)) /* saved pad paths */
 #define PENDING(p) B8(0x8044337fu+(p))  /* assignment queued, completion not yet handled (0x800060d0) */
 #define ACTIVE(p) W(0x20015e4cu+(p)*0x3cu) /* renderer: pad playing (read by 0x80018190) */
 #define UNLINK ((int32_t (*)(const uint16_t*))0x80061f79u)
@@ -275,6 +263,8 @@ static void handoff(MasterRef *g,uint32_t serial) {
  * no priority inheritance, so a priority-1 holder could stall the recorder's
  * file work. */
 static int recorder_busy(const MasterRef *g) {return LD(&g->stock_recording) || REC_STATE || RECORDER_BUSY;}
+/* Main: the switches are refused while any recording runs or finalizes. */
+KEEP int panel_recording(void) {return REC_STATE==1u || RECORDER_BUSY;}
 
 /* ---- Main: the chain on/off switch (EFX + PAN hold, panel.c) ---- */
 /* Off: takes stay off the pads (each still gets its history). Refused while
@@ -308,7 +298,7 @@ KEEP uint32_t mr_main_waits;
 KEEP int32_t mr_main_receive(uint32_t *packet) {
     __atomic_fetch_add(&mr_main_waits,1,__ATOMIC_RELEASE);   /* the previous packet is handled */
     int32_t result=RECEIVE(packet);
-    if(!mr_main_ready)__atomic_store_n(&mr_main_ready,W(0x801f9050u)|1u,__ATOMIC_RELAXED);
+    if(!mr_main_ready)__atomic_store_n(&mr_main_ready,TICKS|1u,__ATOMIC_RELAXED);
     MasterRef *g=LD(&mr_state);if(!g)return result;
     if(packet[0]==MR_HANDOFF_EVENT && packet[1]==MR_HANDOFF_MAGIC)handoff(g,packet[2]);
     if(packet[0]==MR_HANDOFF_EVENT && packet[1]==MR_CHAIN_MAGIC)chain_toggle(g);
@@ -417,7 +407,8 @@ static uint32_t check(MasterRef *g) {
  * own HISTORY.TXT still lists what it included. TRUNCATED marks a list that
  * is incomplete (a history that could not be read or written, or 4 KiB
  * reached). Then "END <entries>". Folders are relative to the card root, '/'
- * separated. Version 1 files (oldest first, no limit) are read too. */
+ * separated. Version 1 files (oldest first, no limit) are read too, last
+ * line first. */
 static const char HEADER[]="L6 HISTORY 2\n";
 #define HEADER_VERSION 11u      /* index of the version digit */
 static const uint16_t HISTORY[]=u"\\HISTORY.TXT";
@@ -542,14 +533,17 @@ static uint32_t inherit(MasterRef *g,uint32_t used,const uint16_t *folder,uint32
         return used;
     }
     if(count<0){g->history_truncated=1;return used;}
-    uint32_t entries=0;
-    for(uint32_t at=sizeof(HEADER)-1;at<end;) {
-        uint32_t stop=at;while(stop<end && g->backing[stop]!='\n')stop++;
-        const char *line=g->backing+at;uint32_t len=stop-at;
+    /* Version 2 lists newest first; version 1 oldest first, so its lines are
+     * taken last to first to keep the new file newest first. */
+    uint32_t entries=0,first=sizeof(HEADER)-1,v1=g->backing[HEADER_VERSION]=='1';
+    for(uint32_t at=v1?end:first;v1?at>first:at<end;) {
+        uint32_t start,stop;
+        if(v1){stop=at-1;start=stop;while(start>first && g->backing[start-1]!='\n')start--;at=start;}
+        else {start=at;stop=at;while(stop<end && g->backing[stop]!='\n')stop++;at=stop+1;}
+        const char *line=g->backing+start;uint32_t len=stop-start;
         if(is_line(line,len,"TRUNCATED"))g->history_truncated=1;
         else if(is_line(line,len,"OMITTED"))g->history_omitted=1;
         else {used=entry(g,used,line,len);entries++;}
-        at=stop+1;
     }
     if(entries!=(uint32_t)count)g->history_truncated=1;
     return used;
@@ -645,12 +639,11 @@ static void history_done(MasterRef *g,uint32_t status) {
 enum {MR_A_OK=0,MR_A_EXISTED=1,MR_A_CREATE=2,MR_A_WRITE=3,MR_A_CLOSE=4,MR_A_RENAME=5,MR_A_PROBE=6,MR_A_DEFER=7};
 #define ANCHOR_HEADER 512u
 #define ANCHOR_BYTES (ANCHOR_HEADER+4800u*8u)   /* 38,912 */
-#define TICKS W(0x801f9050u)          /* 1 ms */
 #define ANCHOR_SETTLE 2000u           /* ms without a storage change before a check */
 /* CONFIG+0x2340: File Transfer Mode (the card is the computer's). Set by the
  * mode change 0x8000c220 on Main and cleared by 0x8000c288 after the remount;
  * stock card code reads it (0x80006290) before using the card. */
-#define TRANSFER_MODE W(0x80440dc8u+0x2340u)
+#define TRANSFER_MODE W(CONFIG+0x2340u)
 /* The anchor's 512-byte header: RIFF/WAVE, fmt (IEEE float, 2 ch, 48 kHz,
  * 32-bit), a JUNK chunk to 504, then data. */
 static void anchor_header(uint8_t *h) {
@@ -709,7 +702,7 @@ static void anchors(MasterRef *g) {
     if(revoked_now!=g->anchor_revoked) {
         /* A new card, or the same one changed: check every folder again (off,
          * switching the chain on does); posts for the old card are void. */
-        g->anchor_revoked=revoked_now;g->anchor_quiet_from=now;ST(&g->anchor_relist,0);
+        g->anchor_revoked=revoked_now;g->anchor_quiet_from=now;ST(&g->anchor_relist,0);g->anchor_relists=0;
         if(chain_on())__atomic_or_fetch(&g->anchor_pending,all,__ATOMIC_ACQ_REL);
     }
     if(!g->anchor_boot && chain_on() && LD(&mr_main_ready)) {
@@ -719,7 +712,9 @@ static void anchors(MasterRef *g) {
     if(relist && !recorder_busy(g) && g->polls-g->anchor_relist_at>=RETRY_POLLS) {
         uint32_t pad=(uint32_t)__builtin_ctz(relist);
         __atomic_and_fetch(&g->anchor_relist,~(1u<<pad),__ATOMIC_ACQ_REL);
-        g->anchor_relist_at=g->polls;POST(MR_HANDOFF_EVENT,MR_ANCHOR_MAGIC,pad,g->anchor_revoked,0);
+        if(g->anchor_relists<POSTS) {   /* bounded per card: a pad whose load never completes */
+            g->anchor_relists++;g->anchor_relist_at=g->polls;POST(MR_HANDOFF_EVENT,MR_ANCHOR_MAGIC,pad,g->anchor_revoked,0);
+        }
     }
     uint32_t pending=LD(&g->anchor_pending);
     if(!pending || !chain_on() || g->pending || g->history_pending || recorder_busy(g))return;

@@ -2,11 +2,9 @@
  * Request F0 52 00 00 6F 07 <token> F7 over the Editor port; reply 6E 07.
  * Linked only into trial builds; it changes no state. */
 #include "master_ref.h"
+#include "stock.h"
 #include "../retention.h"
-#define W(a) (*(volatile const uint32_t *)(a))
-#define LD(p) __atomic_load_n((p),__ATOMIC_ACQUIRE)
 #define VALUES 39u
-#define AUX_MODE(i) (*(volatile const uint8_t *)(0x80440dc8u+0x30du+(i)))   /* A5 5A = stereo */
 extern uint32_t sa_toggles __attribute__((weak)),sa_refused __attribute__((weak));
 #ifdef PANEL_DIAG
 /* Schema 6 (experiment 37): the panel switch diagnostics replace the AUX gain
@@ -15,12 +13,11 @@ extern uint32_t sa_toggles __attribute__((weak)),sa_refused __attribute__((weak)
  * poll, longest poll interval and polls over 100 ms apart, the ring index,
  * then pd_counts (2 holds x 9) and pd_ring (32). */
 #define SCHEMA 6u
-#define CHAIN_MODE(i) (*(volatile const uint8_t *)(0x80440dc8u+0x30fu+(i)))
 extern uint32_t mr_chain_toggles,mr_chain_refused,mr_main_ready,sa_first_ramp __attribute__((weak));
 extern uint32_t pd_counts[2][9],pd_ring[32],pd_ring_next,pd_max_interval,pd_first_poll,pd_slow_polls;
 #define AUX_WORDS (9u+18u+32u)
 static uint32_t extra(uint32_t i) {
-    uint32_t head[9]={CHAIN_MODE(0)|CHAIN_MODE(1)<<8,mr_chain_toggles,mr_chain_refused,mr_main_ready,
+    uint32_t head[9]={CHAIN_MODE[0]|CHAIN_MODE[1]<<8,mr_chain_toggles,mr_chain_refused,mr_main_ready,
                       &sa_first_ramp?sa_first_ramp:0,pd_first_poll,pd_max_interval,pd_slow_polls,pd_ring_next};
     return i<9u?head[i]:i<27u?pd_counts[(i-9u)/9u][(i-9u)%9u]:pd_ring[i-27u];
 }
@@ -28,14 +25,13 @@ static uint32_t extra(uint32_t i) {
 /* Schema 7 (experiment 39): the chain and anchor state and the flash-read
  * counters replace the AUX gain rows. */
 #define SCHEMA 7u
-#define CHAIN_MODE(i) (*(volatile const uint8_t *)(0x80440dc8u+0x30fu+(i)))
 extern uint32_t mr_main_ready;
 extern MasterRef *mr_state;
 KEEP uint32_t mq_flash_reads,mq_flash_refused;
 #define AUX_WORDS 10u
 static uint32_t extra(uint32_t i) {
     const MasterRef *g=__atomic_load_n(&mr_state,__ATOMIC_ACQUIRE);
-    uint32_t w[10]={CHAIN_MODE(0)|CHAIN_MODE(1)<<8,mr_main_ready,g?g->anchor_pending:0,g?g->anchor_existed:0,
+    uint32_t w[10]={CHAIN_MODE[0]|CHAIN_MODE[1]<<8,mr_main_ready,g?g->anchor_pending:0,g?g->anchor_existed:0,
         g?g->anchor_created:0,g?g->anchor_failed:0,g?g->anchor_listed:0,g?g->anchor_status:0,mq_flash_reads,mq_flash_refused};
     return w[i];
 }
@@ -48,7 +44,6 @@ static uint32_t extra(uint32_t i) {
  * busy), 3 the read failed. */
 #define FLASH_READ ((int32_t (*)(uint32_t,void*,uint32_t))0x8001aee9u)
 #define FLASH_CHUNK 256u
-#define REC_STATE (*(volatile const uint8_t *)0x80578ebcu)
 static void cache_lines(const void *p,uint32_t n) {   /* clean and invalidate */
     uint32_t a=(uint32_t)p&~31u,end=((uint32_t)p+n+31u)&~31u;
     __asm__ volatile("dsb":::"memory");
@@ -85,7 +80,6 @@ static uint32_t flash_query(const uint8_t *p) {
 #endif
 #define PAD_WORDS 4u     /* per pad: 16 characters, four 7-bit characters per word */
 #define PATH_WORDS (MR_PADS*PAD_WORDS)
-#define CONFIG_PATH(p) ((const volatile uint16_t *)(0x80440dc8u+0x798u+(p)*0x20au))
 extern MasterRef *mr_state;
 extern uint32_t mr_startup_status;
 #ifdef MR_STACK_PAINT
@@ -137,7 +131,7 @@ KEEP uint32_t mr_query(const uint8_t *packet) {
         W(0x800a6930u),W(0x800a6930u)+W(0x800a6934u),W(0x800a6940u),W(0x800a6940u)+W(0x800a6944u),
         W(0x80578ec0u),F(g->chain_mask),
         F(g->history_written),F(g->history_failed),F(g->history_status),F(g->history_entries),F(g->stop_played_count),
-        AUX_MODE(0)|AUX_MODE(1)<<8,&sa_toggles?sa_toggles:0xffffffffu,&sa_refused?sa_refused:0xffffffffu};
+        AUX_MODE[0]|AUX_MODE[1]<<8,&sa_toggles?sa_toggles:0xffffffffu,&sa_refused?sa_refused:0xffffffffu};
 #undef F
     for(uint32_t i=0;i<VALUES;i++)encode(reply,i,values[i]);
 #if defined(PANEL_DIAG) || defined(FLASH_DIAG)

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Copy a firmware image (and the pad anchors) onto a mounted L6 microSD card.
+"""Copy a firmware image onto a mounted L6 microSD card.
 
 The card can be mounted with a card reader or with the L6's own USB file
 transfer mode (ZOOM L6 Editor: File Transfer Mode, or l6_transfer_mode.py).
@@ -11,15 +11,16 @@ PLAY/STOP while pressing POWER until the power indicator lights.
   install_release.py --card /Volumes/X   when the card is not found by itself
 
 What it does, checking each step:
-- checks the image (and anchor) against SHA256SUMS and the release's
-  published image hash (its manifest), or the stock hash;
+- checks the image against SHA256SUMS and the release's published image
+  hash (its manifest), or the stock hash;
 - checks the card looks like an L6 card (SOUND_PAD/PAD1..PAD4);
 - backs up an existing L6.BIN and ZOOM_L6.SYS from the card (never modified);
 - writes L6.BIN through a temporary file, flushed to the card (F_FULLFSYNC on
   macOS), then renamed, then read back (the read may come from the
   computer's cache: eject properly, e.g. with --eject);
-- release only: puts the anchor MASTER.WAV in each pad folder that lacks one
-  (an existing different MASTER.WAV stops it: rename that file first);
+- a release folder with MASTER.WAV (0.1.0; from 0.2.0 the firmware writes it
+  itself): puts it in each pad folder that lacks one (an existing different
+  MASTER.WAV stops it: rename that file first);
 - removes macOS ._ metadata files next to the files it wrote;
 - with --eject, ejects the card (macOS).
 Pad sounds, recordings and settings are not touched. Stock firmware ignores
@@ -48,7 +49,7 @@ def release_files(folder):
         sha,name=line.split(None,1);data=(folder/name).read_bytes()
         if digest(data)!=sha:fail(f'{folder/name} does not match SHA256SUMS')
         files[name]=data
-    if set(files)!={'L6.BIN','MASTER.WAV'}:fail(f'unexpected files in {sums}')
+    if set(files) not in ({'L6.BIN'},{'L6.BIN','MASTER.WAV'}):fail(f'unexpected files in {sums}')
     return files
 
 def published(folder,image):
@@ -102,7 +103,7 @@ def main():
         folder=args.release or max((ROOT/'release').glob('[0-9]*.[0-9]*.[0-9]*'),default=None,
                                    key=lambda p:tuple(int(x) for x in p.name.split('.')))
         if not folder:fail('no release built: run tools/firmware/build_release.py first')
-        files=release_files(folder);image,anchor=files['L6.BIN'],files['MASTER.WAV'];label=f'release {folder.name}'
+        files=release_files(folder);image,anchor=files['L6.BIN'],files.get('MASTER.WAV');label=f'release {folder.name}'
         if not args.any_image:published(folder,image)
     card=args.card or find_card()
     if not all((card/'SOUND_PAD'/p).is_dir() for p in PADS):fail(f'{card} has no SOUND_PAD/PAD1..PAD4: not an L6 card')

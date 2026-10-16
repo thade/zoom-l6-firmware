@@ -4,6 +4,10 @@ Unofficial custom firmware for the original **Zoom LiveTrak L6** (not the
 L6max) that adds an overdub workflow using only the mixer and a switchable
 stereo AUX send. Version **0.1.0**, built on Zoom's firmware **v1.10**.
 
+> **0.2.0 is in preparation on this branch**, and the steps below describe it
+> (no `MASTER.WAV` to copy). Until it is released, install 0.1.0 by following
+> the [v0.1.0 README](https://github.com/thade/zoom-l6-firmware/blob/v0.1.0/README.md).
+
 Independent work, not affiliated with or endorsed by Zoom. Zoom's firmware is
 not included: you download it from Zoom and build the image yourself.
 
@@ -51,7 +55,7 @@ not included: you download it from Zoom and build the image yourself.
 ## Install
 
 1. **Build** the image: follow [docs/setup.md](docs/setup.md). It ends with
-   `release/0.1.0/` holding `L6.BIN`, `MASTER.WAV` and `SHA256SUMS`.
+   `release/0.2.0/` holding `L6.BIN` and `SHA256SUMS`.
 2. **Copy to the card.** Mount the card (card reader, or *File Transfer Mode*
    in ZOOM L6 Editor) and run:
    ```sh
@@ -59,11 +63,10 @@ not included: you download it from Zoom and build the image yourself.
    ```
    (On Linux, or with several cards mounted, add `--card <card folder>`;
    `--eject` is macOS only, so eject the card yourself elsewhere.)
-   It checks the files, backs up the card's existing `L6.BIN` and settings
-   file, copies `L6.BIN` to the card root, and puts the anchor `MASTER.WAV`
-   (0.1 s of silence) into each `SOUND_PAD/PAD1`–`PAD4` folder. Without the
-   tool: copy `L6.BIN` to the card root and `MASTER.WAV` into the four pad
-   folders yourself, and delete any `._` files macOS leaves next to them.
+   It checks the image, backs up the card's existing `L6.BIN` and settings
+   file, and copies `L6.BIN` to the card root. Without the tool: copy
+   `L6.BIN` to the card root yourself, and delete any `._L6.BIN` file macOS
+   leaves next to it.
 3. **Update the mixer** as in Zoom's update guide: power it from the USB port,
    insert the card, then hold **PLAY/STOP** while pressing **POWER** until the
    power indicator lights. It blinks green slowly while updating (about
@@ -98,11 +101,16 @@ the stock L6 records and plays back.
 
 **The pads.** While the chain is on, pads 1–4 follow your takes: as takes
 move along, they replace whatever sound a pad had; turning the chain off
-leaves them as they are. Every pad shows the name `MASTER.WAV` (choosing the
-anchor by hand gives silence). Recordings made *to* a pad, and recordings
-under 2 seconds, do not enter the chain. To keep a hand-picked sound on a pad,
-remove that pad's anchor `MASTER.WAV`: the chain stops at the first pad
-without one (without PAD1's it never runs).
+leaves them as they are, so turn it off to keep sounds you put on the pads.
+Every pad shows the name `MASTER.WAV` (choosing that file by hand gives
+silence). Recordings made *to* a pad, and recordings under 2 seconds, do not
+enter the chain.
+
+**`MASTER.WAV` in the pad folders.** While the chain is on, the firmware puts a
+small silent `MASTER.WAV` (0.1 s) into each `SOUND_PAD/PAD1`–`PAD4` folder
+that lacks one: the L6 keeps a pad's take across power cycles only while that
+pad's folder holds a file of the same name. Leave these files in place; one
+you delete comes back the next time the mixer starts with the chain on.
 
 **History.** `RECORDER/<take>/HISTORY.TXT` lists the recordings and pad
 sounds the take includes, newest first, at most 100 entries. When older entries
@@ -134,7 +142,7 @@ python tools/device/install_release.py --stock --eject
 ```
 
 then update the mixer as above. Your recordings, pad sounds and settings stay.
-The anchor files and `HISTORY.TXT` files can stay too (stock firmware ignores
+The pad folders' `MASTER.WAV` files and `HISTORY.TXT` files can stay too (stock firmware ignores
 them), and pads keep playing the takes last assigned to them. A factory reset
 does not clear the stored AUX and chain settings, but stock firmware ignores
 them.

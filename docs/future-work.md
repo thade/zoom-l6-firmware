@@ -19,12 +19,10 @@ hardware result. An emulator result does not complete a hardware item.
       then showed the panel often never reports PAN while LEVEL is held (they
       are in different key groups), so experiment 38 uses EFX + PAN, in the
       same group as the reliable AUX 1 + AUX 2.
-- [ ] Small code tidy-ups for the next image (each changes the 0.1.0 image,
-      so none was applied after its hardware check): compare the switch
-      arming signed (a Main store between two reads can look armed for one
-      poll, harmless); keep inherited version 1 history lines newest first;
-      one shared header for stock addresses (`RECORDING`, `POST`, `SAVE`,
-      the tick counter) and `panel_recording` next to `recorder_busy`.
+- [x] Small code tidy-ups for the next image: the switch arming compares
+      signed; inherited version 1 history lines are taken newest first; one
+      shared header for stock addresses (`stock.h`) and `panel_recording`
+      next to `recorder_busy` (0.2.0, [experiment 40](../experiments/40-release/README.md)).
 - [x] 0.2.0: recovery from an image that hangs before start-up completes:
       the bootloader read and emulated from a full flash backup
       ([experiment 39](../experiments/39-flash-diag/README.md),
@@ -32,8 +30,10 @@ hardware result. An emulator result does not complete a hardware item.
       [experiment 18](../experiments/18-recovery-hang/README.md) passed on
       the mixer. The README and the patcher mockup say so.
 - [ ] 0.2.0: the firmware writes the pad folders' `MASTER.WAV` anchors itself
-      (experiment 39), so installing needs only `L6.BIN`; then drop the
-      anchor from the installer, the patcher and the guides.
+      (experiment 39), so installing needs only `L6.BIN`. Built as the
+      release mode ([experiment 40](../experiments/40-release/README.md));
+      the installer, README and setup no longer copy the anchor. Still to do:
+      the browser patcher, then the release checks on the mixer.
 
 ## Four-pad take history
 

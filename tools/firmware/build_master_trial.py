@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Build the master-reference images locally: the 0.1.0 release and every
-earlier experiment, byte for byte. No device access.
+"""Build the master-reference images locally: the release and every earlier
+experiment, byte for byte. No device access.
 
-Every mode must reproduce its image's hash exactly and is pinned to the
-commit or tag its image was built from (`release` to v0.1.0) (24-26, 28-30 and 32-38 were
-installed, 37 being a diagnostic build; 27 and 31 were prepared and
-superseded before installation).
+Every installed mode must reproduce its image's hash exactly and is pinned
+to the commit or tag its image was built from (24-26, 28-30, 32-39 were
+installed, 37 and 39 being diagnostic builds; 27 and 31 were prepared and
+superseded before installation). `release` builds the current sources until
+its image is installed and pinned.
 
 reference    (24) pad 1 plays the last take's master
 chain        (25) pads 1-4 play the last four takes, newest on pad 1
@@ -21,13 +22,15 @@ review       (34) 33 plus the release review fixes
 chain_switch (35) 34 plus the PAN + LEVEL chain on/off switch
 tolerant     (36) 35 with misread-tolerant switch holds
 panel_diag   (37) diagnostic: 36 with the status query and switch diagnostics
+release_0_1_0 (38) version 0.1.0: 36 with EFX + PAN for the chain, armed ~4 s after power-on
 flash_diag   (39) diagnostic: firmware-written anchors, the status query and flash reads
-release      (38) version 0.1.0: 36 with EFX + PAN for the chain, armed ~4 s after power-on (default)
+release      (40) version 0.2.0: 38 with the anchors written by the firmware (default)
 
 Writes the trial image and the anchor file: a short silent 48 kHz stereo
 32-bit float WAV with the same 512-byte header layout as the extra files the
-stock validator and loader accepted in experiment 21. Staging copies it to
-A:\\SOUND_PAD\\PADn\\MASTER.WAV for each pad the trial uses.
+stock validator and loader accepted in experiment 21. Images before 39 need
+it copied to A:\\SOUND_PAD\\PADn\\MASTER.WAV for each pad; from 39 the
+firmware writes the same file itself.
 """
 import argparse,contextlib,io,json,struct,subprocess,sys,tarfile,tempfile
 from pathlib import Path
@@ -84,15 +87,21 @@ MODES=dict(
                     sha='b4c1c3c7fd99fa64627abdc52d9615be04e9bb3e8c3df5b37af637413d9985ae'),
     # Release 0.1.0: 36 with the chain switched by EFX + PAN and the switches
     # armed 1 s after Main is ready; installed 16 October 2026. Pinned to the
-    # v0.1.0 tag; without git history (a ZIP download, a shallow clone) it
-    # builds from the working tree instead, held to the same published hash.
-    # Diagnostic: the 0.2.0 work so far (anchors written by the firmware) with
-    # the status query and a read-only flash read, for a full flash backup.
-    flash_diag=dict(experiment=39,out=ROOT/D/'39_flash_diag',image='flash_diag',pads=4,minimum=True,history=True,
-                    stereo=True,switch=True,chain_switch=True,flash=True,anchors=True),
-    release=dict(experiment=38,out=ROOT/D/'38_release',image='release',pin='v0.1.0',tree_fallback=True,pads=4,
-                 trial=False,minimum=True,history=True,stereo=True,switch=True,chain_switch=True,version='0.1.0',
-                 sha='99ded4b1fcefa1d968a7317e5df4ee65c670018c4a495cfc1ed903aa5aa70bb0'))
+    # v0.1.0 tag (needs git history with tags: git fetch --tags).
+    release_0_1_0=dict(experiment=38,out=ROOT/D/'38_release',image='release',pin='v0.1.0',pads=4,
+                       trial=False,minimum=True,history=True,stereo=True,switch=True,chain_switch=True,version='0.1.0',
+                       sha='99ded4b1fcefa1d968a7317e5df4ee65c670018c4a495cfc1ed903aa5aa70bb0'),
+    # Diagnostic: 38 with the anchors written by the firmware, the status
+    # query and a read-only flash read, for a full flash backup.
+    flash_diag=dict(experiment=39,out=ROOT/D/'39_flash_diag',image='flash_diag',pin='7b4593d',pads=4,minimum=True,history=True,
+                    stereo=True,switch=True,chain_switch=True,flash=True,anchors=True,
+                    sha='48d7eae0b8e44fdd9f26ea98eb5524e417f943a5d39a31d6762744b8cdb06713'),
+    # Release 0.2.0: 38 with the anchors written by the firmware (39 without
+    # its diagnostics) and the 0.1.0 follow-up tidy-ups. Built from the
+    # current sources (so a ZIP download builds it too) until installed and
+    # pinned.
+    release=dict(experiment=40,out=ROOT/D/'40_release',image='release',pads=4,trial=False,minimum=True,history=True,
+                 stereo=True,switch=True,chain_switch=True,anchors=True,version='0.2.0'))
 
 @contextlib.contextmanager
 def trial_elf(m):
@@ -135,7 +144,7 @@ def trial(mode='reference'):
     report=dict(experiment=m['experiment'],mode='master' if mode=='reference' else mode,version=m.get('version'),
         minimum_take_seconds=2 if m.get('minimum') else None,
         take_history=m.get('history',False),stereo_aux=m.get('stereo',False),
-        aux_switch=m.get('switch',False),chain_switch=m.get('chain_switch',False),status='built',expected_sha256=m.get('sha'),trial_sha256=digest(data),
+        aux_switch=m.get('switch',False),chain_switch=m.get('chain_switch',False),anchors_written=m.get('anchors',False),status='built',expected_sha256=m.get('sha'),trial_sha256=digest(data),
         stock_sha256=STOCK_SHA,elf_sha256=elf_sha,patches=t['patches'],DSP_patches=[],
         metadata_edits=p['edits'],code_bytes=len(p['code']),globals_bytes=t['globals_bytes'],
         spare_bytes=t['packing']['spare_bytes'],
@@ -143,7 +152,8 @@ def trial(mode='reference'):
         globals_start=names['placement_globals_start'],globals_end=names['placement_globals_end'],
         code_source=p['code_source'],worker_stack_words=2048,diagnostics=diagnostic,native_capacity_frames=240000,files_created=False,
         anchor=dict(card_path=pads[0],card_paths=pads,bytes=len(wav),sha256=digest(wav),
-                    format='48 kHz stereo 32-bit float, 0.1 s silence, 512-byte header'),
+                    format='48 kHz stereo 32-bit float, 0.1 s silence, 512-byte header',
+                    written_by='the firmware, while the chain is on' if m.get('anchors') else 'the installer'),
         protocol=('6F/6E kind7 schema1; recorder/worker/handoff/heap words and the assigned path' if mode=='reference'
                   else 'none: no status query' if not diagnostic
                   else '6F/6E kind7 schema7 (chain, anchors, flash counters) and kind8 flash reads' if m.get('flash')
@@ -167,6 +177,7 @@ def trial(mode='reference'):
             (['History newest first, at most 100 lines (OMITTED), version 2; file calls also wait during pad recordings and playback'] if m['experiment']>=34 else [])+
             (['First hardware run of the chain on/off switch (PAN + LEVEL) and its persistence'] if mode=='chain_switch' else [])+
             (['The chain switch moved to EFX + PAN (one panel key group); the switches arm 1 s after Main is ready'] if m['experiment']>=38 else [])+
+            (['The firmware writes each missing SOUND_PAD/PADn/MASTER.WAV while the chain is on (at start-up, when switched on, after each settled storage change)'] if m.get('anchors') else [])+
             (['First hardware run of the stereo AUX pair: jack order, separation, level, delay and the per-bus limiters are unmeasured',
               'Startup restore relies on the stock bulk recompute after the direct unity reset'] if mode=='stereo' else [])+
             (['First hardware run of the pad-start hook (0x80018316) and of writing HISTORY.TXT into take folders'] if mode=='history' else [])+
@@ -175,7 +186,7 @@ def trial(mode='reference'):
             (['No status query: hardware behaviour is checked by ear and from the saved pad paths'] if not diagnostic else []))+[
             *(['Deleting a referenced take folder is untested'] if m['experiment']<29 else []),
             *(['Worker stack is measured by painting 7 KiB below its entry frame'] if diagnostic else []),
-            'Early-hang recovery (experiment 18) is parked and unproven',
+            'Early-hang recovery: shown on the mixer in experiment 18 (the bootloader runs the PLAY/STOP update before MAIN)',
             'No installation, staging or installed-flash readback is performed by this builder'])
     return data,wav,report,t
 

@@ -80,9 +80,9 @@ typedef struct {
      * every folder after a storage change once the card is settled
      * (anchor_revoked, anchor_quiet_from; revoke_waits is Main's receive
      * count at the last change). Pads Main could not list yet (relist) are
-     * posted again (relist_at). */
+     * posted again (relist_at), at most POSTS times per storage change. */
     uint32_t anchor_pending,anchor_boot,anchor_existed,anchor_created,anchor_failed,anchor_listed,anchor_status;
-    uint32_t anchor_revoked,anchor_quiet_from,revoke_waits,anchor_relist,anchor_relist_at;
+    uint32_t anchor_revoked,anchor_quiet_from,revoke_waits,anchor_relist,anchor_relist_at,anchor_relists;
     MrPlayed played[MR_PLAYED],stop_played[MR_PLAYED],work_played[MR_PLAYED];
     uint16_t unwritten[MR_UNWRITTEN][MR_DIR];   /* worker: take folders, NUL-terminated */
     _Alignas(32) char history[MR_HISTORY];   /* worker: the new file */

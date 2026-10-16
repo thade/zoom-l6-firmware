@@ -37,7 +37,7 @@ HFIELDS=('played_open played_count played_overflow played_gen history_pending hi
          'stop_played_count stop_played_overflow work_count work_overflow '
          'history_written history_failed history_status history_entries history_truncated history_omitted '
          'anchor_pending anchor_boot anchor_existed anchor_created anchor_failed anchor_listed anchor_status '
-         'anchor_revoked anchor_quiet_from revoke_waits anchor_relist anchor_relist_at').split()
+         'anchor_revoked anchor_quiet_from revoke_waits anchor_relist anchor_relist_at anchor_relists').split()
 PLAYED_OPEN=ASSIGNED+4*160;OFF.update({n:PLAYED_OPEN+4*i for i,n in enumerate(HFIELDS)})
 PLAYED=PLAYED_OPEN+4*len(HFIELDS);ENTRY=528;STOP_PLAYED=PLAYED+8*ENTRY
 HISTORY_BUF=(PLAYED+3*8*ENTRY+8*64*2+31)&~31
@@ -498,7 +498,7 @@ def main():
     # Several pads: the pad files played first, then what each played take
     # included, without repeats; a hand-picked sound is listed (UTF-8); a take
     # without history adds just its folder; an unreadable history is flagged
-    # TRUNCATED; a version 1 file is read.
+    # TRUNCATED; a version 1 file is read, last line first (newest first).
     r=MasterRig();sound='A:\\SOUND_PAD\\PAD2\\GLÖRY BOX.WAV'
     r.card[take_folder(t[1])+'\\HISTORY.TXT']=(lambda b:(len(b),b))(history_text(entry(t[0])))
     for p,path in enumerate((t[1],sound,t[0],t[5])):putstr(r.m,config(p),path)
@@ -506,7 +506,7 @@ def main():
     assert r.history(t[6])==history_text(entry(t[1]),'SOUND SOUND_PAD/PAD2/GLÖRY BOX.WAV',entry(t[0]),entry(t[5]))
     r=MasterRig();putstr(r.m,config(0),t[1])
     r.card[take_folder(t[1])+'\\HISTORY.TXT']=(lambda b:(len(b),b))(history_text(entry(t[0]),entry(t[2]),version=1))
-    r.chain_take(t[6],during=[0]);assert r.history(t[6])==history_text(entry(t[1]),entry(t[0]),entry(t[2]))
+    r.chain_take(t[6],during=[0]);assert r.history(t[6])==history_text(entry(t[1]),entry(t[2]),entry(t[0]))
     for label,content in (('bad_count',b'L6 HISTORY 1\nRECORDER/X\nEND 5\n'),('bad_header',b'HISTORY\nEND 0\n')):
         r=MasterRig();putstr(r.m,config(0),t[1]);r.card[take_folder(t[1])+'\\HISTORY.TXT']=(len(content),content)
         r.chain_take(t[6],during=[0])
@@ -597,11 +597,12 @@ def main():
     # when a played take's own history left some out). Past 4 KiB a list
     # stops with TRUNCATED; the END count stays consistent. More than eight
     # pad files in one take is flagged.
-    r=MasterRig();long=[f'RECORDER/LAYER_{i:04d}_XXXXXXXXXX' for i in range(131)]
-    big=history_text(*long,version=1);assert len(big)<4096
-    r.card[take_folder(t[1])+'\\HISTORY.TXT']=(len(big),big);putstr(r.m,config(0),t[1]);r.chain_take(t[6],during=[0])
-    out=r.history(t[6]).decode().split('\n');count=int(out[-2].split()[1])
-    assert count==100 and out[1:101]==[entry(t[1])]+long[:99] and out[101:]==['OMITTED',f'END {count}','']
+    long=[f'RECORDER/LAYER_{i:04d}_XXXXXXXXXX' for i in range(131)]
+    for version,nearest in ((2,long[:99]),(1,long[::-1][:99])):   # version 1 lists oldest first
+        r=MasterRig();big=history_text(*long,version=version);assert len(big)<4096
+        r.card[take_folder(t[1])+'\\HISTORY.TXT']=(len(big),big);putstr(r.m,config(0),t[1]);r.chain_take(t[6],during=[0])
+        out=r.history(t[6]).decode().split('\n');count=int(out[-2].split()[1])
+        assert count==100 and out[1:101]==[entry(t[1])]+nearest and out[101:]==['OMITTED',f'END {count}',''],version
     r=MasterRig();putstr(r.m,config(0),t[1])
     r.card[take_folder(t[1])+'\\HISTORY.TXT']=(lambda b:(len(b),b))(history_text(entry(t[0]),omitted=True))
     r.chain_take(t[6],during=[0]);assert r.history(t[6])==history_text(entry(t[1]),entry(t[0]),omitted=True)
@@ -651,6 +652,9 @@ def main():
     chain_posts=lambda:[q for q in r.posts if q[:2]==(3,MAGIC_CHAIN)]
     for ms in range(0,9990,50):poll(ms,1,1)
     assert not chain_posts()                                           # Main has not received yet
+    put32(r.m,N['mr_main_ready'],12001)                                # stored after these polls read the tick
+    for ms in range(10000,11600,50):poll(ms,1,1)
+    assert not chain_posts()                                           # signed: not armed by a tick behind it
     put32(r.m,N['mr_main_ready'],15001)
     for ms in range(15000,16001,50):poll(ms,1,1)
     assert not chain_posts()                                           # armed 1 s after it did
@@ -783,6 +787,14 @@ def main():
     assert r.field('anchor_relist')==0 and r.field('anchor_pending')==0xf
     listed=r.field('anchor_listed');r.main_receive(3,ANCHOR_MAGIC,3,stamp)
     assert r.field('anchor_listed')==listed and lookup(r,3)<0
+    # A pad whose assignment never finishes loading is asked about at most
+    # 30 times per storage change.
+    r=anchor_rig();r.set('anchor_boot',1);stamp=r.field('revoked')
+    r.m.uc.mem_write(0x8044337f,b'\x01');r.main_receive(3,ANCHOR_MAGIC,0,stamp);reposts=0
+    for _ in range(40*35):
+        n=len(r.posts);r.step()
+        if len(r.posts)>n and r.posts[-1][:2]==(3,ANCHOR_MAGIC):reposts+=1;r.main_receive(*r.posts[-1][:4])
+    assert reposts==30 and r.field('anchor_relists')==30 and r.field('anchor_relist')==0 and lookup(r,0)<0,reposts   # then dropped
     # Off: no folder is checked, not even after a storage change; switching
     # the chain on checks every one.
     r=anchor_rig();r.m.uc.mem_write(CHAIN,bytes(2))

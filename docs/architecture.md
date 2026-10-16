@@ -52,6 +52,12 @@ and get their history but are not posted to the pads.
    with the same name, so each pad folder holds the anchor `MASTER.WAV`. The
    saved pad paths are the only record: the chain survives reboots with no
    state of its own.
+4. From 0.2.0 the worker writes those anchors itself while the chain is on:
+   it checks each pad folder at start-up, when the chain is switched on and
+   after each storage change once the card has settled (Main has handled
+   the change, 2 s have passed, File Transfer Mode is off), writes a missing
+   one as `MASTER.TMP` and renames it, and Main adds it to the pad's file
+   list ([experiment 39](../experiments/39-flash-diag/README.md)).
 
 A storage change during a take, or while a file is open, refuses that take.
 Details: [master reference findings](research/master_reference_findings.txt),

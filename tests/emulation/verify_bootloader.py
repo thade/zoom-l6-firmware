@@ -121,12 +121,12 @@ def main():
     # The package check accepts stock and our images and rejects damage
     # before anything is erased.
     verdicts={name:Bootloader(backup,backup,p).check() for name,p in
-              (('stock',stock),('release_0.1.0',release),('experiment_18_hang',hang))}
+              (('stock',stock),('release',release),('experiment_18_hang',hang))}
     flipped=bytearray(release);flipped[0x200000]^=1
     b=Bootloader(backup,backup,bytes(flipped));verdicts['one_bit_flipped']=b.check()
     verdicts['flipped_update']=b.system_update();erased=len(b.ops)
     verdicts['truncated']=Bootloader(backup,backup,release[:0x300000]).check()
-    assert verdicts=={'stock':0,'release_0.1.0':0,'experiment_18_hang':0,'one_bit_flipped':1,'flipped_update':6,'truncated':1},verdicts
+    assert verdicts=={'stock':0,'release':0,'experiment_18_hang':0,'one_bit_flipped':1,'flipped_update':6,'truncated':1},verdicts
     assert erased==0 and b.flash==bytearray(backup)
     passed('the_package_check_accepts_our_images_and_rejects_damage_before_erasing',verdicts=verdicts)
 

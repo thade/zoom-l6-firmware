@@ -9,9 +9,9 @@ until you install (see the [README](../README.md#install)).
   Python 3.9 is too old: rebuilding earlier experiments needs 3.12's archive
   extraction). The compiler comes as a Python package (zig 0.13).
 - A **full clone**: `git clone https://github.com/thade/zoom-l6-firmware.git`,
-  then `cd zoom-l6-firmware`. 0.1.0 builds from the `v0.1.0` tag's sources.
-  A ZIP download or `--depth 1` clone builds the release but cannot rebuild the
-  earlier experiments the checks compare against.
+  then `cd zoom-l6-firmware`. A ZIP download or `--depth 1` clone builds the
+  release but cannot rebuild the earlier experiments the checks compare
+  against (0.1.0 builds from the `v0.1.0` tag).
 
 ## 2. Python environment
 
@@ -58,14 +58,11 @@ image alone:
 python tools/firmware/build_release.py
 ```
 
-Both write `release/0.1.0/`: `L6.BIN`, `MASTER.WAV`, `SHA256SUMS` and
-`manifest.json`. The 0.1.0 image is reproducible: the build stops if the
-image differs from its published hash (the anchor should match too):
-
-```text
-99ded4b1fcefa1d968a7317e5df4ee65c670018c4a495cfc1ed903aa5aa70bb0  L6.BIN
-58a0bc492b292ac5a0b95889a58fa354c27bf394562b6dbde64d517b6acba791  MASTER.WAV
-```
+Both write `release/0.2.0/`: `L6.BIN`, `SHA256SUMS` and `manifest.json`.
+Once 0.2.0 is released its image is reproducible: the build stops if the
+image differs from its published hash, listed here then. (0.2.0 is in
+preparation: until then the image has no published hash, and the installer
+asks for `--any-image`.)
 
 Then [install](../README.md#install).
 
