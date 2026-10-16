@@ -10,7 +10,9 @@ its SHA-256 and a manifest to the ignored Reference/flash-backup/ folder: it is
 Zoom's code, never commit or publish it.
 
 Keep the mixer idle and untouched while it runs (no settings changes, so no
-settings saves): about 5-10 minutes per pass. Quit ZOOM L6 Editor first.
+settings saves): about 5-10 minutes per pass. Quit ZOOM L6 Editor first, and
+start at least 30 s after power-on and 15 s after the last change (settings
+are saved about 10 s after a change and once during start-up).
 
   l6_flash_backup.py --session --installed deployment/39_flash_diag/flash_diag/L6.BIN
 """

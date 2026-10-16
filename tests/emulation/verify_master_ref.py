@@ -36,7 +36,8 @@ NEXT=POSTED+160;ASSIGNED=NEXT+4*160
 HFIELDS=('played_open played_count played_overflow played_gen history_pending history_defer unwritten_next '
          'stop_played_count stop_played_overflow work_count work_overflow '
          'history_written history_failed history_status history_entries history_truncated history_omitted '
-         'anchor_pending anchor_boot anchor_existed anchor_created anchor_failed anchor_listed anchor_status').split()
+         'anchor_pending anchor_boot anchor_existed anchor_created anchor_failed anchor_listed anchor_status '
+         'anchor_revoked anchor_quiet_from revoke_waits anchor_relist anchor_relist_at').split()
 PLAYED_OPEN=ASSIGNED+4*160;OFF.update({n:PLAYED_OPEN+4*i for i,n in enumerate(HFIELDS)})
 PLAYED=PLAYED_OPEN+4*len(HFIELDS);ENTRY=528;STOP_PLAYED=PLAYED+8*ENTRY
 HISTORY_BUF=(PLAYED+3*8*ENTRY+8*64*2+31)&~31
@@ -684,22 +685,30 @@ def main():
     # MASTER.WAV the installers' anchor (byte for byte, written as MASTER.TMP
     # and renamed), never replaces one, waits while the recorder records, and
     # Main lists each new one in its pad's file list (stock code), after which
-    # the chain can use that pad.
+    # the chain can use that pad. Storage changes, a recording mid-write, no
+    # card and a busy recorder at listing time are each handled.
     from build_master_trial import anchor as installer_anchor
     ANCHOR_MAGIC=0x4c36414e;names=0x23001a00
     def lookup(r,pad):putstr(r.m,names,'MASTER.WAV');return struct.unpack('<i',struct.pack('<I',r.m.invoke(0x80008ec0,[pad,names])))[0]
-    r=MasterRig(catalogue=('BACKING.WAV',),anchors=());saves=[]
+    TICK=0x801f9050;TRANSFER=CONFIG+0x2340;TMP1='A:\\SOUND_PAD\\PAD1\\MASTER.TMP';PAD1='A:\\SOUND_PAD\\PAD1\\MASTER.WAV'
+    def anchor_rig():
+        """Start-up check due; Main has received and the card is settled."""
+        r=MasterRig(catalogue=('BACKING.WAV',),anchors=());r.set('anchor_boot',0)
+        put32(r.m,N['mr_main_ready'],1001);put32(r.m,N['mr_main_waits'],1);put32(r.m,TICK,10_000);return r
+    def later(r,ms):put32(r.m,TICK,word(r.m,TICK)+ms)
+    def anchored(r,path):return r.card.get(path)==(len(installer_anchor()),installer_anchor())
+    r=anchor_rig();saves=[]
     pad2='A:\\SOUND_PAD\\PAD2\\MASTER.WAV';r.card[pad2]=(4,b'mine')           # someone else's MASTER.WAV
-    r.set('anchor_boot',0);put32(r.m,N['mr_main_ready'],1001)
     r.m.uc.mem_write(0x80578ebc,b'\x01');r.step()                              # recording: nothing yet
     assert r.field('anchor_pending')==0xf and r.field('anchor_created')==0 and not any('SOUND_PAD' in c[1] for c in r.calls)
     r.m.uc.mem_write(0x80578ebc,b'\x00')
     for _ in range(4):r.step()
     assert (r.field('anchor_created'),r.field('anchor_existed'),r.field('anchor_failed'),r.field('anchor_pending'))==(3,1,0,0)
     made=[f'A:\\SOUND_PAD\\PAD{n}\\MASTER.WAV' for n in (1,3,4)]
-    assert all(r.card[x]==(len(installer_anchor()),installer_anchor()) for x in made) and r.card[pad2]==(4,b'mine')
+    assert all(anchored(r,x) for x in made) and r.card[pad2]==(4,b'mine')
     assert not any(k.endswith('MASTER.TMP') for k in r.card)
     posts=[q[2] for q in r.posts if q[:2]==(3,ANCHOR_MAGIC)];assert posts==[0,2,3],posts
+    assert all(q[3]==0 for q in r.posts if q[:2]==(3,ANCHOR_MAGIC))            # stamped: no storage change yet
     assert all(lookup(r,p)<0 for p in range(4))
     for pad in posts:r.main_receive(3,ANCHOR_MAGIC,pad,0)
     r.main_receive(3,ANCHOR_MAGIC,0,0)                                         # listed already: nothing more
@@ -707,18 +716,85 @@ def main():
     r.chain_take(A);assert r.pads()[0]==A                                      # pad 1 usable at once, no rescan
     for _ in range(3):r.step()
     assert r.field('anchor_created')==3                                        # checked once per start-up
-    # Off: no folder is checked; switching the chain on checks every one.
-    r=MasterRig(catalogue=('BACKING.WAV',),anchors=());r.m.uc.mem_write(CHAIN,bytes(2))
+    # A storage change (a card swapped in, File Transfer Mode) re-checks every
+    # folder, but only once Main has handled it (a mode change or mount runs
+    # on Main), the card has been quiet for 2 s and is not in File Transfer
+    # Mode: no file call before.
+    pad3='A:\\SOUND_PAD\\PAD3\\MASTER.WAV';del r.card[pad3];probes=len(r.probes);calls=len(r.calls)
+    r.main_receive(0,0,0x32,0);r.step();later(r,2000);r.step()                # quiet, but Main has not handled it
+    assert r.field('anchor_pending')==0xf and (len(r.probes),len(r.calls))==(probes,calls)
+    r.main_receive(3,0,0,0);r.main_receive(0,1,0x33,0);r.main_receive(3,0,0,0)
+    r.step();r.step()                                                          # handled; the second change is new
+    assert (len(r.probes),len(r.calls))==(probes,calls)
+    r.m.uc.mem_write(TRANSFER,struct.pack('<I',1));later(r,2000)
+    for _ in range(3):r.step()
+    assert (len(r.probes),len(r.calls))==(probes,calls)                        # File Transfer Mode
+    r.m.uc.mem_write(TRANSFER,bytes(4))
+    for _ in range(4):r.step()
+    assert anchored(r,pad3) and (r.field('anchor_created'),r.field('anchor_existed'),r.field('anchor_pending'))==(4,4,0)
+    # A recording that starts during the write stops it after that chunk; the
+    # temp file is replaced once the recorder is idle again.
+    r=anchor_rig();writes=[]
+    def start_recording():
+        writes.append(1)
+        if len(writes)==1:r.m.uc.mem_write(0x80578ebc,b'\x01')
+    r.on_write=start_recording;r.step()
+    assert len(writes)==1 and r.field('anchor_status')==7 and r.field('anchor_pending')==0xf and r.card[TMP1][0]==4096
+    r.step();assert len(writes)==1 and PAD1 not in r.card                     # waits while recording
+    r.m.uc.mem_write(0x80578ebc,b'\x00');r.on_write=None;r.step()
+    assert anchored(r,PAD1) and TMP1 not in r.card and ('unlink',TMP1) in r.calls
+    # A storage change during the write: no further call on that card; the
+    # folder is written once the new card has settled.
+    r=anchor_rig();writes=[]
+    def swap_card():writes.append(1);r.set('revoked',r.field('revoked')+1)
+    r.on_write=swap_card;r.step();r.on_write=None;calls=len(r.calls)
+    assert len(writes)==1 and r.field('anchor_status')==7 and TMP1 in r.card and PAD1 not in r.card
+    r.step();assert len(r.calls)==calls and len(writes)==1                    # settling
+    later(r,2000);r.step();assert anchored(r,PAD1) and TMP1 not in r.card
+    # No card: each folder fails once, then waits for the next storage change.
+    r=anchor_rig()
+    for p in range(1,5):r.faults[f'A:\\SOUND_PAD\\PAD{p}\\MASTER.WAV']=0xffffd825
+    for _ in range(6):r.step()
+    assert (r.field('anchor_failed'),r.field('anchor_pending'),r.field('anchor_status'))==(4,0,6) and len(r.probes)==4
+    r.faults.clear();r.main_receive(0,0,0x33,0);r.main_receive(3,0,0,0);r.step();later(r,2000)
+    for _ in range(4):r.step()
+    assert r.field('anchor_created')==4 and all(anchored(r,f'A:\\SOUND_PAD\\PAD{p}\\MASTER.WAV') for p in range(1,5))
+    # Main lists no anchor while the recorder is busy (RecPlayCtl rebuilds the
+    # pad file lists after a pad recording) or an assignment to the pad loads;
+    # the worker posts it again once idle.
+    stamp=r.field('revoked');assert stamp==1 and {q[3] for q in r.posts if q[:2]==(3,ANCHOR_MAGIC)}=={1}
+    n=len(r.posts);put32(r.m,RECORDER_BUSY,1);r.main_receive(3,ANCHOR_MAGIC,1,stamp)
+    assert lookup(r,1)<0 and r.field('anchor_relist')==2
+    for _ in range(50):r.step()
+    assert len(r.posts)==n                                                     # still busy
+    put32(r.m,RECORDER_BUSY,0);r.m.uc.mem_write(0x8044337f+2,b'\x01');r.main_receive(3,ANCHOR_MAGIC,2,stamp)
+    assert lookup(r,2)<0 and r.field('anchor_relist')==6
+    r.m.uc.mem_write(0x8044337f+2,b'\x00')
+    for _ in range(100):
+        r.step()
+        if len(r.posts)>=n+2:break
+    relisted=[q for q in r.posts[n:] if q[:2]==(3,ANCHOR_MAGIC)];assert [q[2:4] for q in relisted]==[(1,stamp),(2,stamp)]
+    for q in relisted:r.main_receive(*q[:4])
+    assert lookup(r,1)>=0 and lookup(r,2)>=0 and r.field('anchor_relist')==0
+    # A post or relist from before a storage change is void (the card may
+    # differ; the worker checks every folder again): nothing is listed.
+    put32(r.m,RECORDER_BUSY,1);r.main_receive(3,ANCHOR_MAGIC,3,stamp);assert r.field('anchor_relist')==8
+    put32(r.m,RECORDER_BUSY,0);r.main_receive(0,9,0x32,0);r.step()
+    assert r.field('anchor_relist')==0 and r.field('anchor_pending')==0xf
+    listed=r.field('anchor_listed');r.main_receive(3,ANCHOR_MAGIC,3,stamp)
+    assert r.field('anchor_listed')==listed and lookup(r,3)<0
+    # Off: no folder is checked, not even after a storage change; switching
+    # the chain on checks every one.
+    r=anchor_rig();r.m.uc.mem_write(CHAIN,bytes(2))
     r.m.hooks.update({0x80006ab8:lambda a:saves.append(1) or 0,0x80076950:lambda a:1,0x800763d8:lambda a:1})
-    r.set('anchor_boot',0);put32(r.m,N['mr_main_ready'],1001)
+    r.main_receive(0,0,0x32,0);r.main_receive(3,0,0,0)
     for _ in range(3):r.step()
     assert r.field('anchor_pending')==0 and r.field('anchor_created')==0
-    r.main_receive(3,MAGIC_CHAIN,0,0);assert r.field('anchor_pending')==0xf
+    r.main_receive(3,MAGIC_CHAIN,0,0);assert r.field('anchor_pending')==0xf;later(r,2000)   # the card settled
     for _ in range(4):r.step()
     assert r.field('anchor_created')==4
     # A folder that cannot take the file is counted as failed, not retried.
-    r=MasterRig(catalogue=('BACKING.WAV',),anchors=());r.faults['A:\\SOUND_PAD\\PAD1\\MASTER.TMP']=0xffffd825
-    r.set('anchor_boot',0);put32(r.m,N['mr_main_ready'],1001)
+    r=anchor_rig();r.faults[TMP1]=0xffffd825
     for _ in range(4):r.step()
     assert (r.field('anchor_created'),r.field('anchor_failed'),r.field('anchor_status'))==(3,1,0)
     passed('the_worker_writes_missing_pad_anchors_and_main_lists_them_while_the_chain_is_on',

@@ -44,7 +44,7 @@ enum {MR_HANDOFF_NONE,MR_HANDOFF_POSTED,MR_HANDOFF_ASSIGNED,MR_HANDOFF_SKIPPED,
 #define MR_HANDOFF_MAGIC 0x4c364d52u   /* 'L6MR' */
 #define MR_CHAIN_MAGIC 0x4c364348u     /* 'L6CH': toggle the take chain (EFX + PAN hold) */
 #define PANEL_RESTORE_MAGIC 0x4c364152u /* 'L6AR': wake Main to end a switch's LED show */
-#define MR_ANCHOR_MAGIC 0x4c36414eu    /* 'L6AN': list a pad folder's new anchor (packet[2] = pad) */
+#define MR_ANCHOR_MAGIC 0x4c36414eu    /* 'L6AN': list a pad folder's new anchor (packet[2] = pad, [3] = storage-change count) */
 
 /* A pad file that played during a take: the saved path when it started;
  * valid holds the take's generation once the path is complete. */
@@ -76,8 +76,13 @@ typedef struct {
     uint32_t stop_played_count,stop_played_overflow,work_count,work_overflow;
     uint32_t history_written,history_failed,history_status,history_entries,history_truncated,history_omitted;
     /* Anchors: pads whose folder the worker still checks (Main sets them when
-     * the chain turns on), and the outcome counters. */
+     * the chain turns on), and the outcome counters. The worker re-checks
+     * every folder after a storage change once the card is settled
+     * (anchor_revoked, anchor_quiet_from; revoke_waits is Main's receive
+     * count at the last change). Pads Main could not list yet (relist) are
+     * posted again (relist_at). */
     uint32_t anchor_pending,anchor_boot,anchor_existed,anchor_created,anchor_failed,anchor_listed,anchor_status;
+    uint32_t anchor_revoked,anchor_quiet_from,revoke_waits,anchor_relist,anchor_relist_at;
     MrPlayed played[MR_PLAYED],stop_played[MR_PLAYED],work_played[MR_PLAYED];
     uint16_t unwritten[MR_UNWRITTEN][MR_DIR];   /* worker: take folders, NUL-terminated */
     _Alignas(32) char history[MR_HISTORY];   /* worker: the new file */
@@ -93,6 +98,8 @@ uint32_t mr_worker_step(void);
 void mr_worker_entry(void *);
 /* Panel switches (panel.c), armed after Main first received an event. */
 extern uint32_t mr_main_ready;
+/* Main's receive calls so far: one more each time Main has handled a packet. */
+extern uint32_t mr_main_waits;
 void panel_poll(void);
 int panel_recording(void);
 void panel_show(uint32_t sel_a,uint32_t sel_b,uint32_t blink);

@@ -268,6 +268,14 @@ static void handoff(MasterRef *g,uint32_t serial) {
     handoff_done(g,serial,MR_HANDOFF_ASSIGNED,0);
 }
 
+/* The card belongs to the recorder while any recording or playback runs
+ * (pad recordings included) or a RecPlayCtl callback does: the worker makes
+ * no file call then, and Main lists no anchor (RecPlayCtl rebuilds the pad
+ * file lists when a pad recording finishes). The stock filesystem locks have
+ * no priority inheritance, so a priority-1 holder could stall the recorder's
+ * file work. */
+static int recorder_busy(const MasterRef *g) {return LD(&g->stock_recording) || REC_STATE || RECORDER_BUSY;}
+
 /* ---- Main: the chain on/off switch (EFX + PAN hold, panel.c) ---- */
 /* Off: takes stay off the pads (each still gets its history). Refused while
  * any recording runs or finalizes. EFX and PAN blink (on) or light steadily
@@ -283,21 +291,28 @@ static void chain_toggle(MasterRef *g) {
 }
 /* Main: a pad folder gained the anchor: add it to that pad's file list (as
  * the stock post-record step does for a new pad recording) unless listed, so
- * the chain can use the pad without a rescan. Not while an assignment loads. */
-static void list_anchor(MasterRef *g,uint32_t pad) {
-    if(pad>=MR_PADS || PENDING(pad) || LOOKUP(pad,ANCHOR)>=0)return;
+ * the chain can use the pad without a rescan. While an assignment to the pad
+ * loads or the recorder is busy, the worker asks again later. A post from
+ * before the last storage change (stamp: the worker's count) is dropped: the
+ * card may differ, and the worker checks every folder again. */
+static void list_anchor(MasterRef *g,uint32_t pad,uint32_t stamp) {
+    if(pad>=MR_PADS || stamp!=LD(&g->revoked))return;
+    if(PENDING(pad) || recorder_busy(g)){__atomic_or_fetch(&g->anchor_relist,1u<<pad,__ATOMIC_ACQ_REL);return;}
+    if(LOOKUP(pad,ANCHOR)>=0)return;
     if(!LIST_FILE(pad,ANCHOR,0))g->anchor_listed++;
 }
 
 /* ---- Main: five original receive calls ---- */
 KEEP uint32_t mr_main_ready;   /* tick (never 0) when Main first returned from a receive */
+KEEP uint32_t mr_main_waits;
 KEEP int32_t mr_main_receive(uint32_t *packet) {
+    __atomic_fetch_add(&mr_main_waits,1,__ATOMIC_RELEASE);   /* the previous packet is handled */
     int32_t result=RECEIVE(packet);
     if(!mr_main_ready)__atomic_store_n(&mr_main_ready,W(0x801f9050u)|1u,__ATOMIC_RELAXED);
     MasterRef *g=LD(&mr_state);if(!g)return result;
     if(packet[0]==MR_HANDOFF_EVENT && packet[1]==MR_HANDOFF_MAGIC)handoff(g,packet[2]);
     if(packet[0]==MR_HANDOFF_EVENT && packet[1]==MR_CHAIN_MAGIC)chain_toggle(g);
-    if(packet[0]==MR_HANDOFF_EVENT && packet[1]==MR_ANCHOR_MAGIC)list_anchor(g,packet[2]);
+    if(packet[0]==MR_HANDOFF_EVENT && packet[1]==MR_ANCHOR_MAGIC)list_anchor(g,packet[2],packet[3]);
     if(packet[0]==MR_HANDOFF_EVENT && packet[1]==SA_TOGGLE_MAGIC && sa_toggle)sa_toggle();
     panel_restore();   /* ends a due switch LED show on any event */
     uint32_t storage=(packet[0]==0 && packet[2]>=0x32 && packet[2]<=0x35) ||
@@ -307,6 +322,7 @@ KEEP int32_t mr_main_receive(uint32_t *packet) {
         /* Paired with the worker: either it sees this revocation before its
          * next file call, or we see file_open and wait for its probe. */
         g->revoke_packet=packet[0]<<16|(packet[1]&255)<<8|(packet[2]&255);
+        ST(&g->revoke_waits,LD(&mr_main_waits));   /* Main handles this packet (a mode change, mount) after we return */
         __atomic_fetch_add(&g->revoked,1,__ATOMIC_SEQ_CST);
         __atomic_thread_fence(__ATOMIC_SEQ_CST);
         if(!LD(&g->file_open))g->main_timed_out=0;
@@ -319,11 +335,6 @@ KEEP int32_t mr_main_receive(uint32_t *packet) {
 }
 
 /* ---- Worker ---- */
-/* The card belongs to the recorder while any recording or playback runs
- * (pad recordings included) or a RecPlayCtl callback does: the worker makes
- * no file call then. The stock filesystem locks have no priority
- * inheritance, so a priority-1 holder could stall the recorder's file work. */
-static int recorder_busy(const MasterRef *g) {return LD(&g->stock_recording) || REC_STATE || RECORDER_BUSY;}
 static void post(MasterRef *g) {
     g->handoff_posts++;g->handoff_posted_at=g->polls;
     POST(MR_HANDOFF_EVENT,MR_HANDOFF_MAGIC,g->handoff_serial,0,0);
@@ -625,13 +636,21 @@ static void history_done(MasterRef *g,uint32_t status) {
 /* ---- Worker: the pad folders' anchor files ----
  * Stock reload keeps a pad's path only while the pad's folder lists a file of
  * the same name, so each pad the chain uses needs A:\SOUND_PAD\PADn\MASTER.WAV.
- * While the chain is on (once after start-up, and whenever it is switched
- * on), each folder without one gets it: the same 0.1 s silent 48 kHz stereo
- * float file as the installers' anchor, written as MASTER.TMP and renamed (an
- * existing MASTER.WAV, ours or not, is never replaced). Main then lists it. */
+ * While the chain is on (once after start-up, whenever it is switched on,
+ * and after each storage change), each folder without one gets it: the same
+ * 0.1 s silent 48 kHz stereo float file as the installers' anchor, written as
+ * MASTER.TMP and renamed (an existing MASTER.WAV, ours or not, is never
+ * replaced). Main then lists it. A failed folder (no card, say) waits for the
+ * next storage change. */
 enum {MR_A_OK=0,MR_A_EXISTED=1,MR_A_CREATE=2,MR_A_WRITE=3,MR_A_CLOSE=4,MR_A_RENAME=5,MR_A_PROBE=6,MR_A_DEFER=7};
 #define ANCHOR_HEADER 512u
 #define ANCHOR_BYTES (ANCHOR_HEADER+4800u*8u)   /* 38,912 */
+#define TICKS W(0x801f9050u)          /* 1 ms */
+#define ANCHOR_SETTLE 2000u           /* ms without a storage change before a check */
+/* CONFIG+0x2340: File Transfer Mode (the card is the computer's). Set by the
+ * mode change 0x8000c220 on Main and cleared by 0x8000c288 after the remount;
+ * stock card code reads it (0x80006290) before using the card. */
+#define TRANSFER_MODE W(0x80440dc8u+0x2340u)
 /* The anchor's 512-byte header: RIFF/WAVE, fmt (IEEE float, 2 ch, 48 kHz,
  * 32-bit), a JUNK chunk to 504, then data. */
 static void anchor_header(uint8_t *h) {
@@ -645,6 +664,10 @@ static uint32_t make_anchor(MasterRef *g,uint32_t pad) {
     for(uint32_t i=0;i<sizeof(final)/2;i++)final[i]=ANCHOR_PATH[i];
     for(uint32_t i=0;i<sizeof(tmp)/2;i++)tmp[i]=ANCHOR_TMP[i];
     final[ANCHOR_DIGIT]=tmp[ANCHOR_DIGIT]=(uint16_t)('1'+pad);
+    /* Storage changes count from the one anchors() last saw: take_revoked is
+     * free (no take is being checked or given a history) and the next take
+     * sets it again. */
+    g->take_revoked=g->anchor_revoked;
     if(!io_begin(g))return MR_A_DEFER;
     uint32_t bytes,handle=0,got=0,status=MR_A_OK;
     int found=probe(final,&bytes,0,0);
@@ -657,18 +680,19 @@ static uint32_t make_anchor(MasterRef *g,uint32_t pad) {
     else {
         /* The history buffer is free here (no history pending): the header,
          * then zeros, in 4 KiB writes. */
-        char *buf=g->history;int wrote=1;
+        char *buf=g->history;int wrote=1,busy=0;
         anchor_header((uint8_t *)buf);
         for(uint32_t i=ANCHOR_HEADER;i<MR_HISTORY;i++)buf[i]=0;
         for(uint32_t done=0;wrote && done<ANCHOR_BYTES;) {
             uint32_t n=ANCHOR_BYTES-done<MR_HISTORY?ANCHOR_BYTES-done:MR_HISTORY;
             coherent(buf,MR_HISTORY);
-            wrote=!revoked(g) && !WRITE(handle,buf,n,&got) && got==n;
+            busy=recorder_busy(g);   /* a recording starts: stop, and finish later */
+            wrote=!busy && !revoked(g) && !WRITE(handle,buf,n,&got) && got==n;
             if(!done)for(uint32_t i=0;i<ANCHOR_HEADER;i++)buf[i]=0;   /* later writes are all zeros */
             done+=n;
         }
-        int closed=!CLOSE(handle);
-        if(revoked(g))status=MR_A_DEFER;
+        int closed=!CLOSE(handle);   /* even if busy: the handle must not stay open */
+        if(busy || revoked(g))status=MR_A_DEFER;   /* the temp file is replaced next time */
         else if(!wrote || !closed){(void)UNLINK(tmp);status=wrote?MR_A_CLOSE:MR_A_WRITE;}
         else if(RENAME(tmp,final)){if(!revoked(g))(void)UNLINK(tmp);status=MR_A_RENAME;}
     }
@@ -676,19 +700,36 @@ static uint32_t make_anchor(MasterRef *g,uint32_t pad) {
     return status;
 }
 /* One pad folder per step, while the recorder is idle and no take is being
- * handled; a deferred folder is tried again. */
+ * handled, and only on a settled card: Main has handled the last storage
+ * change (a File Transfer Mode change or mount runs on Main), 2 s have passed
+ * since it and the card is not in File Transfer Mode. A deferred folder is
+ * tried again. */
 static void anchors(MasterRef *g) {
+    uint32_t all=(1u<<MR_PADS)-1u,now=TICKS,revoked_now=LD(&g->revoked);
+    if(revoked_now!=g->anchor_revoked) {
+        /* A new card, or the same one changed: check every folder again (off,
+         * switching the chain on does); posts for the old card are void. */
+        g->anchor_revoked=revoked_now;g->anchor_quiet_from=now;ST(&g->anchor_relist,0);
+        if(chain_on())__atomic_or_fetch(&g->anchor_pending,all,__ATOMIC_ACQ_REL);
+    }
     if(!g->anchor_boot && chain_on() && LD(&mr_main_ready)) {
-        g->anchor_boot=1;__atomic_or_fetch(&g->anchor_pending,(1u<<MR_PADS)-1u,__ATOMIC_ACQ_REL);
+        g->anchor_boot=1;__atomic_or_fetch(&g->anchor_pending,all,__ATOMIC_ACQ_REL);
+    }
+    uint32_t relist=LD(&g->anchor_relist);
+    if(relist && !recorder_busy(g) && g->polls-g->anchor_relist_at>=RETRY_POLLS) {
+        uint32_t pad=(uint32_t)__builtin_ctz(relist);
+        __atomic_and_fetch(&g->anchor_relist,~(1u<<pad),__ATOMIC_ACQ_REL);
+        g->anchor_relist_at=g->polls;POST(MR_HANDOFF_EVENT,MR_ANCHOR_MAGIC,pad,g->anchor_revoked,0);
     }
     uint32_t pending=LD(&g->anchor_pending);
     if(!pending || !chain_on() || g->pending || g->history_pending || recorder_busy(g))return;
+    if(TRANSFER_MODE || LD(&mr_main_waits)==LD(&g->revoke_waits) || now-g->anchor_quiet_from<ANCHOR_SETTLE)return;
     uint32_t pad=(uint32_t)__builtin_ctz(pending),status=make_anchor(g,pad);
     g->anchor_status=status;
     if(status==MR_A_DEFER)return;
     __atomic_and_fetch(&g->anchor_pending,~(1u<<pad),__ATOMIC_ACQ_REL);
     if(status==MR_A_EXISTED)g->anchor_existed++;
-    else if(status==MR_A_OK){g->anchor_created++;POST(MR_HANDOFF_EVENT,MR_ANCHOR_MAGIC,pad,0,0);}
+    else if(status==MR_A_OK){g->anchor_created++;POST(MR_HANDOFF_EVENT,MR_ANCHOR_MAGIC,pad,g->anchor_revoked,0);}
     else g->anchor_failed++;
 }
 KEEP uint32_t mr_worker_step(void) {
