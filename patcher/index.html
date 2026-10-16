@@ -98,7 +98,7 @@ footer .wrap { padding-top: 20px; padding-bottom: 36px; display: grid; grid-temp
 <header>
   <div class="wrap">
     <span class="brand">L6 Overdub/Stereo AUX <span id="version">…</span></span>
-    <nav><a href="#make" id="guideLink">Install guide</a><a href="https://github.com/thade/zoom-l6-firmware">Source</a></nav>
+    <nav><a href="https://github.com/thade/zoom-l6-firmware">Source</a></nav>
   </div>
 </header>
 
@@ -268,8 +268,7 @@ let url = null;
 let made = null;   // the built image and its hash
 
 // Section 3 shows one route: send to the mixer where the browser can, else
-// (or on request) download and copy the file to the card yourself. The
-// header's Install guide link goes to what the user does next.
+// (or on request) download and copy the file to the card yourself.
 const canSend = supported();
 let current = canSend ? 'send' : 'copy';
 function route(r) {
@@ -281,7 +280,6 @@ function route(r) {
   $('downloadBox').hidden = !made;
   $('sendNo').hidden = canSend;
   $('toSend').hidden = !canSend;
-  $('guideLink').href = made || !send ? '#install' : '#make';
 }
 route(current);
 
