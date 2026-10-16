@@ -48,30 +48,35 @@ not included: you download it from Zoom and build the image yourself.
 
 - A Zoom LiveTrak **L6** running firmware v1.10, and a microSD card formatted
   in the L6.
-- A computer (macOS or Linux) with Python 3.12 or newer and git, to build the
-  image. Installing just means copying files to the card.
-- Zoom's v1.10 firmware download (see [setup](docs/setup.md)).
+- Any computer with a web browser, to make the firmware file with the
+  [browser patcher](https://thade.github.io/zoom-l6-firmware/); in Chrome or Edge it can also send the file to the
+  mixer. To build from source instead: macOS or Linux, Python 3.12 or newer
+  and git ([setup](docs/setup.md)).
+- Zoom's v1.10 firmware download (the patcher links to it).
 
 ## Install
 
-1. **Build** the image: follow [docs/setup.md](docs/setup.md). It ends with
-   `release/0.2.0/` holding `L6.BIN` and `SHA256SUMS`.
-2. **Copy to the card.** Mount the card (card reader, or *File Transfer Mode*
-   in ZOOM L6 Editor) and run:
+1. **Make the firmware file.** Easiest: open the
+   [browser patcher](https://thade.github.io/zoom-l6-firmware/), download Zoom's v1.10 zip and drop it on the
+   page. It makes `L6.BIN` on your computer and, in Chrome or Edge, can put it
+   on the mixer's card for you (then go to step 3). Or build it yourself:
+   [docs/setup.md](docs/setup.md) ends with `release/0.2.0/L6.BIN`.
+2. **Copy it to the card**, if the patcher didn't. Mount the card (card
+   reader, or *File Transfer Mode* in ZOOM L6 Editor), copy `L6.BIN` to the
+   card's top folder (replacing any `L6.BIN` there), delete any `._L6.BIN`
+   file macOS leaves next to it, and eject the card. If you built it, the
+   installer does all that:
    ```sh
    python tools/device/install_release.py --eject
    ```
    (On Linux, or with several cards mounted, add `--card <card folder>`;
-   `--eject` is macOS only, so eject the card yourself elsewhere.)
-   It checks the image, backs up the card's existing `L6.BIN` and settings
-   file, and copies `L6.BIN` to the card root. Without the tool: copy
-   `L6.BIN` to the card root yourself, and delete any `._L6.BIN` file macOS
-   leaves next to it.
+   `--eject` is macOS only.) It also backs up the card's existing `L6.BIN`
+   and settings file.
 3. **Update the mixer** as in Zoom's update guide: power it from the USB port,
-   insert the card, then hold **PLAY/STOP** while pressing **POWER** until the
-   power indicator lights. It blinks green slowly while updating (about
-   30 seconds) and quickly when done. Do not switch off during the update.
-   Then switch off and on again.
+   switch it off with the card in, then hold **PLAY/STOP** and press and hold
+   **POWER** until the power light comes on; then let go. It blinks green
+   slowly while updating (about 30 seconds) and quickly when done. Do not
+   switch off during the update. Then switch off and on again.
 
 ## Using it
 
@@ -110,7 +115,8 @@ enter the chain.
 small silent `MASTER.WAV` (0.1 s) into each `SOUND_PAD/PAD1`–`PAD4` folder
 that lacks one: the L6 keeps a pad's take across power cycles only while that
 pad's folder holds a file of the same name. Leave these files in place; one
-you delete comes back the next time the mixer starts with the chain on.
+you delete comes back a few seconds after the card is back in use (leaving
+File Transfer Mode, or the next start with the chain on).
 
 **History.** `RECORDER/<take>/HISTORY.TXT` lists the recordings and pad
 sounds the take includes, newest first, at most 100 entries. When older entries
@@ -152,9 +158,8 @@ them.
 - Only 48 kHz stereo takes join the chain; a take long enough to be split into
   two files (about 93 minutes) does not.
 - The stereo send was last measured on the AUX jacks with experiment 32;
-  later builds, 0.1.0 included, checked its switch by the lights only.
-- A take layered over one recorded with experiments 28–33 inherits that
-  take's version 1 history lines in their original (oldest-first) order.
+  later builds, 0.1.0 and 0.2.0 included, checked its switch by the lights
+  only.
 - Losing power in the moment right after stopping a take, while its history is
   written, is untested.
 - If takes are started and stopped faster than the history files can be
@@ -171,13 +176,15 @@ them.
 A firmware that hangs at startup leaves the L6 dark (no lights, no USB
 device), which looks as if it won't switch on. It is still powered, and stuck.
 
-1. Put Zoom's v1.10 `L6.BIN` on the card with a computer card reader
-   (`python tools/device/install_release.py --stock --card /Volumes/<card> --eject`),
-   since the mixer cannot enter File Transfer Mode, and put the card back.
+1. Put Zoom's own v1.10 `L6.BIN` (from the zip you downloaded) in the top
+   folder of the card with a computer card reader, replacing the one there:
+   the hung mixer cannot enter File Transfer Mode. (Built it yourself?
+   `python tools/device/install_release.py --stock --card /Volumes/<card> --eject`.)
+   Put the card back.
 2. **Power it fully off:** unplug both USB cables and take out the batteries.
    Either USB port, or the batteries, can keep it powered.
-3. Reconnect USB power, then hold PLAY/STOP and press POWER, holding PLAY/STOP
-   until the power light comes on. It updates as usual, then switch off and on.
+3. Reconnect USB power, then hold PLAY/STOP and press and hold POWER until
+   the power light comes on. It updates as usual; then switch off and on.
 
 This works because the bootloader reads PLAY/STOP and runs the update before
 the firmware is started ([experiment 18](experiments/18-recovery-hang/README.md),

@@ -6,7 +6,8 @@ build.
 
 **Installed 16 October 2026; passed. This is release 0.1.0.** Recovery from
 an image that fails before Main remains unproven
-([experiment 18](../18-recovery-hang/README.md) is parked).
+([experiment 18](../18-recovery-hang/README.md) is parked). (Shown on
+16 October: experiment 18 passed.)
 
 ## Results
 

@@ -1,6 +1,6 @@
-# Architecture (0.1.0)
+# Architecture (0.2.0)
 
-The release adds about 9.2 KB of code (9,236 bytes) to Zoom's v1.10 firmware and patches 15
+The release adds about 11 KB of code (11,004 bytes) to Zoom's v1.10 firmware and patches 15
 stock instruction sites. It records nothing and copies no audio: the pads play
 the stock recorder's own `MASTER.WAV` files in place. The DSP code, the
 recorder, the SD driver and every recording file stay stock. Source:
@@ -10,7 +10,7 @@ recorder, the SD driver and every recording file stay stock. Source:
 
 Built by `tools/firmware/build_release.py` from the stock `L6.BIN`:
 
-- The added code (`0x800a9688`-`0x800aba9c`) and 80 bytes of zeroed globals
+- The added code (`0x800a9688`-`0x800ac184`) and 84 bytes of zeroed globals
   (`0x800b0a00`) are packed into the span the stock scatter loader frees after
   expanding the compressed DSP code at boot; the loader itself places them
   ([source-reuse findings](research/capture_source_reuse_findings.txt)).

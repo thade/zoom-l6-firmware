@@ -56,7 +56,8 @@ The test passed (see Results); this was the worst case planned for.
 If recovery works, the mixer returns to stock with one more update. If it does
 not, the mixer stays unbootable until a hardware route is used: the i.MX RT1040
 serial downloader (boot-mode pins) or SWD, with a flash programmer. No
-full-flash or BOOT backup exists, though BOOT is never written by these images.
+full-flash or BOOT backup exists, though BOOT is never written by these images
+(written 11 October; experiment 39's full backup came before the test).
 An early failure in experiment 17 would carry the same risk without the
 advantage of a known cause.
 

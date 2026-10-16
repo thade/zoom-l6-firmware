@@ -83,6 +83,6 @@ Open work: [future work](future-work.md). The detailed log up to 0.1.0 is in
 
 ## Checks
 
-`tools/firmware/verify_release.py` builds 0.1.0 and runs its suites from a
+`tools/firmware/verify_release.py` builds the release and runs its suites from a
 fresh clone. `tools/firmware/verify_redesign.py` runs every offline suite in
 the repository, research included (see [setup](setup.md)).

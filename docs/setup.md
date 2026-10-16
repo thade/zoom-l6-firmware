@@ -1,7 +1,9 @@
 # Build from source
 
 Everything here runs offline on your computer; nothing talks to the mixer
-until you install (see the [README](../README.md#install)).
+until you install (see the [README](../README.md#install)). On Windows, or
+without Python, use the [browser patcher](https://thade.github.io/zoom-l6-firmware/)
+instead.
 
 ## 1. Requirements
 
@@ -58,7 +60,8 @@ image alone:
 python tools/firmware/build_release.py
 ```
 
-Both write `release/0.2.0/`: `L6.BIN`, `SHA256SUMS` and `manifest.json`.
+Both write `release/0.2.0/`: `L6.BIN`, `SHA256SUMS`, `manifest.json` and
+`recipe.json` (the same release for the browser patcher).
 Once 0.2.0 is released its image is reproducible: the build stops if the
 image differs from its published hash, listed here then. (0.2.0 is in
 preparation: until then the image has no published hash, and the installer
