@@ -2,8 +2,8 @@
 """Build the master-reference images locally: the 0.1.0 release and every
 earlier experiment, byte for byte. No device access.
 
-Every mode must reproduce its image's hash exactly; all but `release` are
-pinned to the commit their image was built from (24-26, 28-30 and 32-38 were
+Every mode must reproduce its image's hash exactly and is pinned to the
+commit or tag its image was built from (`release` to v0.1.0) (24-26, 28-30 and 32-38 were
 installed, 37 being a diagnostic build; 27 and 31 were prepared and
 superseded before installation).
 
@@ -28,7 +28,7 @@ Writes the trial image and the anchor file: a short silent 48 kHz stereo
 stock validator and loader accepted in experiment 21. Staging copies it to
 A:\\SOUND_PAD\\PADn\\MASTER.WAV for each pad the trial uses.
 """
-import argparse,contextlib,io,json,struct,subprocess,tarfile,tempfile
+import argparse,contextlib,io,json,struct,subprocess,sys,tarfile,tempfile
 from pathlib import Path
 from build_deployment_probe import ROOT,SOURCE,STOCK_SHA,validate,digest,write_manifest
 from build_master_ref import build
@@ -82,18 +82,26 @@ MODES=dict(
                     stereo=True,switch=True,chain_switch=True,diag=True,
                     sha='b4c1c3c7fd99fa64627abdc52d9615be04e9bb3e8c3df5b37af637413d9985ae'),
     # Release 0.1.0: 36 with the chain switched by EFX + PAN and the switches
-    # armed 1 s after Main is ready; installed 16 October 2026. Built from the
-    # current sources (so a ZIP download builds it too) and held to its
-    # published hash; pin it to the v0.1.0 tag when these sources change.
-    release=dict(experiment=38,out=ROOT/D/'38_release',image='release',pads=4,trial=False,minimum=True,
-                 history=True,stereo=True,switch=True,chain_switch=True,version='0.1.0',
+    # armed 1 s after Main is ready; installed 16 October 2026. Pinned to the
+    # v0.1.0 tag; without git history (a ZIP download, a shallow clone) it
+    # builds from the working tree instead, held to the same published hash.
+    release=dict(experiment=38,out=ROOT/D/'38_release',image='release',pin='v0.1.0',tree_fallback=True,pads=4,
+                 trial=False,minimum=True,history=True,stereo=True,switch=True,chain_switch=True,version='0.1.0',
                  sha='99ded4b1fcefa1d968a7317e5df4ee65c670018c4a495cfc1ed903aa5aa70bb0'))
 
 @contextlib.contextmanager
 def trial_elf(m):
-    """The ELF: current sources, or the pinned commit's in a temporary tree."""
-    if 'pin' not in m:yield build(trial=m.get('trial',True),stereo=m.get('stereo',False),diag=m.get('diag',False));return
-    archive=subprocess.run(['git','archive',m['pin'],*PINNED_SOURCES],cwd=ROOT,capture_output=True,check=True).stdout
+    """The ELF: current sources, or the pinned commit's in a temporary tree.
+    A mode with tree_fallback builds the working tree when the pin cannot be
+    read (no git history); its hash check then decides."""
+    def current():return build(trial=m.get('trial',True),stereo=m.get('stereo',False),diag=m.get('diag',False))
+    if 'pin' not in m:yield current();return
+    try:archive=subprocess.run(['git','archive',m['pin'],*PINNED_SOURCES],cwd=ROOT,capture_output=True,check=True).stdout
+    except (OSError,subprocess.CalledProcessError):
+        if not m.get('tree_fallback'):raise
+        print(f"note: {m['pin']} not available (no git history or tags); building the working tree, "
+              'which must reproduce the published hash (otherwise fetch the tags: git fetch --tags)',file=sys.stderr)
+        yield current();return
     with tempfile.TemporaryDirectory(prefix='l6-pinned-') as tree:
         tarfile.open(fileobj=io.BytesIO(archive)).extractall(tree,filter='data')
         yield build(trial=m.get('trial',True),root=Path(tree),stereo=m.get('stereo',False),diag=m.get('diag',False))

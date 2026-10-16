@@ -9,7 +9,7 @@ until you install (see the [README](../README.md#install)).
   Python 3.9 is too old: rebuilding earlier experiments needs 3.12's archive
   extraction). The compiler comes as a Python package (zig 0.13).
 - A **full clone**: `git clone https://github.com/thade/zoom-l6-firmware.git`,
-  then `cd zoom-l6-firmware`.
+  then `cd zoom-l6-firmware`. 0.1.0 builds from the `v0.1.0` tag's sources.
   A ZIP download or `--depth 1` clone builds the release but cannot rebuild the
   earlier experiments the checks compare against.
 
