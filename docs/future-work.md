@@ -30,7 +30,7 @@ hardware result. An emulator result does not complete a hardware item.
       ([experiment 39](../experiments/39-flash-diag/README.md),
       [bootloader findings](research/bootloader_findings.txt)), then
       [experiment 18](../experiments/18-recovery-hang/README.md) passed on
-      the mixer. The README says so; the patcher's guide should too.
+      the mixer. The README and the patcher mockup say so.
 - [ ] 0.2.0: the firmware writes the pad folders' `MASTER.WAV` anchors itself
       (experiment 39), so installing needs only `L6.BIN`; then drop the
       anchor from the installer, the patcher and the guides.
