@@ -1,14 +1,18 @@
-# Release 0.1.0: switch holds that tolerate a misread key
+# Switch holds that tolerate a misread key
 
 [Experiment 35](../35-release/README.md) with the two panel holds (PAN +
 LEVEL for the take chain, AUX 1 + AUX 2 for the stereo AUX) made tolerant of
-a briefly misread key. Everyday build. This is release 0.1.0.
+a briefly misread key. Everyday build.
 
-**Prepared locally; not yet installed.** The mixer runs experiment 35.
+**Installed 16 October 2026.** Long holds toggled once and holds were refused
+while recording, but PAN + LEVEL still often failed; the diagnostic build
+([experiment 37](../37-panel-diag/README.md)) found why, and
+[experiment 38](../38-release/README.md), the 0.1.0 release, moves the chain
+to EFX + PAN.
 Recovery from an image that fails before Main remains unproven
 ([experiment 18](../18-recovery-hang/README.md) is parked).
 
-| | Experiment 35 | 0.1.0 (experiment 36) |
+| | Experiment 35 | Experiment 36 |
 |---|---|---|
 | Patch sites | 15 | 15 |
 | Code | 9,144 bytes | 9,172 bytes |
@@ -53,8 +57,8 @@ instantly on re-press; the measured-from-last-seen version fixes that.
 
 ## Build and checks
 
-- `tools/firmware/build_release.py` writes `release/0.1.0/`;
-  `tools/firmware/verify_release.py` checks it from a fresh clone
+- Rebuilt by `tools/firmware/build_master_trial.py tolerant` (pinned to
+  2a2b910); its checks at the time ran through `tools/firmware/verify_release.py`
   (experiments 26–35 rebuilt; the master-reference groups, including the
   hold detector's misread, re-arm and stall cases, and the stereo groups on
   the release link).

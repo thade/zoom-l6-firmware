@@ -2,9 +2,10 @@ Panel keys, LEDs and a second hold switch (stock L6 v1.10, 16 October 2026)
 ==========================================================================
 
 Research for a panel control that turns the take chain on and off, next to the
-AUX 1 + AUX 2 switch (aux_switch_findings.txt). Static reading of the stock
-image only (capstone); claims that rest on earlier emulation say so. Chosen and
-built: a 1.5 s PAN + LEVEL hold (experiment 35).
+AUX 1 + AUX 2 switch (aux_switch_findings.txt). Sections 1-5: static reading of
+the stock image (capstone). Section 6: hardware. Built first as a PAN + LEVEL
+hold (experiment 35); because the panel often lost PAN while LEVEL was held
+(section 6), 0.1.0 uses EFX + PAN (experiment 38).
 
 1. Key indices of the live key read 0x80008478 (1 pressed, 0 released, 2 none)
 Panel-MCU keys read bit/word pairs from the table 0x800a153c (words
@@ -64,3 +65,21 @@ AUX mode; 0x30f/0x310 now hold the chain mode). Per-pad fields at CONFIG+0xfc0..
 and the pad path structs are rebuilt from L6PADSETTING.ZST and never reach
 internal flash; CONFIG+0x329..0x32c (unique per pad, likely MIDI notes) and
 0x32d+i are in use.
+
+6. Key groups and two-button holds on the mixer (experiments 36-37)
+Each panel key is a bit in one of the panel words (the table 0x800a153c gives
+bank and bit): bank 2 bits 0-7 are HIGH FREQ MID LOW AUX1 AUX2 EFX PAN; bank 1
+bits 0-7 are +48V MUTE1-6 LEVEL; bank 0 bits 1-4 MONO3 MONO4 USB12 USB34;
+bank 3 bits 0-5 SEL COMP SCENE A B C REC; pads, TAP, PLAY and POWER are GPIO.
+The parser 0x800393d0 sets a key's bit on a press message, clears it on a
+release message, and rewrites all words from the panel controller's 0xF0
+state dump; nothing else writes them. A diagnostic build (experiment 37)
+logged every change at 25 ms: in 6 of 10 PAN + LEVEL attempts PAN never
+appeared while LEVEL was held (LEVEL alone for 4-10 s; 4,596 polls with one
+key against 746 with both), while 4 of 4 AUX 1 + AUX 2 attempts registered
+both keys. PAN and LEVEL are bit 7 of two different banks; AUX 1 and AUX 2
+are adjacent bits of one bank. The cause lies in the panel controller (its
+own firmware); same-bank pairs are reliable, so the chain uses EFX + PAN.
+The same build measured Main's first return from a receive at 2.99 s after
+the scheduler started (the worker's first poll at 7 ms, the first gain
+request at 31 ms), so the switches now arm 1 s after Main is ready.

@@ -9,7 +9,7 @@ not included: you download it from Zoom and build the image yourself.
 
 ## What it adds
 
-- **Your last four takes on the sound pads (switch on with PAN + LEVEL).**
+- **Your last four takes on the sound pads (switch on with EFX + PAN).**
   With the overdub chain on, after each ordinary recording pad 1 plays the
   take you just made, pad 2 the one before, and so on to pad 4. Play pad 1
   while you record the next take and the new take contains both: an overdub.
@@ -69,11 +69,13 @@ not included: you download it from Zoom and build the image yourself.
 
 ## Using it
 
-**Turning the overdub chain on and off.** Hold **PAN** and **LEVEL** together
+**Turning the overdub chain on and off.** Hold **EFX** and **PAN** together
 for 1.5 seconds. Both lights blink for 2 seconds when the chain turns on and
 light steadily for 2 seconds when it turns off (the hold also selects the
-view of the button you pressed second). It does nothing in the first 10
-seconds after power-on and while recording. The mixer remembers the setting
+view of the button you pressed second). While EFX is held the MUTE lights
+show the effect-send mutes, as on a stock L6, so don't press a MUTE button
+during the hold. It does nothing in the first few seconds after power-on
+(about 4) and while recording. The mixer remembers the setting
 through power cycles. A new install starts with the chain off. While it is
 off, takes do not move onto the pads and the pads keep whatever you assign;
 every take still gets its `HISTORY.TXT`.
@@ -107,7 +109,7 @@ takes it names. See the [history format](docs/history-format.md).
 **Stereo AUX.** Hold AUX 1 + AUX 2 for 1.5 seconds. Both AUX lights blink for
 2 seconds when it switches to stereo, and light steadily for 2 seconds when it
 switches back to mono (the hold also selects the AUX 2 view, as a tap of AUX 2
-would). It does nothing in the first 10 seconds after power-on and while
+would). It does nothing in the first few seconds after power-on and while
 recording. A new install starts in mono. In stereo, each channel's AUX 1 send
 amount and send point set its level in the pair, and its pan places it; the
 AUX 2 knob does nothing until you switch back to mono, where Zoom's two

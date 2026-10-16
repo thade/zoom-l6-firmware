@@ -30,7 +30,7 @@ Built by `tools/firmware/build_release.py` from the stock `L6.BIN`:
 | Recorder (RecPlayCtl) | Stream admission `0x8000b158`; stop cursor setter `0x80006918` (RecStop's call only) | Marks an ordinary take (all seven streams, no pad record target); at RecStop notes the take folder (`0x8060ff80`) and the pad files that played |
 | Main | Pad start `0x80018316` | Notes each pad file started during a take (its saved path) |
 | Main | The five stock receive calls (`0x8002c258`...`0x8002c440`) | Assigns the chain; counts storage changes (card and transfer-mode events); toggles the chain and AUX modes |
-| Worker | Its own loop (every 25 ms) | Waits for the recorder, checks the master, writes `HISTORY.TXT`, polls the PAN + LEVEL and AUX 1 + AUX 2 holds |
+| Worker | Its own loop (every 25 ms) | Waits for the recorder, checks the master, writes `HISTORY.TXT`, polls the EFX + PAN and AUX 1 + AUX 2 holds |
 | Gain requests (any task) | Ramp request `0x80010398`; pan, balance and Editor reset veneers `0x80002ac0`, `0x800028d8`, `0x80002b78`, `0x80002b90` | The stereo AUX filter |
 
 ## Take chain
@@ -94,8 +94,11 @@ Details: [stereo AUX findings](research/stereo_aux_findings.txt),
 ## The panel switches
 
 `panel.c` serves both holds. The worker reads the live key state
-(`0x80008478`): PAN + LEVEL (keys 19, 20) or AUX 1 + AUX 2 (16, 17) held for
-1.5 s posts one event to Main, armed 10 s after power-on. A release ends a
+(`0x80008478`): EFX + PAN (keys 18, 19) or AUX 1 + AUX 2 (16, 17) held for
+1.5 s posts one event to Main, armed 1 s after Main first received an event
+(about 4 s after power-on). All four keys are in one panel key group: PAN +
+LEVEL, across two groups, often lost the second key on the mixer
+(experiment 37). A release ends a
 hold only when seen on three polls running, so a one-off misread neither
 restarts the 1.5 s nor allows a second toggle; a hold restarts if both keys
 went unseen for over 500 ms (a stall may hide a release). Main refuses either while any recording or RecStop runs;

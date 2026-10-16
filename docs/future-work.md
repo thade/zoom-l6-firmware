@@ -14,12 +14,11 @@ hardware result. An emulator result does not complete a hardware item.
       dropping one when the history of the first is still being written.
 - [ ] Measure the hooks' stack use on the stock recorder and Main tasks (only
       the worker's has been measured).
-- [x] The PAN + LEVEL hold felt unreliable at first on the mixer (not
-      reproduced later). Emulation showed a one-poll misread restarts a hold
-      and can toggle twice; experiment 36 ignores releases shorter than three
-      polls and allows one toggle per hold.
-- [ ] Whether the panel controller ever reports a brief release mid-hold is
-      unknown (it runs its own firmware); a diagnostic build could count it.
+- [x] The PAN + LEVEL hold was unreliable on the mixer. Experiment 36 made
+      the holds tolerate a misread poll; the diagnostic build (experiment 37)
+      then showed the panel often never reports PAN while LEVEL is held (they
+      are in different key groups), so experiment 38 uses EFX + PAN, in the
+      same group as the reliable AUX 1 + AUX 2.
 - [ ] Recovery from an image that hangs before startup completes
       ([experiment 18](../experiments/18-recovery-hang/README.md), parked).
 
@@ -33,9 +32,10 @@ take was used as backing ([experiment 25](../experiments/25-take-chain/README.md
 
 ## Normal and overdub modes
 
-Done: hold PAN + LEVEL to turn the chain on or off, remembered through power
+Done: hold EFX + PAN to turn the chain on or off, remembered through power
 cycles, off until first switched on; off leaves the pads as they are
-([experiment 35](../experiments/35-release/README.md)).
+([experiments 35](../experiments/35-release/README.md) and
+[38](../experiments/38-release/README.md)).
 
 - [ ] Optional: separate normal and overdub pad banks, so switching off
       restores the sounds you had before the chain took over (both banks

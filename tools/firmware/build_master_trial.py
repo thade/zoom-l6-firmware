@@ -18,8 +18,9 @@ switch       (32) 30 with the mono/stereo switch (hold AUX 1 + AUX 2 for 1.5 s)
 daily_switch (33) 32 without diagnostics, with the switch review fixes
 review       (34) 33 plus the release review fixes
 chain_switch (35) 34 plus the PAN + LEVEL chain on/off switch
-release      (36) version 0.1.0: 35 with misread-tolerant switch holds (default)
+tolerant     (36) 35 with misread-tolerant switch holds
 panel_diag   (37) diagnostic: 36 with the status query and switch diagnostics
+release      (38) version 0.1.0: 36 with EFX + PAN for the chain, armed ~4 s after power-on (default)
 
 Writes the trial image and the anchor file: a short silent 48 kHz stereo
 32-bit float WAV with the same 512-byte header layout as the extra files the
@@ -71,11 +72,19 @@ MODES=dict(
     # the current sources (so a ZIP download builds it too); once installed it is
     # held to its published hash, and pinned to the v0.1.0 tag when these
     # sources change.
-    # Diagnostic: the release with the status query and the panel switch
-    # diagnostics (key changes, hold events, poll intervals, startup ticks).
-    panel_diag=dict(experiment=37,out=ROOT/D/'37_panel_diag',image='panel_diag',pads=4,minimum=True,history=True,
-                    stereo=True,switch=True,chain_switch=True,diag=True),
-    release=dict(experiment=36,out=ROOT/D/'36_release',image='release',pads=4,trial=False,minimum=True,
+    tolerant=dict(experiment=36,out=ROOT/D/'36_release',image='release',pin='2a2b910',pads=4,trial=False,minimum=True,
+                  history=True,stereo=True,switch=True,chain_switch=True,
+                  sha='c796f4e6bd0f2b5f3d11b2594cdc882a40765af43e3d0b0b41eb4c2f6d08d5af'),
+    # Diagnostic: 36 with the status query and the panel switch diagnostics
+    # (key changes, hold events, poll intervals, startup ticks).
+    panel_diag=dict(experiment=37,out=ROOT/D/'37_panel_diag',image='panel_diag',pin='f975842',pads=4,minimum=True,history=True,
+                    stereo=True,switch=True,chain_switch=True,diag=True,
+                    sha='b4c1c3c7fd99fa64627abdc52d9615be04e9bb3e8c3df5b37af637413d9985ae'),
+    # Release 0.1.0: 36 with the chain switched by EFX + PAN and the switches
+    # armed 1 s after Main is ready. Built from the current sources (so a ZIP
+    # download builds it too); once installed it is held to its published
+    # hash, and pinned to the v0.1.0 tag when these sources change.
+    release=dict(experiment=38,out=ROOT/D/'38_release',image='release',pads=4,trial=False,minimum=True,
                  history=True,stereo=True,switch=True,chain_switch=True,version='0.1.0'))
 
 @contextlib.contextmanager
@@ -85,7 +94,7 @@ def trial_elf(m):
     archive=subprocess.run(['git','archive',m['pin'],*PINNED_SOURCES],cwd=ROOT,capture_output=True,check=True).stdout
     with tempfile.TemporaryDirectory(prefix='l6-pinned-') as tree:
         tarfile.open(fileobj=io.BytesIO(archive)).extractall(tree,filter='data')
-        yield build(trial=m.get('trial',True),root=Path(tree),stereo=m.get('stereo',False))
+        yield build(trial=m.get('trial',True),root=Path(tree),stereo=m.get('stereo',False),diag=m.get('diag',False))
 
 def anchor():
     h=bytearray(512);payload=ANCHOR_FRAMES*8

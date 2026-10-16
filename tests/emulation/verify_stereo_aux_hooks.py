@@ -333,8 +333,12 @@ def switch():
     def poll(t,a1,a2):
         keys[16],keys[17]=a1,a2;p.uc.mem_write(0x801f9050,struct.pack('<I',t));p.run(NAMES['panel_poll'])
     toggles_posted=lambda:[q for q in posts if q[1]==0x4c364158]
-    for t in range(0,9990,50):poll(t,1,1)                         # the first 10 s after power-on: never
+    for t in range(0,9990,50):poll(t,1,1)                         # before Main received an event: never
     assert not toggles_posted()
+    p.uc.mem_write(NAMES['mr_main_ready'],struct.pack('<I',35001))   # Main first received at 35 s
+    for t in range(35000,36001,50):poll(t,1,1)                    # armed only 1 s later
+    assert not toggles_posted()
+    for t in range(36050,36250,50):poll(t,0,0)
     def hold(start,stop,a1=1,a2=1):
         for t in range(start,stop+1,50):poll(t,a1,a2)
     T=40000

@@ -1,7 +1,7 @@
 #ifndef L6_MASTER_REF_H
 #define L6_MASTER_REF_H
 /* The four pads play the last takes' stock masters in place, newest on pad 1.
- * While the chain is on (PAN + LEVEL hold; off until first switched on),
+ * While the chain is on (EFX + PAN hold; off until first switched on),
  * after each ordinary stock take, pad 1 is assigned
  * A:\RECORDER\<take>\MASTER.WAV and each older take moves one pad along; no
  * audio is copied. Each take folder also gets a HISTORY.TXT listing the
@@ -41,7 +41,7 @@ enum {MR_HANDOFF_NONE,MR_HANDOFF_POSTED,MR_HANDOFF_ASSIGNED,MR_HANDOFF_SKIPPED,
       MR_HANDOFF_FAILED,MR_HANDOFF_LOST,MR_HANDOFF_SUPERSEDED};
 #define MR_HANDOFF_EVENT 3u            /* Main category no stock dispatcher handles */
 #define MR_HANDOFF_MAGIC 0x4c364d52u   /* 'L6MR' */
-#define MR_CHAIN_MAGIC 0x4c364348u     /* 'L6CH': toggle the take chain (PAN + LEVEL hold) */
+#define MR_CHAIN_MAGIC 0x4c364348u     /* 'L6CH': toggle the take chain (EFX + PAN hold) */
 #define PANEL_RESTORE_MAGIC 0x4c364152u /* 'L6AR': wake Main to end a switch's LED show */
 
 /* A pad file that played during a take: the saved path when it started;
@@ -86,7 +86,8 @@ int32_t mr_main_receive(uint32_t *packet);
 /* 0 idle, 10 waiting for the recorder to finish. */
 uint32_t mr_worker_step(void);
 void mr_worker_entry(void *);
-/* Panel switches (panel.c). */
+/* Panel switches (panel.c), armed after Main first received an event. */
+extern uint32_t mr_main_ready;
 void panel_poll(void);
 int panel_recording(void);
 void panel_show(uint32_t sel_a,uint32_t sel_b,uint32_t blink);

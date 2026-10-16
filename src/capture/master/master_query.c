@@ -16,11 +16,11 @@ extern uint32_t sa_toggles __attribute__((weak)),sa_refused __attribute__((weak)
  * then pd_counts (2 holds x 9) and pd_ring (32). */
 #define SCHEMA 6u
 #define CHAIN_MODE(i) (*(volatile const uint8_t *)(0x80440dc8u+0x30fu+(i)))
-extern uint32_t mr_chain_toggles,mr_chain_refused,mr_first_receive,sa_first_ramp __attribute__((weak));
+extern uint32_t mr_chain_toggles,mr_chain_refused,mr_main_ready,sa_first_ramp __attribute__((weak));
 extern uint32_t pd_counts[2][9],pd_ring[32],pd_ring_next,pd_max_interval,pd_first_poll,pd_slow_polls;
 #define AUX_WORDS (9u+18u+32u)
 static uint32_t extra(uint32_t i) {
-    uint32_t head[9]={CHAIN_MODE(0)|CHAIN_MODE(1)<<8,mr_chain_toggles,mr_chain_refused,mr_first_receive,
+    uint32_t head[9]={CHAIN_MODE(0)|CHAIN_MODE(1)<<8,mr_chain_toggles,mr_chain_refused,mr_main_ready,
                       &sa_first_ramp?sa_first_ramp:0,pd_first_poll,pd_max_interval,pd_slow_polls,pd_ring_next};
     return i<9u?head[i]:i<27u?pd_counts[(i-9u)/9u][(i-9u)%9u]:pd_ring[i-27u];
 }

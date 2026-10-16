@@ -616,7 +616,7 @@ def main():
     assert r.field('stop_played_overflow')==1 and len(lines)==8+4 and lines[-3]=='TRUNCATED'
     passed('history_size_and_pad_file_count_are_bounded_and_flagged',kept_entries=count)
 
-    # The chain switch (PAN + LEVEL held 1.5 s): off (also a mixer that never
+    # The chain switch (EFX + PAN held 1.5 s): off (also a mixer that never
     # switched) keeps takes off the pads while their histories are still
     # written; refused while recording; the mode bytes are saved with the
     # settings and the PAN and LEVEL LEDs show it; on again, the next take
@@ -629,25 +629,28 @@ def main():
     assert bytes(r.m.uc.mem_read(CHAIN,2))==bytes([0xc3,0x3c]) and word(r.m,N['mr_chain_refused'])==1 and not saves
     r.main_receive(3,MAGIC_CHAIN,0,0)
     assert bytes(r.m.uc.mem_read(CHAIN,2))==bytes(2) and len(saves)==1 and word(r.m,N['mr_chain_toggles'])==1
-    assert [bytes(r.m.uc.mem_read(LED(s),2)) for s in (7,8)]==[bytes([0x10,0])]*2      # steady: off
+    assert [bytes(r.m.uc.mem_read(LED(s),2)) for s in (6,7)]==[bytes([0x10,0])]*2      # EFX, PAN steady: off
     r.card[B]=stock_master(10**6);r.quick_take(take_folder(B),during=[0]);r.settle();r.deliver()
     assert r.field('handoff_state')==H_SKIPPED and r.field('handoff_result')==6 and r.pads()[0]==A
     assert r.history(B)==history_text(entry(A))
     r.main_receive(3,MAGIC_CHAIN,0,0)
     assert bytes(r.m.uc.mem_read(CHAIN,2))==bytes([0xc3,0x3c]) and len(saves)==2
-    assert [bytes(r.m.uc.mem_read(LED(s),2)) for s in (7,8)]==[bytes([0x10,1])]*2      # blinking: on
+    assert [bytes(r.m.uc.mem_read(LED(s),2)) for s in (6,7)]==[bytes([0x10,1])]*2      # EFX, PAN blinking: on
     r.chain_take(C,during=[0]);assert r.pads()[:2]==[C,A] and r.history(C)==history_text(entry(A))
     r=MasterRig();r.m.uc.mem_write(CHAIN,bytes(2))                     # never switched: off
     r.card[A]=stock_master(10**6);r.quick_take(take_folder(A));r.settle();r.deliver()
     assert r.field('handoff_state')==H_SKIPPED and r.field('handoff_result')==6 and r.history(A)==history_text()
     # The worker's hold detector posts the chain toggle once per 1.5 s hold of
-    # PAN + LEVEL (keys 19 and 20), after the first 10 s.
+    # EFX + PAN (keys 18 and 19), armed 1 s after Main first received.
     r=MasterRig();keys={};r.m.hooks[0x80008478]=lambda a:keys.get(a[0],0)
     def poll(ms,pan,level):
-        keys[19],keys[20]=pan,level;put32(r.m,0x801f9050,ms);r.m.invoke(N['panel_poll'],[])
+        keys[18],keys[19]=pan,level;put32(r.m,0x801f9050,ms);r.m.invoke(N['panel_poll'],[])
     chain_posts=lambda:[q for q in r.posts if q[:2]==(3,MAGIC_CHAIN)]
     for ms in range(0,9990,50):poll(ms,1,1)
-    assert not chain_posts()
+    assert not chain_posts()                                           # Main has not received yet
+    put32(r.m,N['mr_main_ready'],15001)
+    for ms in range(15000,16001,50):poll(ms,1,1)
+    assert not chain_posts()                                           # armed 1 s after it did
     for ms in range(20000,21450,50):poll(ms,1,1)
     assert not chain_posts()
     for ms in range(21450,23000,50):poll(ms,1,1)

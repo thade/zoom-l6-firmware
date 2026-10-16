@@ -7,7 +7,7 @@
     four takes) and `HISTORY.TXT`, with the recorder, worker and Main hooks.
   - `stereo_aux.c`, `stereo_aux.h`: the stereo AUX send and the AUX 1 + AUX 2
     mono/stereo switch.
-  - `panel.c`: the PAN + LEVEL and AUX 1 + AUX 2 holds and their LED
+  - `panel.c`: the EFX + PAN and AUX 1 + AUX 2 holds and their LED
     confirmation.
   - `master_hooks.S`: entry adapters for the patched stock sites.
   - `master_query.c`: the read-only status query, in diagnostic (trial)

@@ -1,8 +1,10 @@
 /* Panel switches for stock L6 v1.10: two-button holds polled by the worker,
  * confirmed on two select LEDs for 2 s. AUX 1 + AUX 2 toggles the stereo AUX
- * mode (stereo builds), PAN + LEVEL turns the take chain on or off. Both are
- * view buttons: stock only changes the view for them, and has no long press
- * or combination of its own. See docs/research/panel_keys_findings.txt. */
+ * mode (stereo builds), EFX + PAN turns the take chain on or off. All four
+ * are view buttons in the same panel key group (bits 4-7 of one word): stock
+ * only changes the view for them and has no long press or combination of its
+ * own, and the panel reports such pairs reliably (PAN + LEVEL, across two
+ * groups, often lost the second key). See docs/research/panel_keys_findings.txt. */
 #include <stdint.h>
 #include "../retention.h"
 #include "master_ref.h"
@@ -11,7 +13,7 @@
 #define KEY ((uint32_t (*)(uint32_t))0x80008479u)         /* live key state: 1 pressed */
 #define TICKS (*(volatile uint32_t *)0x801f9050u)        /* 1 ms */
 #define HOLD_TICKS 1500u
-#define ARM_TICKS 10000u      /* no switching in the first 10 s: Main may not be in its normal loop */
+#define ARM_TICKS 1000u       /* switching arms this long after Main first received an event */
 #define GAP_TICKS 500u        /* both keys unseen for longer restarts a hold (a stall may hide a release) */
 #define RELEASE_POLLS 3u      /* a release ends a hold once seen this many polls running (50-75 ms at
                                  25 ms polls, 20-30 ms at 10 ms): a one-off misread does not */
@@ -33,7 +35,7 @@
 /* The holds (constant, with the code) and their state (zeroed globals: the
  * layout carries no initialised data). */
 typedef struct {uint8_t a,b;uint32_t magic;} Pair;
-static const Pair PAIRS[]={{16,17,SA_TOGGLE_MAGIC},{19,20,MR_CHAIN_MAGIC}};   /* AUX1+AUX2, PAN+LEVEL */
+static const Pair PAIRS[]={{16,17,SA_TOGGLE_MAGIC},{18,19,MR_CHAIN_MAGIC}};   /* AUX1+AUX2, EFX+PAN */
 #define HOLDS (sizeof(PAIRS)/sizeof(PAIRS[0]))
 typedef struct {uint32_t held_since,seen,holding,fired,up;} Hold;
 static Hold holds[HOLDS];
@@ -62,9 +64,9 @@ static void pd_poll(uint32_t now) {
     else {uint32_t d=now-pd_last_poll;if(d>pd_max_interval)pd_max_interval=d;if(d>100u)pd_slow_polls++;}
     pd_last_poll=now;
 }
-static void hold_step(Hold *h,const Pair *k,uint32_t now,uint32_t ka,uint32_t kb) {
-    if(now<ARM_TICKS || ka!=1 || kb!=1) {
-        if(h->holding && now>=ARM_TICKS && ++h->up<RELEASE_POLLS)return;
+static void hold_step(Hold *h,const Pair *k,uint32_t now,int ready,uint32_t ka,uint32_t kb) {
+    if(!ready || ka!=1 || kb!=1) {
+        if(h->holding && ready && ++h->up<RELEASE_POLLS)return;
         h->holding=h->fired=h->up=0;return;
     }
     h->up=0;
@@ -87,15 +89,18 @@ static void pd_note(uint32_t i,uint32_t now,uint32_t a,uint32_t b,const Hold *wa
 /* Worker: each hold that lasts HOLD_TICKS posts its event to Main, once per
  * hold; a due show is asked to end. */
 KEEP void panel_poll(void) {
-    uint32_t now=TICKS;
+    uint32_t now=TICKS,main_ready=__atomic_load_n(&mr_main_ready,__ATOMIC_RELAXED);
+    /* Armed ARM_TICKS after Main first received an event (it has started up,
+     * settings loaded); about 4 s after power-on. */
+    int ready=main_ready && now-main_ready>=ARM_TICKS;
     if(due(now) && now-restore_posted>=RETRY_TICKS){restore_posted=now;POST(MR_HANDOFF_EVENT,PANEL_RESTORE_MAGIC,0,0,0);}
 #ifndef PANEL_DIAG
     for(uint32_t i=0;i<HOLDS;i++) {
         Hold *h=&holds[i];const Pair *k=&PAIRS[i];
-        if(now<ARM_TICKS || KEY(k->a)!=1 || KEY(k->b)!=1) {
+        if(!ready || KEY(k->a)!=1 || KEY(k->b)!=1) {
             /* A one-off misread does not end a hold; a real release (and only
              * that) allows the next toggle. */
-            if(h->holding && now>=ARM_TICKS && ++h->up<RELEASE_POLLS)continue;
+            if(h->holding && ready && ++h->up<RELEASE_POLLS)continue;
             h->holding=h->fired=h->up=0;continue;
         }
         h->up=0;
@@ -108,7 +113,7 @@ KEEP void panel_poll(void) {
     for(uint32_t i=0;i<HOLDS;i++) {
         Hold before=holds[i];const Pair *k=&PAIRS[i];
         uint32_t ka=KEY(k->a),kb=KEY(k->b);   /* both read, unlike the release's short circuit */
-        hold_step(&holds[i],k,now,ka,kb);
+        hold_step(&holds[i],k,now,ready,ka,kb);
         pd_note(i,now,ka,kb,&before,&holds[i]);
     }
 #endif

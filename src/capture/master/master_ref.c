@@ -27,8 +27,8 @@
 #define CHAIN_ON_A 0xc3u
 #define CHAIN_ON_B 0x3cu
 #define SAVE ((void (*)(void))0x80006ab9u)   /* request a settings save */
+#define SEL_EFX 6u
 #define SEL_PAN 7u
-#define SEL_LEVEL 8u
 
 typedef int32_t (*Open)(uint32_t*,const uint16_t*,uint32_t,uint32_t);
 #define OPEN ((Open)0x8005ffe9u)
@@ -266,28 +266,24 @@ static void handoff(MasterRef *g,uint32_t serial) {
     handoff_done(g,serial,MR_HANDOFF_ASSIGNED,0);
 }
 
-/* ---- Main: the chain on/off switch (PAN + LEVEL hold, panel.c) ---- */
+/* ---- Main: the chain on/off switch (EFX + PAN hold, panel.c) ---- */
 /* Off: takes stay off the pads (each still gets its history). Refused while
- * any recording runs or finalizes. PAN and LEVEL blink (on) or light steadily
+ * any recording runs or finalizes. EFX and PAN blink (on) or light steadily
  * (off) for 2 s. */
 static void chain_toggle(void) {
     if(panel_recording()){mr_chain_refused++;return;}
     int to_on=!chain_on();
     CHAIN_MODE[0]=to_on?CHAIN_ON_A:0;CHAIN_MODE[1]=to_on?CHAIN_ON_B:0;
     SAVE();
-    panel_show(SEL_PAN,SEL_LEVEL,(uint32_t)to_on);
+    panel_show(SEL_EFX,SEL_PAN,(uint32_t)to_on);
     mr_chain_toggles++;
 }
 
 /* ---- Main: five original receive calls ---- */
-#ifdef PANEL_DIAG
-KEEP uint32_t mr_first_receive;   /* tick when Main first returned from a receive (diagnostic builds) */
-#endif
+KEEP uint32_t mr_main_ready;   /* tick (never 0) when Main first returned from a receive */
 KEEP int32_t mr_main_receive(uint32_t *packet) {
     int32_t result=RECEIVE(packet);
-#ifdef PANEL_DIAG
-    if(!mr_first_receive)mr_first_receive=W(0x801f9050u)|1u;
-#endif
+    if(!mr_main_ready)__atomic_store_n(&mr_main_ready,W(0x801f9050u)|1u,__ATOMIC_RELAXED);
     MasterRef *g=LD(&mr_state);if(!g)return result;
     if(packet[0]==MR_HANDOFF_EVENT && packet[1]==MR_HANDOFF_MAGIC)handoff(g,packet[2]);
     if(packet[0]==MR_HANDOFF_EVENT && packet[1]==MR_CHAIN_MAGIC)chain_toggle();
