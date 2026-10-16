@@ -21,6 +21,7 @@ Read these to understand the release ([architecture](../architecture.md)):
 | [stock_pad_adapter_findings.txt](stock_pad_adapter_findings.txt) | Saved pad paths and the stock assignment |
 | [record_events_findings.txt](record_events_findings.txt), [scheduler_exclusion_findings.txt](scheduler_exclusion_findings.txt) | The recorder's state byte and RecPlayCtl busy word |
 | [firmware_integration_findings.txt](firmware_integration_findings.txt) | The firmware container and update format (written before any image was built) |
+| [bootloader_findings.txt](bootloader_findings.txt) | The bootloader from the flash backup: the PLAY/STOP decision, loading MAIN, the SD update and its marker (toward 0.2.0's recovery test) |
 
 ## Reviews
 

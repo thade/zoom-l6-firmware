@@ -28,8 +28,19 @@ after a normal power-on.
   `L6 System Data` container signature; both appear only in the package header.
 - Zoom's update guide describes retrying an SD update after a failed startup.
 
-This is indirect. A held-button check that depends on the front-panel controller,
-or a bootloader that requires a MAIN handshake, would still defeat recovery.
+This was indirect. The bootloader, read from the experiment 39 flash backup
+([bootloader findings](../../docs/research/bootloader_findings.txt)), now shows
+it directly (16 October 2026, static reading):
+
+- PLAY/STOP is read from an MCU GPIO pin, not the panel controller, before MAIN
+  is copied to RAM; held, the bootloader enters update mode and never runs MAIN.
+- MAIN is started with no check at all, so this image's hang is never seen by
+  the bootloader; there is no handshake.
+- The update checks the package (name, checksum) before erasing, erases the
+  update-complete marker first and writes it last after verifying the rest, so
+  a failed update leaves the mixer in update mode at the next power-on.
+- BOOT is never written by a package with the stock header, which every image
+  we build keeps.
 
 ## Risk
 

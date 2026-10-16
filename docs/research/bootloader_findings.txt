@@ -1,0 +1,131 @@
+Bootloader findings (BOOT region, from the experiment 39 flash backup)
+====================================================================
+
+16 October 2026. Static reading of the bootloader in the mixer's BOOT flash
+region (0x000000-0x065000), taken from the full flash backup of experiment 39
+(Reference/flash-backup/l6-flash-20261016-194251.bin, SHA-256 c5997ccc...).
+The bootloader is Zoom's code and is not in the public update file: it stays
+in the ignored Reference/ folder and is never committed or published. This
+note gives addresses and behaviour only. Nothing here is emulated yet; the
+update was observed on hardware only as Zoom's normal PLAY/STOP update, which
+every installed image so far has used.
+
+Summary for recovery: the SD updater lives entirely in BOOT. It is entered
+when PLAY/STOP is held at power-on, read from an MCU GPIO pin before MAIN is
+copied to RAM, or automatically when the update-complete marker is missing.
+MAIN is never run on that path and is not checked before it is started. So
+an image that hangs or crashes in MAIN (experiment 18) should be recoverable
+with the normal PLAY/STOP update, as long as BOOT is intact. No image we
+build can change BOOT (section 6).
+
+1. Boot image
+The ROM boots it as an unsigned i.MX RT boot image read from the serial NOR
+(over LPSPI, as MAIN's own flash driver also uses command 0x0b):
+- IVT at flash 0x400 (tag D1, version 40): the offset the ROM uses for
+  non-FlexSPI boot devices (serial NOR over LPSPI, SD), not the FlexSPI
+  layout (configuration block at 0, IVT at 0x1000).
+- Boot data: load 0x3bc00 bytes to SDRAM 0x81d8e000; a DCD (1040 bytes)
+  configures the SDRAM first; no CSF, so no HAB signature.
+- Entry 0x81d8f415; vector table 0x81d8f000, initial stack 0x20250000.
+- Trailer at flash 0x64fc0: "(c) 2024 ZOOM CORPORATION. All Rights
+  Reserved.", the image length (0x3bc00) at 0x64ff8 and version "0100" at
+  0x64ffc. MAIN, PANEL and AUDIOGUIDE carry the same kind of trailer.
+- Flash 0x3c000-0x64000 is unused (erased or zero).
+Start-up: FlexRAM bank setup (IOMUXC_GPR 0x400ac038-44), VTOR, SystemInit
+0x81d98291, scatter loading (table 0x81dc9ae0: compressed data to
+0x81e89000, zeroed 0x81e893a0 (+0x151b0c) and 0x2001e000 (+0x1060)), then
+main 0x81dab408. FreeRTOS tasks (created at 0x81d98820): ApTimer 0x81db1199,
+EventPort 0x81db0879, CpuAdc 0x81d93751, Main 0x81db1111 (8 KiB stack),
+DebugConsole 0x81d937f9, DebugSendLog 0x81d93811, Idle 0x81d98681. It is a
+cut-down build of the same codebase as MAIN: the Main task's event loop
+(0x81d96ee8) handles the same storage events, (0,8,0x32) card in, (0,9,0x32)
+card out, 0x33/0x34.
+
+2. The boot decision (0x81d985f0, the first call of the Main task's loop)
+Before it, the Main task's init 0x81d90f08 samples the keys synchronously
+(0x81d940f0) into the active-low key word [0x81f481c0+0x54], with the same
+layout as MAIN's GPIO copy [0x8060e350+0x54] (read by 0x8001fca0): bit 0
+POWER, bit 1 PLAY/STOP, bits 2-5 pads 1-4, bit 6 TAP, bit 10 card detect.
+PLAY/STOP is GPIO port index 2, pin 25 (0x81d97d40 -> 0x81d97730), read
+directly, not through the panel controller.
+  if key(5) == pressed            (0x81d8fb60(5): key table 2,3,4,5,6,1,0 -> bit 1)
+     or marker_invalid()          (0x81d98540)
+      -> update mode 0x81d98470
+  else
+      -> load MAIN and jump        (0x81d8fc28)
+marker_invalid reads flash 0x3f9fc0 (0x30 bytes) and 0x3f9ffc (4 bytes), the
+end of AUDIOGUIDE, and requires "(c) " at 0x3f9fc0, " ZOOM CORPORATION. All
+Rights Reserved." at 0x3f9fc8 and a printable four-character version at
+0x3f9ffc. An update erases this block first and writes it last (section 5),
+so an interrupted update leaves the mixer in update mode at the next
+power-on, with or without PLAY/STOP.
+
+3. Starting MAIN (0x81d8fc28)
+Reads the load length from flash 0x3f9ff8 (AUDIOGUIDE's trailer, package
+offset 0x3951f8; stock 0xb5ae4), copies that many bytes from flash 0x65000 to
+0x80001000 in 0x1fb8-byte reads, switches to MSP, disables and clears every
+NVIC interrupt, stops SysTick, sets VTOR = 0x80001000, cleans and disables
+the caches if enabled, and calls the reset handler [0x80001004]. There is no
+checksum, signature or version check of MAIN. Code beyond runtime
+0x80001000 + length (0x800b6ae4 for 0.1.0, which keeps the stock length) is
+never loaded: an image that needs more must change the length word, which
+the builders currently forbid (everything from package 0x2851f8 on must
+equal stock).
+
+4. Update mode (0x81d98470)
+Mounts the card (0x81d8fe80), shows the updating state (0x81d8fa80(2)), then
+returns an error code if any step fails (the error state is 0x81d8faf0(3)):
+  2  apparently low battery: 0x81d98068 >= 2 (taken to be the power
+     source) with the ADC reading 0x81d944a0 below 0x198; Zoom's guide asks
+     for USB power
+  3, 4  no card, or the card cannot be used (0x81d8ff30, 0x81d8ff20)
+  5  no A:\L6.BIN (parser 0x81d98c60, f_open 0x81da6fa8)
+  6  flags byte at package 0x60 is zero, or the component check failed
+  1  the hardware mask at package 0x64 lacks this unit's bit (0x81d92648)
+  7, 8, 9  erase, write, verify failed (section 5)
+The flags byte selects the work: bit 0 updates the bootloader (0x81d98c00,
+using a BOOT descriptor at package 0x68: name, offset 0x6c, length 0x70, and
+the new BOOT version at component + 0x64ffc), bit 1 the system (0x81d99030).
+Stock v1.10: flags 0x02, mask 0x01, BOOT descriptor offset 0, length 0.
+After the work the marker is checked again: done (0x81d8fa80(3), rapid
+green) or error. The mixer then stays in the bootloader's event loop until
+it is switched off; it does not start MAIN.
+
+5. System update (0x81d99030), component at the MAIN descriptor (package
+0x74: "MAIN", offset 0x100, length 0x395100)
+- Check (0x81d900e8): the 256-byte component header must be named "L6 Main
+  Data" (or "L-6 Main Data"); the additive checksum stored big-endian at
+  header + 0xfc (package 0x1fc) must equal the byte sum of the component
+  data, read in 32 KiB chunks. Nothing is erased before this passes, so a
+  damaged or truncated L6.BIN fails with error 6 and leaves the flash as it
+  was.
+- Erase (0x81d90030): first the last 32 KiB block, 0x3f2000-0x3fa000, which
+  holds the marker, then 0x65000 up to it, in 32 KiB blocks (0x81d908f0).
+- Write (0x81d8ff40): data from package 0x200 to flash 0x65000 onwards, in
+  32 KiB chunks (program 0x81d90da0), all but the last chunk.
+- Verify (0x81d90400): reads back and compares every written chunk with the
+  file, then writes the last chunk (the marker block) and verifies it.
+The region is contiguous MAIN + PANEL + AUDIOGUIDE (0x395000 bytes, ending
+at 0x3fa000). The flash beyond, 0x3fa000-0x400000 (settings and device
+data), and BOOT are not touched.
+
+6. What our images can and cannot change
+The builders (tools/firmware/build_simple_trial.py assemble, used by every
+master/release mode) allow changes only to the checksum and to planned spans
+inside MAIN, and require package 0x2851f8 to the end to equal stock. So the
+header (flags 0x02, empty BOOT descriptor), PANEL, AUDIOGUIDE, the load
+length and the marker are always stock. validate() also asserts the empty
+BOOT descriptor. No image we build can select the bootloader update or
+change the marker.
+
+7. Open points
+- Not yet emulated: the decision, the package check against our images, and
+  the erase/write/verify order with power loss at each step (next step).
+- The bootloader-update path 0x81d98c00 is not read in detail; we never use
+  it.
+- "Recovery(" (UTF-16, used at 0x81da6f0a near the directory code that uses
+  "A:\*") is not yet understood.
+- The LED patterns behind 0x81d8fa80/0x81d8faf0 are inferred from Zoom's
+  guide, not read.
+- MAIN can write flash (settings saves); a MAIN bug that erased BOOT would
+  defeat this recovery. Our code only requests the stock settings save.
