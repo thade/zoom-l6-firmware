@@ -77,7 +77,7 @@ Open work: [future work](future-work.md). The detailed log up to 0.1.0 is in
 | 36 | [Misread-tolerant holds](../experiments/36-release/README.md) | Installed 16 Oct; PAN + LEVEL still unreliable |
 | 37 | [Panel switch diagnostics](../experiments/37-panel-diag/README.md) | Installed 16 Oct; found PAN lost while LEVEL held |
 | 38 | [Release 0.1.0: EFX + PAN](../experiments/38-release/README.md) | Installed 16 Oct; passed |
-| 39 | [Firmware-written anchors, flash backup](../experiments/39-flash-diag/README.md) | Prepared (toward 0.2.0) |
+| 39 | [Firmware-written anchors, flash backup](../experiments/39-flash-diag/README.md) | Passed (toward 0.2.0) |
 
 ## Checks
 

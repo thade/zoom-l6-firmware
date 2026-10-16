@@ -14,7 +14,7 @@ Two steps toward 0.2.0 in one diagnostic build:
 
 Trial build (diagnostic, with the status query); not for everyday use.
 
-**Prepared locally; not yet installed.** The mixer runs 0.1.0 (experiment 38).
+**Passed on the mixer** (16 October 2026, image `48d7eae0…`): see Results.
 
 ## Anchors (part of 0.2.0)
 
@@ -90,3 +90,31 @@ section 4).
    reaches pad 3).
 3. With the mixer idle and untouched (30 s after power-on, 15 s after any
    change), run the flash backup; it must match the known regions.
+
+## Results (16 October 2026, on the mixer)
+
+1. **Start-up check.** About 7 minutes after start-up, status schema 7 showed
+   no folders pending, 5 found, 0 created and 0 failed. Start-up posts one
+   storage change, packet `(0, 8, 0x35)`, the boot mount. It came after the
+   first folder had been checked, so every folder was checked again: 1 + 4.
+2. **Missing anchor.** `PAD3/MASTER.WAV` was moved off the card in File
+   Transfer Mode. Leaving the mode counted as a storage change, and once the
+   card had settled the firmware wrote the anchor back and Main listed it
+   (1 created, 1 listed, 0 failed). No restart was needed, and nothing was
+   checked while the computer had the card. Stock reload on leaving the mode
+   ran first, without the anchor, so pad 3 fell back to its folder's first
+   sound file (as in section 9 of the master reference findings). The next
+   take went to pad 1 and the chain moved pads 1–3, closing up over that
+   sound, so a take was on pad 3 again (chain mask 7). Its history file was
+   written.
+3. **Flash backup.** Both passes of all 4 MiB agreed, with no re-reads. MAIN
+   equals the installed image, and PANEL and AUDIOGUIDE equal Zoom's file.
+   The backup is kept in the ignored `Reference/flash-backup/`
+   (`l6-flash-20261016-194251.bin`, SHA-256 `c5997ccc…`). BOOT has an i.MX
+   image vector table at offset 0x400 (tag `D1`, version `40`), not a FlexSPI
+   configuration block at 0 with the IVT at 0x1000. That layout is worth
+   confirming in the bootloader analysis.
+
+The backup tool's first run stopped at its first reply: the session log
+could not write raw bytes as JSON. Blocks are now logged as hex, and a dry
+run against a fake mixer, including a block re-read, preceded the real run.

@@ -42,6 +42,7 @@ def main():
         assert (d['offset'],d['length'],d['status'],d['token'])==(off,F.CHUNK,0,k) and d['data']==bytes(flash[off:off+F.CHUNK]),hex(off)
         got[hex(off)]=d['data'][:4].hex()
     assert query(F.request(0x1234,7,1))==1 and F.decode(replies[-1])['data']==bytes(flash[0x1234:0x123b])   # odd length
+    row=json.loads(json.dumps(F.logged(replies[-1])));assert bytes.fromhex(row['data'])==bytes(flash[0x1234:0x123b])   # as the session log keeps it
     passed('flash_reads_return_the_flash_bytes_through_the_builds_own_query',reads=len(reads),sample=got)
     # Bad requests and a busy recorder are refused without a read.
     n=len(reads)

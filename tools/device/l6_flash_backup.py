@@ -38,6 +38,9 @@ def decode(packet):
         data+=bytes(b|((top>>k)&1)<<7 for k,b in enumerate(group))
     if status==0 and len(data)!=length:raise ValueError('flash reply length mismatch')
     return dict(kind=8,token=packet[6],offset=offset,length=length,status=status,data=bytes(data))
+def logged(packet):
+    """decode() for the JSON session log: the data as hex."""
+    d=decode(packet);return d and dict(d,data=d['data'].hex())
 
 def read_blocks(offsets,logdir,label):
     """One editor session per batch; returns {offset: bytes}."""
@@ -45,11 +48,11 @@ def read_blocks(offsets,logdir,label):
     for b in range(0,len(offsets),BATCH):
         part=offsets[b:b+BATCH];tokens=iter(i%128 for i in range(len(part)));queue=iter(part)
         rows=sample(Path(logdir)/f'{label}-{b:06d}.jsonl',query_builder=lambda k,t:request(next(queue),CHUNK,t),
-                    reply_decoder=decode,kinds=(8,)*len(part),reply_matcher=lambda d,k,t:d['token']==t,
+                    reply_decoder=logged,kinds=(8,)*len(part),reply_matcher=lambda d,k,t:d['token']==t,
                     token_builder=lambda k:next(tokens))
         for off,row in zip(part,rows):
             if row['offset']!=off or row['status']:raise SystemExit(f'block {off:#x}: status {row["status"]} (2 = refused: keep the mixer idle)')
-            out[off]=row['data']
+            out[off]=bytes.fromhex(row['data'])
         print(f'{label}: {min(b+BATCH,len(offsets))}/{len(offsets)} blocks',file=sys.stderr)
     return out
 
