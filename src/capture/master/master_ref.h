@@ -16,9 +16,10 @@
  * Four participants, each owning distinct fields:
  *   recorder  mr_admit/mr_stop in the stock recorder task (take start/stop)
  *   worker    mr_worker_step: waits for the recorder, checks the master,
- *             writes HISTORY.TXT, polls the AUX switch (stereo builds)
+ *             writes HISTORY.TXT, polls the panel holds (panel.c)
  *   Main      mr_main_receive: assigns the chain, counts storage changes,
- *             toggles the AUX mode; mr_play notes pad files played in a take
+ *             toggles the chain and AUX modes and ends their LED show;
+ *             mr_play notes pad files played in a take
  *   query     read-only status (trial builds only) */
 #include <stdint.h>
 

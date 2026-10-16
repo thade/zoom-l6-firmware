@@ -149,3 +149,6 @@ ordinary-take flag alone missed pad recordings and playback. HISTORY.TXT
 version 2 lists the played pad files first and then each played take's own
 history, newest first, at most 100 entries (OMITTED marks the rest);
 version 1 files are read too (docs/history-format.md).
+From experiment 35 the chain runs only when switched on (CONFIG+0x30f/0x310 =
+C3 3C; the EFX + PAN hold from experiment 38); off, Main's handoff skips the
+take (result 6) and its history is still written.

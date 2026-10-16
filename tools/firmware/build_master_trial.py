@@ -3,8 +3,9 @@
 earlier experiment, byte for byte. No device access.
 
 Every mode must reproduce its image's hash exactly; all but `release` are
-pinned to the commit their image was built from (24-26, 28-30, 32 and 33 were
-installed; 27 and 31 were prepared and superseded before installation).
+pinned to the commit their image was built from (24-26, 28-30 and 32-38 were
+installed, 37 being a diagnostic build; 27 and 31 were prepared and
+superseded before installation).
 
 reference    (24) pad 1 plays the last take's master
 chain        (25) pads 1-4 play the last four takes, newest on pad 1
@@ -150,7 +151,8 @@ def trial(mode='reference'):
             (['First hardware run of the review fixes: refusal during pad recordings, the LED show ending from Main, stock mono without the worker',
               'Keeps the mode stored by experiment 32 (stereo when last switched to stereo)'] if mode=='daily_switch' else [])+
             (['History newest first, at most 100 lines (OMITTED), version 2; file calls also wait during pad recordings and playback'] if m['experiment']>=34 else [])+
-            (['First hardware run of the PAN + LEVEL chain on/off switch and its persistence'] if m.get('chain_switch') else [])+
+            (['First hardware run of the chain on/off switch (PAN + LEVEL) and its persistence'] if mode=='chain_switch' else [])+
+            (['The chain switch moved to EFX + PAN (one panel key group); the switches arm 1 s after Main is ready'] if m['experiment']>=38 else [])+
             (['First hardware run of the stereo AUX pair: jack order, separation, level, delay and the per-bus limiters are unmeasured',
               'Startup restore relies on the stock bulk recompute after the direct unity reset'] if mode=='stereo' else [])+
             (['First hardware run of the pad-start hook (0x80018316) and of writing HISTORY.TXT into take folders'] if mode=='history' else [])+

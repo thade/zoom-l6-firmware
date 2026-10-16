@@ -1,6 +1,6 @@
 /* Source-reuse layout: the stock scatter loader expands the compressed DSP
  * bytes first, then copies added code and zeroed globals over the consumed
- * span. Used by the installed builds (experiments 16-33, the master-reference
+ * span. Used by the installed builds (experiments 16-38, the master-reference
  * release included) and by offline fixtures; the planner proves no overlap
  * with the loader or unread code input. ENTRY is overridden by each build's
  * -e option. */

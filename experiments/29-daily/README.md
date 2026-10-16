@@ -6,8 +6,8 @@ normal use: no status query, so no hook on the Editor's MIDI parser, and no
 worker stack measurement. Behaviour is otherwise identical.
 
 **Installed 14 October 2026; passed.** Superseded by
-[experiment 33](../33-daily-switch/README.md) and the 0.1.0 release
-([experiment 34](../34-release/README.md)).
+[experiment 33](../33-daily-switch/README.md) and later builds (0.1.0 is
+[experiment 38](../38-release/README.md)).
 
 ## Results
 

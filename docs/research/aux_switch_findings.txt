@@ -4,7 +4,8 @@ AUX mono/stereo switch: options (stock L6 v1.10, 15 October 2026)
 Research for switching the stereo AUX pair (experiments 30-31) back to two
 independent mono sends and back. Static reading plus emulation of original
 instructions; nothing here is hardware evidence. Chosen and built
-(experiment 32, passed on the mixer; release fixes in 33-34): the spare
+(experiment 32, passed on the mixer; release fixes in 33-34; holds hardened
+in 36 and armed after Main's first receive in 38): the spare
 settings bytes (section 2) and a runtime AUX1+AUX2 hold (section 4), polled
 by the worker every 25 ms and toggled on Main.
 

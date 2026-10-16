@@ -22,7 +22,7 @@ END 4
   - `RECORDER/<take>`: a recording folder (its `MASTER.WAV` and track files);
   - `SOUND <path>`: a pad sound that is not a take, as it was assigned.
 - `OMITTED` (optional): older entries were left out to keep the list at 100
-  lines. Nothing is lost: each listed take's own `HISTORY.TXT` lists what it
+  entries. Nothing is lost: each listed take's own `HISTORY.TXT` lists what it
   included.
 - `TRUNCATED` (optional): the list is incomplete. A played take's history was
   missing because it could not be read or written, a pad was started while its
@@ -46,7 +46,8 @@ layer, the list reads back through the layers in order.
 
 Version 1 files list each played take's history before the take itself
 (oldest first) and have no limit or `OMITTED` line. The firmware reads both
-versions when it builds a new history.
+versions when it builds a new history; lines inherited from a version 1 file
+keep their own (oldest-first) order inside the new file.
 
 ## Collecting everything behind a take
 

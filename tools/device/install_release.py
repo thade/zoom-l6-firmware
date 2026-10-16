@@ -11,10 +11,13 @@ PLAY/STOP while pressing POWER until the power indicator lights.
   install_release.py --card /Volumes/X   when the card is not found by itself
 
 What it does, checking each step:
-- checks the image (and anchor) against SHA256SUMS, or the stock hash;
+- checks the image (and anchor) against SHA256SUMS and the release's
+  published image hash (its manifest), or the stock hash;
 - checks the card looks like an L6 card (SOUND_PAD/PAD1..PAD4);
 - backs up an existing L6.BIN and ZOOM_L6.SYS from the card (never modified);
-- writes L6.BIN through a temporary file, flushed, then renamed, then read back;
+- writes L6.BIN through a temporary file, flushed to the card (F_FULLFSYNC on
+  macOS), then renamed, then read back (the read may come from the
+  computer's cache: eject properly, e.g. with --eject);
 - release only: puts the anchor MASTER.WAV in each pad folder that lacks one
   (an existing different MASTER.WAV stops it: rename that file first);
 - removes macOS ._ metadata files next to the files it wrote;
@@ -22,7 +25,7 @@ What it does, checking each step:
 Pad sounds, recordings and settings are not touched. Stock firmware ignores
 the anchors and the take histories, so they can stay on the card.
 """
-import argparse,hashlib,json,os,shutil,subprocess,sys,time
+import argparse,fcntl,hashlib,json,os,shutil,subprocess,sys,time
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 STOCK=ROOT/'Reference/L6_v1.10_E/L6.BIN'
@@ -48,6 +51,20 @@ def release_files(folder):
     if set(files)!={'L6.BIN','MASTER.WAV'}:fail(f'unexpected files in {sums}')
     return files
 
+def published(folder,image):
+    """A release image must be the one its version publishes (the manifest's
+    expected hash, from the builder), not just match its own SHA256SUMS."""
+    try:expected=json.loads((folder/'manifest.json').read_text()).get('expected_sha256')
+    except (OSError,ValueError):expected=None
+    if not expected:fail(f'{folder} has no published image hash (an unpinned build): add --any-image to install it anyway')
+    if digest(image)!=expected:fail(f'{folder}/L6.BIN is not the published image {expected}: rebuild with build_release.py')
+
+def flush(f):
+    f.flush();os.fsync(f.fileno())
+    if hasattr(fcntl,'F_FULLFSYNC'):
+        try:fcntl.fcntl(f.fileno(),fcntl.F_FULLFSYNC)   # macOS: also flush the device's cache
+        except OSError:pass
+
 def new_folder(base):
     """A backup folder no earlier run used."""
     for n in range(1000):
@@ -58,8 +75,10 @@ def new_folder(base):
 def write_checked(path,data,exclusive=False):
     """Write through a temporary name, flush to the card, rename, read back."""
     tmp=path.with_name('.'+path.name+'.tmp')
+    if tmp.exists():
+        print(f'Removing {tmp}, left by an interrupted install',file=sys.stderr);tmp.unlink()
     with open(tmp,'xb') as f:
-        f.write(data);f.flush();os.fsync(f.fileno())
+        f.write(data);flush(f)
     if exclusive and path.exists():tmp.unlink();fail(f'{path} appeared while writing')
     os.replace(tmp,path)
     if path.read_bytes()!=data:fail(f'{path} reads back differently: do not update; check the card')
@@ -73,6 +92,7 @@ def main():
     a.add_argument('--stock',action='store_true',help="install Zoom's v1.10 L6.BIN instead")
     a.add_argument('--backup',type=Path,default=ROOT/'release/backups',help='where card files are backed up')
     a.add_argument('--eject',action='store_true',help='eject the card afterwards (macOS)')
+    a.add_argument('--any-image',action='store_true',help='install a folder without a published hash (experiment builds)')
     args=a.parse_args()
     if args.stock:
         image=STOCK.read_bytes() if STOCK.exists() else fail(f'{STOCK} is missing (docs/setup.md)')
@@ -83,6 +103,7 @@ def main():
                                    key=lambda p:tuple(int(x) for x in p.name.split('.')))
         if not folder:fail('no release built: run tools/firmware/build_release.py first')
         files=release_files(folder);image,anchor=files['L6.BIN'],files['MASTER.WAV'];label=f'release {folder.name}'
+        if not args.any_image:published(folder,image)
     card=args.card or find_card()
     if not all((card/'SOUND_PAD'/p).is_dir() for p in PADS):fail(f'{card} has no SOUND_PAD/PAD1..PAD4: not an L6 card')
     if anchor:

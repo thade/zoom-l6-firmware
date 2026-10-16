@@ -2,7 +2,7 @@
 
 [Experiment 36](../36-release/README.md) with two changes found by the
 diagnostic build ([experiment 37](../37-panel-diag/README.md)). Everyday
-build. This is release 0.1.0.
+build.
 
 **Installed 16 October 2026; passed. This is release 0.1.0.** Recovery from
 an image that fails before Main remains unproven
@@ -14,7 +14,9 @@ Installed over experiment 37 with `tools/device/install_release.py` (image
 read back identical; the previous image and settings file backed up). The
 user held EFX + PAN about ten times after power-on, including quick and
 uneven presses: **every hold worked** (experiment 37 had 6 of about 10 PAN +
-LEVEL holds fail). Evidence stays in `deployment/38_release/`.
+LEVEL holds fail). Not reported on this image: AUX 1 + AUX 2, a hold while
+recording, a take reaching pad 1 (unchanged since experiments 35–36).
+Evidence stays in `deployment/38_release/`.
 
 | | Experiment 36 | 0.1.0 (experiment 38) |
 |---|---|---|

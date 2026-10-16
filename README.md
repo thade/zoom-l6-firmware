@@ -35,8 +35,9 @@ not included: you download it from Zoom and build the image yourself.
   firmware without permission. Building and installing this is your decision
   and your responsibility. The MIT licence below covers this project's code
   only and comes with no warranty.
-- Version 0.1.0 has been used daily on one mixer. Some cases are tested only
-  in emulation (see [Known limitations](#known-limitations)).
+- Its features have been used daily on one mixer since 12 October 2026; the
+  0.1.0 image itself was installed and checked on 16 October. Some cases are
+  tested only in emulation (see [Known limitations](#known-limitations)).
 
 ## Requirements
 
@@ -55,7 +56,8 @@ not included: you download it from Zoom and build the image yourself.
    ```sh
    python tools/device/install_release.py --eject
    ```
-   (On Linux, or with several cards mounted, add `--card <card folder>`.)
+   (On Linux, or with several cards mounted, add `--card <card folder>`;
+   `--eject` is macOS only, so eject the card yourself elsewhere.)
    It checks the files, backs up the card's existing `L6.BIN` and settings
    file, copies `L6.BIN` to the card root, and puts the anchor `MASTER.WAV`
    (0.1 s of silence) into each `SOUND_PAD/PAD1`–`PAD4` folder. Without the
@@ -74,8 +76,8 @@ for 1.5 seconds. Both lights blink for 2 seconds when the chain turns on and
 light steadily for 2 seconds when it turns off (the hold also selects the
 view of the button you pressed second). While EFX is held the MUTE lights
 show the effect-send mutes, as on a stock L6, so don't press a MUTE button
-during the hold. It does nothing in the first few seconds after power-on
-(about 4) and while recording. The mixer remembers the setting
+during the hold. It does nothing for about 4 seconds after power-on, or
+while recording. The mixer remembers the setting
 through power cycles. A new install starts with the chain off. While it is
 off, takes do not move onto the pads and the pads keep whatever you assign;
 every take still gets its `HISTORY.TXT`.
@@ -102,19 +104,20 @@ remove that pad's anchor `MASTER.WAV`: the chain stops at the first pad
 without one (without PAD1's it never runs).
 
 **History.** `RECORDER/<take>/HISTORY.TXT` lists the recordings and pad
-sounds the take includes, newest first, at most 100 lines. When older entries
+sounds the take includes, newest first, at most 100 entries. When older entries
 are left out the file says `OMITTED`; they are listed in the histories of the
 takes it names. See the [history format](docs/history-format.md).
 
 **Stereo AUX.** Hold AUX 1 + AUX 2 for 1.5 seconds. Both AUX lights blink for
 2 seconds when it switches to stereo, and light steadily for 2 seconds when it
 switches back to mono (the hold also selects the AUX 2 view, as a tap of AUX 2
-would). It does nothing in the first few seconds after power-on and while
+would). It does nothing for about 4 seconds after power-on, or while
 recording. A new install starts in mono. In stereo, each channel's AUX 1 send
 amount and send point set its level in the pair, and its pan places it; the
 AUX 2 knob does nothing until you switch back to mono, where Zoom's two
-independent sends return unchanged. Pads and internal effects are not sent,
-as on a stock L6.
+independent sends return unchanged. In stereo, AUX 1's send mute mutes the
+pair and AUX 2's does nothing. Pads and internal effects are not sent, as on
+a stock L6.
 
 **Effects loops.** Zoom's sends are post-fader by default, so turning a channel
 down also turns its sends down. To send a channel to an external effect while
@@ -132,12 +135,17 @@ python tools/device/install_release.py --stock --eject
 then update the mixer as above. Your recordings, pad sounds and settings stay.
 The anchor files and `HISTORY.TXT` files can stay too (stock firmware ignores
 them), and pads keep playing the takes last assigned to them. A factory reset
-does not clear the stored AUX mode, but stock firmware ignores it.
+does not clear the stored AUX and chain settings, but stock firmware ignores
+them.
 
 ## Known limitations
 
 - Only 48 kHz stereo takes join the chain; a take long enough to be split into
   two files (about 93 minutes) does not.
+- The stereo send was last measured on the AUX jacks with experiment 32;
+  later builds, 0.1.0 included, checked its switch by the lights only.
+- A take layered over one recorded with experiments 28–33 inherits that
+  take's version 1 history lines in their original (oldest-first) order.
 - Losing power in the moment right after stopping a take, while its history is
   written, is untested.
 - If takes are started and stopped faster than the history files can be

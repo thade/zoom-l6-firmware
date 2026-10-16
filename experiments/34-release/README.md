@@ -4,8 +4,8 @@
 release review. Everyday build: no status query and no stack measurement.
 
 **Installed 16 October 2026; passed.** Superseded by
-[experiment 35](../35-release/README.md), the 0.1.0 release, which adds an
-on/off switch for the take chain. Recovery from
+[experiment 35](../35-release/README.md), which adds an on/off switch for the
+take chain (0.1.0 is [experiment 38](../38-release/README.md)). Recovery from
 an image that fails before Main remains unproven
 ([experiment 18](../18-recovery-hang/README.md) is parked).
 

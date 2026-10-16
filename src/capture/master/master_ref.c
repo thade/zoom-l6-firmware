@@ -180,7 +180,7 @@ KEEP void mr_stop(uint32_t selected,uint32_t caller) {
 
 static int chain_on(void) {return CHAIN_MODE[0]==CHAIN_ON_A && CHAIN_MODE[1]==CHAIN_ON_B;}
 
-/* ---- Main: assign pad 1, as the Editor's select does ---- */
+/* ---- Main: assign the chain, as the Editor's select does ---- */
 /* Final states are written only from POSTED and only for the posted serial;
  * a newer POSTED, LOST or SUPERSEDED is never overwritten. The serial is then
  * never handled again. Main does not block between the check and the swap. */
@@ -614,7 +614,7 @@ static void history_done(MasterRef *g,uint32_t status) {
 KEEP uint32_t mr_worker_step(void) {
     MasterRef *g=LD(&mr_state);if(!g)return 0;
     g->polls++;
-    panel_poll();   /* the PAN + LEVEL and AUX 1 + AUX 2 holds */
+    panel_poll();   /* the EFX + PAN and AUX 1 + AUX 2 holds */
     uint32_t s=LD(&g->stopped);
     /* A take's history is finished before the next take is taken in. */
     if(s!=g->seen && !g->history_pending) {

@@ -1,7 +1,7 @@
 # Research notes
 
 Working notes from static reading of the stock v1.10 firmware, emulation of
-its original instructions, and hardware results, written 2–15 October 2026.
+its original instructions, and hardware results, written 2–16 October 2026.
 Each note is dated; statements about the "current design" or what is
 "installed" are as of that date. Addresses are stock v1.10.
 

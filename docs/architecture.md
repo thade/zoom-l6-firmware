@@ -1,6 +1,6 @@
 # Architecture (0.1.0)
 
-The release adds about 9.1 KB of code to Zoom's v1.10 firmware and patches 15
+The release adds about 9.2 KB of code (9,236 bytes) to Zoom's v1.10 firmware and patches 15
 stock instruction sites. It records nothing and copies no audio: the pads play
 the stock recorder's own `MASTER.WAV` files in place. The DSP code, the
 recorder, the SD driver and every recording file stay stock. Source:
@@ -10,7 +10,7 @@ recorder, the SD driver and every recording file stay stock. Source:
 
 Built by `tools/firmware/build_release.py` from the stock `L6.BIN`:
 
-- The added code (`0x800a9688`-`0x800ab8fc`) and 44 bytes of zeroed globals
+- The added code (`0x800a9688`-`0x800aba9c`) and 80 bytes of zeroed globals
   (`0x800b0a00`) are packed into the span the stock scatter loader frees after
   expanding the compressed DSP code at boot; the loader itself places them
   ([source-reuse findings](research/capture_source_reuse_findings.txt)).
@@ -79,17 +79,15 @@ do not raise a low-priority holder's priority. Format:
   times the channel's left pan factor and AUX 2 the right one; AUX 2 requests
   are dropped. Pan, balance and Editor resets refresh the pair. In mono every
   request passes through unchanged.
-- **Switch**: the worker reads the AUX 1 and AUX 2 keys (`0x80008478`); a
-  1.5 s hold posts a toggle to Main, which refuses it while any recording or
-  RecStop runs, otherwise flips the bytes, runs the stock bulk recompute
-  (`0x8000c648`, as a scene recall does: every gain again, as 16 ms ramps),
-  requests the stock settings save and sets the two AUX LEDs for 2 s. Main
-  then redraws them from the current view.
+- **Switch**: the AUX 1 + AUX 2 hold (see [the panel switches](#the-panel-switches));
+  on a toggle Main also runs the stock bulk recompute (`0x8000c648`, as a
+  scene recall does: every gain again, as 16 ms ramps).
 
 Details: [stereo AUX findings](research/stereo_aux_findings.txt),
 [AUX switch findings](research/aux_switch_findings.txt), experiments
 [30](../experiments/30-stereo-aux/README.md) and
-[32](../experiments/32-aux-switch/README.md)–[34](../experiments/34-release/README.md).
+[32](../experiments/32-aux-switch/README.md)–[34](../experiments/34-release/README.md) and
+[38](../experiments/38-release/README.md).
 
 ## The panel switches
 
@@ -110,7 +108,7 @@ nothing ([panel keys findings](research/panel_keys_findings.txt)).
 
 - **Chain mode**: `CONFIG+0x30f/0x310`, `C3 3C` = on, anything else (a mixer
   that never switched) off.
-- **AUX mode**: `CONFIG+0x30d/0x30e` (below).
+- **AUX mode**: `CONFIG+0x30d/0x30e` (above).
 
 ## Verification
 

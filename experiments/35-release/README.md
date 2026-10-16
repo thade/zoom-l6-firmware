@@ -5,8 +5,8 @@ chain: hold **PAN** + **LEVEL** for 1.5 s to turn it on or off. Everyday
 build: no status query and no stack measurement.
 
 **Installed 16 October 2026; passed.** Superseded by
-[experiment 36](../36-release/README.md), the 0.1.0 release, which makes the
-holds tolerate a misread key. Recovery from
+[experiment 36](../36-release/README.md), which makes the holds tolerate a
+misread key (0.1.0 is [experiment 38](../38-release/README.md)). Recovery from
 an image that fails before Main remains unproven
 ([experiment 18](../18-recovery-hang/README.md) is parked).
 

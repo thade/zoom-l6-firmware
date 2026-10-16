@@ -5,19 +5,11 @@
 **0.1.0** is the experiment 38 image: the take chain on pads 1–4 with an
 EFX + PAN on/off switch (off until switched on), a `HISTORY.TXT` in every
 take folder, and the stereo AUX send with the AUX 1 + AUX 2 mono/stereo
-switch, on Zoom's v1.10. Its features have run on
-one mixer daily since experiments 24–33 (12–15 October 2026); the release
-review build passed on 16 October
-([experiment 34](../experiments/34-release/README.md)), the chain switch
-passed the same day ([experiment 35](../experiments/35-release/README.md)),
-[experiment 36](../experiments/36-release/README.md) made both holds
-tolerate a misread key, a diagnostic build
-([experiment 37](../experiments/37-panel-diag/README.md)) found PAN + LEVEL
-losing PAN on the panel, and
-[experiment 38](../experiments/38-release/README.md) switches the chain with
-EFX + PAN and arms the switches about 4 s after power-on. Recovery from an image that hangs before startup completes
-remains unproven ([experiment 18](../experiments/18-recovery-hang/README.md)
-is parked).
+switch, on Zoom's v1.10. It was installed and passed on 16 October 2026. Its
+features have run daily on one mixer since 12 October; experiments 34–38
+(table below) took it from the release review build to the EFX + PAN switch.
+Recovery from an image that hangs before startup completes remains unproven
+([experiment 18](../experiments/18-recovery-hang/README.md) is parked).
 
 Open work: [future work](future-work.md). The detailed log up to 0.1.0 is in
 [archive/progress-log.md](archive/progress-log.md).

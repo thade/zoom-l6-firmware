@@ -44,7 +44,7 @@ Reviewed by a separate agent, whose first review found the original
 between-polls gap could let a long real release merge into a hold and toggle
 instantly on re-press; the measured-from-last-seen version fixes that.
 
-| Scenario (25 ms polls) | Experiment 35 | 0.1.0 |
+| Scenario (25 ms polls) | Experiment 35 | Experiment 36 |
 |---|---|---|
 | Clean 2.0 s hold | 1 toggle | 1 toggle |
 | One misread at 1.0 s, released at 2.0 s | none | 1 toggle |

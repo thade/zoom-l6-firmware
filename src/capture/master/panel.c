@@ -64,6 +64,8 @@ static void pd_poll(uint32_t now) {
     else {uint32_t d=now-pd_last_poll;if(d>pd_max_interval)pd_max_interval=d;if(d>100u)pd_slow_polls++;}
     pd_last_poll=now;
 }
+/* Must stay the same logic as the release loop in panel_poll (kept separate so
+ * the release image is unchanged by these diagnostics). */
 static void hold_step(Hold *h,const Pair *k,uint32_t now,int ready,uint32_t ka,uint32_t kb) {
     if(!ready || ka!=1 || kb!=1) {
         if(h->holding && ready && ++h->up<RELEASE_POLLS)return;

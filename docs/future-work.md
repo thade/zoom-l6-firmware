@@ -19,6 +19,12 @@ hardware result. An emulator result does not complete a hardware item.
       then showed the panel often never reports PAN while LEVEL is held (they
       are in different key groups), so experiment 38 uses EFX + PAN, in the
       same group as the reliable AUX 1 + AUX 2.
+- [ ] Small code tidy-ups for the next image (each changes the 0.1.0 image,
+      so none was applied after its hardware check): compare the switch
+      arming signed (a Main store between two reads can look armed for one
+      poll, harmless); keep inherited version 1 history lines newest first;
+      one shared header for stock addresses (`RECORDING`, `POST`, `SAVE`,
+      the tick counter) and `panel_recording` next to `recorder_busy`.
 - [ ] Recovery from an image that hangs before startup completes
       ([experiment 18](../experiments/18-recovery-hang/README.md), parked).
 
