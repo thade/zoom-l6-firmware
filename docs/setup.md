@@ -51,7 +51,7 @@ python tools/firmware/verify_release.py
 ```
 
 This builds the emulator fixtures, builds the release, and runs its offline
-checks (about a minute). It prints the release folder and image hash. The
+checks (a few minutes). It prints the release folder and image hash. The
 image alone:
 
 ```sh

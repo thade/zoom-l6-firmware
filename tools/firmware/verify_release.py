@@ -4,10 +4,12 @@
 Needs only the stock image at Reference/L6_v1.10_E/L6.BIN. Builds the
 emulator fixtures the release suites run on, builds the release image (which
 must reproduce its published hash once pinned), then runs:
-  verify_master_everyday       the exact image: sites, boot, earlier images rebuilt
+  verify_master_everyday       the exact image: sites, boot, earlier images rebuilt,
+                               the patcher recipe
   verify_master_ref_everyday   take chain and history groups on the release link
   verify_stereo_aux_hooks_everyday  stereo AUX and switch groups on the release link
-Takes about a minute.
+  verify_patcher               the browser patcher's JavaScript under Node (skipped without Node)
+Takes a few minutes.
 """
 import json,os,subprocess,sys,time
 from pathlib import Path
@@ -17,7 +19,7 @@ ENV=dict(os.environ,PYTHONPATH=os.pathsep.join(filter(None,[str(ROOT/'tools/firm
 FIXTURES=(['tools/firmware/build_overdub_prototype.py'],['tools/firmware/build_extra_capture.py'],
           ['tools/firmware/build_extra_capture.py','--layout','placement'],
           ['tools/firmware/build_extra_capture.py','--layout','placement','--startup-fixture'])
-SUITES=('verify_master_everyday.py','verify_master_ref_everyday.py','verify_stereo_aux_hooks_everyday.py')
+SUITES=('verify_master_everyday.py','verify_master_ref_everyday.py','verify_stereo_aux_hooks_everyday.py','verify_patcher.py')
 
 def run(args,cwd=ROOT):
     r=subprocess.run([sys.executable,*args],cwd=cwd,env=ENV,text=True,capture_output=True)

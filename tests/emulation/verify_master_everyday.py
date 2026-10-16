@@ -18,6 +18,7 @@ from plan_capture_composed import SIZE_SITE
 from plan_capture_packing import DECOMPRESS,ZERO
 from plan_simple_capture import QUERY_SPEC
 from scatter_codec import expand
+import recipe as recipes
 
 DATA,ANCHOR,MANIFEST,T=trial('release');TP=T['pack'];TN=TP['names'];OUT=MODES['release']['out']
 EXPERIMENT26='268f1a76a4f8c49a4498cf8d9881201effe83484cd19845a6ed38b62e2c6edf9'
@@ -84,6 +85,15 @@ def main():
                         experiment36=EXPERIMENT36,experiment38=EXPERIMENT38))
     boot()
     passed('original_reset_and_scatter_expand_the_image_with_the_stock_DSP_code')
+    # The browser patcher's recipe rebuilds this image from stock (make()
+    # checks it), ships no stock bytes, and the committed copy is current.
+    recipe=recipes.make(IMAGE,DATA,TP,MANIFEST['version'])
+    assert recipes.stock_bytes(IMAGE,recipe)==0 and recipes.rebuild(IMAGE,recipe)==DATA
+    shelf=ROOT/'patcher/recipes';committed=json.loads((shelf/f"{MANIFEST['version']}.json").read_text())
+    assert committed==recipe,'patcher/recipes is stale: run tools/firmware/build_release.py'
+    assert json.loads((shelf/'index.json').read_text())['current']==MANIFEST['version']
+    passed('the_patcher_recipe_rebuilds_the_image_without_stock_bytes',ops=len(recipe['ops']),
+           skeleton_bytes=len(recipes.unb64(recipe['span']['skeleton'])))
     result=dict(passed=True,passed_groups=len(cases),results=cases,trial_sha256=MANIFEST['trial_sha256'])
     (ROOT/'analysis/master_everyday_verification.json').write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps(dict(passed=True,groups=len(cases))))

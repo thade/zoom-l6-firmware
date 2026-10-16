@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>L6 Firmware Patcher</title>
+<meta name="description" content="Make the unofficial overdub/stereo AUX firmware for the Zoom LiveTrak L6 from Zoom's own v1.10 firmware, in your browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #F3F3F1; --surface: #FFFFFF; --sunken: #F7F7F5; --ink: #17191B; --ink-2: #2B2E31; --ink-3: #3D4146;
+  --muted: #5B5F63; --line: #D4D5D2; --line-2: #E2E3E0; --accent: #D9480F; --accent-ink: #B4410A;
+  --warn-bg: #FFF6EF; --warn-line: #F0C8AE; --ok: #1E6B45; --ok-bg: #EAF4EE; --ok-line: #A9CDB7;
+  --bad: #A3271B; --bad-line: #E3B4AE; --chip: #FDE7D9; --chip-line: #F0B48E; --head: #17191B; --head-ink: #F3F3F1;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141618; --surface: #1C1F22; --sunken: #23272B; --ink: #ECEDEA; --ink-2: #DADBD7; --ink-3: #C2C4C0;
+    --muted: #9A9D99; --line: #33383D; --line-2: #2B3034; --accent: #F06A2E; --accent-ink: #F28A57;
+    --warn-bg: #2A1F18; --warn-line: #5C3B26; --ok: #6CC596; --ok-bg: #16261D; --ok-line: #2E5A42;
+    --bad: #F08A7E; --bad-line: #5C2C26; --chip: #3A2A20; --chip-line: #6B4630; --head: #0E0F11; --head-ink: #ECEDEA;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141618; --surface: #1C1F22; --sunken: #23272B; --ink: #ECEDEA; --ink-2: #DADBD7; --ink-3: #C2C4C0;
+  --muted: #9A9D99; --line: #33383D; --line-2: #2B3034; --accent: #F06A2E; --accent-ink: #F28A57;
+  --warn-bg: #2A1F18; --warn-line: #5C3B26; --ok: #6CC596; --ok-bg: #16261D; --ok-line: #2E5A42;
+  --bad: #F08A7E; --bad-line: #5C2C26; --chip: #3A2A20; --chip-line: #6B4630; --head: #0E0F11; --head-ink: #ECEDEA;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 'IBM Plex Sans', system-ui, sans-serif; }
+a { color: var(--accent-ink); }
+code, .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 0.92em; }
+header { background: var(--head); color: var(--head-ink); }
+.bar { max-width: 960px; margin: 0 auto; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; }
+.dot { width: 12px; height: 12px; border-radius: 6px; background: var(--accent); }
+.chip { font-family: 'IBM Plex Mono', monospace; font-size: 13px; border: 1px solid #5B5F63; border-radius: 4px; padding: 1px 8px; font-weight: 400; }
+nav { display: flex; gap: 18px; font-size: 15px; }
+nav a { color: var(--head-ink); }
+main { max-width: 960px; margin: 0 auto; padding: 40px 16px 56px; display: flex; flex-direction: column; gap: 28px; }
+h1 { margin: 0; font-size: clamp(28px, 5vw, 40px); line-height: 1.15; font-weight: 600; letter-spacing: -0.01em; }
+h2 { margin: 0; font-size: 22px; font-weight: 600; }
+h3 { margin: 0; font-size: 17px; font-weight: 600; }
+.lead { margin: 10px 0 0; font-size: 18px; color: var(--ink-3); max-width: 720px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 24px; display: flex; flex-direction: column; gap: 14px; }
+.card p, .card ol, .card ul { margin: 0; }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.steps li { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+.steps .n { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--muted); }
+.steps .t { font-weight: 600; font-size: 15px; }
+.steps li.now { border: 2px solid var(--accent); padding: 11px 13px; }
+.steps li.now .n { color: var(--accent-ink); }
+.steps li.done { background: var(--ok-bg); border-color: var(--ok-line); }
+.steps li.done .n { color: var(--ok); }
+@media (max-width: 640px) { .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 18px; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; text-decoration: none; }
+.primary { background: var(--accent); color: #fff; border: 0; }
+.primary:disabled { opacity: 0.45; cursor: not-allowed; }
+.secondary { background: transparent; color: var(--ink); border: 1px solid var(--ink); font-weight: 500; }
+.warn { background: var(--warn-bg); border-color: var(--warn-line); }
+.warn ul { padding-left: 22px; display: flex; flex-direction: column; gap: 6px; color: var(--ink-2); }
+label.accept { display: flex; align-items: center; gap: 12px; min-height: 44px; font-weight: 500; cursor: pointer; }
+label.accept input { width: 22px; height: 22px; accent-color: var(--accent); }
+.drop { border: 2px dashed var(--muted); border-radius: 12px; background: var(--surface); padding: 40px 16px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.drop.over { border-color: var(--accent); background: var(--warn-bg); }
+.drop.off { opacity: 0.55; }
+.drop p { margin: 0; }
+.small { font-size: 14px; color: var(--muted); }
+.checks { display: flex; flex-direction: column; gap: 12px; }
+.check { display: flex; gap: 12px; align-items: flex-start; }
+.check svg { flex: none; margin-top: 2px; }
+.check .k { font-weight: 600; }
+.check .v { font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: var(--muted); word-break: break-all; }
+.bad { border-color: var(--bad-line); }
+.bad h2 { color: var(--bad); }
+.tree { background: var(--sunken); border: 1px solid var(--line-2); border-radius: 10px; padding: 16px 20px; font-family: 'IBM Plex Mono', monospace; font-size: 15px; display: flex; flex-direction: column; gap: 4px; }
+.tree .in { padding-left: 26px; color: var(--ink-3); }
+.tree .new { background: var(--chip); border: 1px solid var(--chip-line); border-radius: 4px; padding: 1px 8px; color: var(--ink); }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 640px) { .grid2 { grid-template-columns: 1fr; } }
+.tile { background: var(--sunken); border-radius: 10px; padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; }
+ol.list, ul.list { padding-left: 22px; display: flex; flex-direction: column; gap: 8px; }
+footer { border-top: 1px solid var(--line); }
+footer div { max-width: 960px; margin: 0 auto; padding: 18px 16px 30px; font-size: 14px; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <span class="brand"><span class="dot" aria-hidden="true"></span>L6 Overdub/Stereo AUX Firmware <span class="chip" id="version">…</span></span>
+    <nav><a href="#guide">Install guide</a><a href="https://github.com/thade/zoom-l6-firmware">About &amp; source</a></nav>
+  </div>
+</header>
+
+<main>
+  <section>
+    <h1>Make the firmware file for your Zoom L6</h1>
+    <p class="lead">This page turns Zoom's own L6 firmware v1.10 into the unofficial overdub/stereo AUX firmware. It all happens in this browser tab: nothing is uploaded, and the page contains none of Zoom's firmware.</p>
+  </section>
+
+  <ol class="steps" aria-label="Steps">
+    <li id="s1" class="now"><span class="n">STEP 1</span><span class="t">Get Zoom's firmware</span></li>
+    <li id="s2"><span class="n">STEP 2</span><span class="t">Make the file</span></li>
+    <li id="s3"><span class="n">STEP 3</span><span class="t">Copy to the card</span></li>
+    <li id="s4"><span class="n">STEP 4</span><span class="t">Update the mixer</span></li>
+  </ol>
+
+  <section class="card">
+    <h2>1. Download Zoom's L6 firmware, version 1.10</h2>
+    <p>On Zoom's L6 support page, download <strong>L6 Firmware v1.10</strong>. You get <code>L6_v1.10_E.zip</code>; you don't need to unzip it.</p>
+    <p><a class="button secondary" href="https://zoomcorp.com/en/us/digital-mixer-multi-track-recorders/digital-mixer-recorder/livetrak-l6-final/l6-support/" rel="noopener">Open Zoom's L6 support page</a></p>
+    <p class="small">Make sure it's the <strong>LiveTrak L6</strong>, not the L6max: the L6max has its own version 1.10.</p>
+  </section>
+
+  <section class="card warn">
+    <h2>Before you install</h2>
+    <ul>
+      <li>This is unofficial firmware, not made or supported by Zoom. It changes your mixer's firmware.</li>
+      <li>If the mixer ever won't start after an update, you can put Zoom's own firmware back from the card. This has been tested with a deliberately broken firmware.</li>
+      <li>Zoom's terms don't allow changing its firmware without permission. Installing this is your decision and your responsibility.</li>
+    </ul>
+    <label class="accept"><input type="checkbox" id="accept"> I understand and accept these risks</label>
+  </section>
+
+  <section class="card">
+    <h2>2. Make the file</h2>
+    <div class="drop off" id="drop">
+      <p style="font-size:20px;font-weight:600">Drop <span class="mono">L6_v1.10_E.zip</span> here</p>
+      <p class="small">or the <span class="mono">L6.BIN</span> inside it</p>
+      <label class="button primary" id="chooseLabel" aria-disabled="true">Choose the file<input type="file" id="file" accept=".zip,.bin,.BIN" hidden disabled></label>
+      <p class="small" id="dropNote">Tick the box above first. The file stays on your computer.</p>
+    </div>
+    <p class="small" id="status" role="status" aria-live="polite"></p>
+  </section>
+
+  <section class="card" id="done" hidden>
+    <h2>Your firmware file is ready</h2>
+    <div class="checks">
+      <div class="check"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.2" role="img" aria-label="Passed"><circle cx="12" cy="12" r="10"/><path d="m7.5 12.5 3 3 6-6.5"/></svg>
+        <div><div class="k">Zoom L6 firmware v1.10 recognised</div><div class="v" id="stockHash"></div></div></div>
+      <div class="check"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.2" role="img" aria-label="Passed"><circle cx="12" cy="12" r="10"/><path d="m7.5 12.5 3 3 6-6.5"/></svg>
+        <div><div class="k" id="madeLine">Made on this computer</div><div class="v">Nothing was uploaded.</div></div></div>
+      <div class="check"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.2" role="img" aria-label="Passed"><circle cx="12" cy="12" r="10"/><path d="m7.5 12.5 3 3 6-6.5"/></svg>
+        <div><div class="k" id="sameLine">Identical to the published file</div><div class="v" id="imageHash"></div></div></div>
+    </div>
+    <p><a class="button primary" id="download" download="L6.BIN" href="#">Download L6.BIN</a></p>
+    <p class="small">The firmware file, about 3.7 MB. Next: <a href="#guide">copy it to the card and update the mixer</a>.</p>
+  </section>
+
+  <section class="card bad" id="wrong" hidden role="alert">
+    <h2>That isn't Zoom's L6 firmware, version 1.10</h2>
+    <p>Nothing was made: this page only works from the exact L6 v1.10 file.</p>
+    <p class="v mono small" id="wrongDetail"></p>
+    <ul class="list">
+      <li><strong>It's the L6max firmware.</strong> The L6max has its own version 1.10. Download the one for the <strong>LiveTrak L6</strong>.</li>
+      <li><strong>It's a different version</strong>, such as a newer Zoom update. This firmware works only with version 1.10.</li>
+      <li><strong>The download didn't finish.</strong> Download it again and drop the new file.</li>
+    </ul>
+  </section>
+
+  <section class="card bad" id="mismatch" hidden role="alert">
+    <h2>Something went wrong making the file</h2>
+    <p>The file this page made doesn't match the published one, so it isn't offered. Please <a href="https://github.com/thade/zoom-l6-firmware/issues">report it</a> with your browser's name and version.</p>
+    <p class="v mono small" id="mismatchDetail"></p>
+  </section>
+
+  <section class="card" id="guide">
+    <h2>3. Copy the file to the card</h2>
+    <ol class="list">
+      <li>Put the L6's microSD card in your computer with a card reader, or connect the L6 by USB and click <strong>File Transfer Mode</strong> in ZOOM L6 Editor.</li>
+      <li>Copy <code>L6.BIN</code> to the top folder of the card, replacing any <code>L6.BIN</code> already there.</li>
+      <li>Eject the card properly before taking it out (or before leaving File Transfer Mode).</li>
+    </ol>
+    <div class="tree" aria-label="Where the file goes on the card">
+      <div>Your L6 card</div>
+      <div class="in"><span class="new">L6.BIN</span> <span style="font-family:'IBM Plex Sans',sans-serif;font-size:14px;color:var(--accent-ink)">← new</span></div>
+      <div class="in">RECORDER</div>
+      <div class="in">SOUND_PAD</div>
+    </div>
+    <p class="small"><strong>On a Mac:</strong> copying can leave a hidden <code>._L6.BIN</code> next to it. Remove it before ejecting by running <code>dot_clean -m /Volumes/&lt;card name&gt;</code> in Terminal.</p>
+  </section>
+
+  <section class="card">
+    <h2>4. Update the mixer</h2>
+    <ol class="list">
+      <li>Power the L6 from its USB port (batteries may not be enough).</li>
+      <li>With the mixer off, put the card in.</li>
+      <li>Hold <strong>PLAY/STOP</strong> and press <strong>POWER</strong>, holding PLAY/STOP until the power light comes on.</li>
+      <li>The power light blinks green slowly while it updates (about 30 seconds), then quickly when it's done. Don't switch off during the update.</li>
+      <li>Switch the mixer off and on again.</li>
+    </ol>
+    <p class="small">If the power light blinks red quickly, the update failed: switch off, check the card, and try again. If the mixer stays dark afterwards, it isn't broken: see <a href="https://github.com/thade/zoom-l6-firmware#the-mixer-wont-start-after-an-update">If the mixer won't start</a>.</p>
+  </section>
+
+  <section class="card">
+    <h2>First use</h2>
+    <div class="grid2">
+      <div class="tile"><h3>Overdub chain: hold EFX + PAN</h3><span class="small">Hold both for 1.5 seconds. Both lights blink: on. Both light steadily: off. It starts off, and the mixer remembers it.</span></div>
+      <div class="tile"><h3>Stereo AUX: hold AUX 1 + AUX 2</h3><span class="small">Both lights blink: stereo (AUX 1 left, AUX 2 right). Both light steadily: two mono sends, as on a stock L6.</span></div>
+    </div>
+    <p>With the chain on, each take you record moves onto pad 1 a few seconds after you stop, and older takes move along pads 2–4. Press pad 1 during the next take to layer over it. Keep the <strong>MASTER</strong> and <strong>SOUND PAD</strong> knobs at their 0 dB marks and the master compressor off, or every layer gets quieter or compressed again.</p>
+    <p class="small">While the chain is on, the mixer puts a small silent <code>MASTER.WAV</code> in each pad folder; leave those in place. Turn the chain off to keep your own sounds on the pads.</p>
+  </section>
+
+  <section class="card">
+    <h2>Going back to Zoom's firmware</h2>
+    <p>Copy the <code>L6.BIN</code> from Zoom's own zip to the top folder of the card (replacing this one) and update the mixer the same way. Your recordings, pad sounds and settings stay; the <code>MASTER.WAV</code> and history files can stay too.</p>
+  </section>
+</main>
+
+<footer>
+  <div>
+    <span>Independent work, not affiliated with or endorsed by Zoom. Zoom, LiveTrak and L6 are trademarks of Zoom Corporation.</span>
+    <span>This page's code is MIT licensed. It builds only the published file: <span class="mono" id="footHash">…</span></span>
+  </div>
+</footer>
+
+<script type="module">
+import { unzipSync } from 'https://cdn.jsdelivr.net/npm/fflate@0.8.2/esm/browser.js';
+import { build, sha256, PatchError } from './patcher.js';
+
+const $ = (id) => document.getElementById(id);
+const short = (h) => h.slice(0, 8) + '…' + h.slice(-7);
+const params = new URLSearchParams(location.search);
+let recipe = null;
+let url = null;
+
+async function loadRecipe() {
+  const index = await (await fetch('recipes/index.json', { cache: 'no-cache' })).json();
+  const version = index.versions.includes(params.get('version')) ? params.get('version') : index.current;
+  recipe = await (await fetch(`recipes/${version}.json`, { cache: 'no-cache' })).json();
+  $('version').textContent = recipe.version;
+  $('footHash').textContent = short(recipe.image_sha256);
+}
+
+function setStep(n) {
+  for (let i = 1; i <= 4; i++) {
+    const li = $('s' + i);
+    li.classList.toggle('done', i < n);
+    li.classList.toggle('now', i === n);
+    li.querySelector('.n').textContent = 'STEP ' + i + (i < n ? ' · DONE' : '');
+  }
+}
+
+function show(which) {
+  for (const id of ['done', 'wrong', 'mismatch']) $(id).hidden = id !== which;
+}
+
+// The L6.BIN inside Zoom's zip (any folder, any case), or the file itself.
+async function stockFrom(file) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
+    const entries = unzipSync(bytes, { filter: (f) => /(^|\/)l6\.bin$/i.test(f.name) });
+    const names = Object.keys(entries);
+    for (const name of names) if (await sha256(entries[name]) === recipe.stock_sha256) return { bytes: entries[name], label: `${file.name} → ${name}` };
+    return { bytes: names.length ? entries[names[0]] : bytes, label: names.length ? `${file.name} → ${names[0]}` : file.name };
+  }
+  return { bytes, label: file.name };
+}
+
+async function handle(file) {
+  if (!$('accept').checked || !recipe) return;
+  $('status').textContent = 'Making the file…';
+  show(null);
+  try {
+    const { bytes, label } = await stockFrom(file);
+    try {
+      const result = await build(bytes, recipe);
+      if (url) URL.revokeObjectURL(url);
+      url = URL.createObjectURL(new Blob([result.image], { type: 'application/octet-stream' }));
+      $('download').href = url;
+      $('stockHash').textContent = `${label} · ${bytes.length.toLocaleString()} bytes · SHA-256 ${short(result.stockHash)}`;
+      $('madeLine').textContent = `Firmware ${recipe.version} made on this computer`;
+      $('sameLine').textContent = `Identical to the published ${recipe.version} file`;
+      $('imageHash').textContent = 'SHA-256 ' + result.hash;
+      show('done');
+      setStep(3);
+      $('status').textContent = '';
+      $('done').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) {
+      if (!(e instanceof PatchError)) throw e;
+      if (e.kind === 'stock') {
+        $('wrongDetail').textContent = `You dropped: ${label} · ${bytes.length.toLocaleString()} bytes · SHA-256 ${short(e.detail)} (expected ${short(recipe.stock_sha256)})`;
+        show('wrong');
+      } else {
+        $('mismatchDetail').textContent = `${e.kind}: ${e.detail}`;
+        show('mismatch');
+      }
+      $('status').textContent = '';
+    }
+  } catch (e) {
+    $('wrongDetail').textContent = `${file.name}: ${e.message}`;
+    show('wrong');
+    $('status').textContent = '';
+  }
+}
+
+$('accept').addEventListener('change', () => {
+  const on = $('accept').checked;
+  $('file').disabled = !on;
+  $('chooseLabel').setAttribute('aria-disabled', String(!on));
+  $('drop').classList.toggle('off', !on);
+  $('dropNote').textContent = on ? 'The file stays on your computer.' : 'Tick the box above first. The file stays on your computer.';
+  setStep(on ? 2 : 1);
+});
+$('file').addEventListener('change', (e) => { if (e.target.files[0]) handle(e.target.files[0]); });
+const drop = $('drop');
+drop.addEventListener('dragover', (e) => { e.preventDefault(); if ($('accept').checked) drop.classList.add('over'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('over'));
+drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) handle(e.dataTransfer.files[0]); });
+$('download').addEventListener('click', () => setStep(4));
+
+loadRecipe().catch(() => { $('status').textContent = 'Could not load the release recipe. Reload the page to try again.'; });
+</script>
+</body>
+</html>
