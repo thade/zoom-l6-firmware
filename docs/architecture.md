@@ -117,8 +117,9 @@ nothing ([panel keys findings](research/panel_keys_findings.txt)).
 `tools/firmware/verify_release.py` rebuilds the image and runs the release
 suites. They execute the original firmware's instructions in an emulator
 (Unicorn) together with the release code: boot and scatter expansion of the
-exact image, the chain, history and storage-change cases, and the stereo
-filter against the real gain-ramp task. Hardware results are in each
+exact image, the chain, history and storage-change cases, the stereo
+filter against the real gain-ramp task, and the switches driven by panel
+messages through the stock parser with the panel's measured key reporting. Hardware results are in each
 experiment's README.
 
 ## Research behind it

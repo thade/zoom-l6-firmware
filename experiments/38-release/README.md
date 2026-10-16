@@ -44,6 +44,15 @@ or off as last set.
   `tools/firmware/verify_release.py` checks it from a fresh clone
   (experiments 26–37 rebuilt; the hold detector groups now cover the EFX +
   PAN pair and the arming after Main's first receive).
+- Since the hardware run, `verify_stereo_aux_hooks.py` also drives the
+  switches the way the panel does: each key change is a panel message (0x91
+  press, 0x90 release) through the stock parser `0x800393d0` into the key bits
+  the real key read returns, with the panel's measured behaviour (a press at
+  the same bit of another key group is lost while a key is held). Every pair
+  in `panel.c` must be within one key group (a static guard that would have
+  rejected PAN + LEVEL), and both pairs toggle once per hold for either press
+  order and staggers up to 400 ms; the model reproduces experiment 37 (PAN
+  reads up while LEVEL is held).
 
 ## Procedure
 

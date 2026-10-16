@@ -83,3 +83,8 @@ own firmware); same-bank pairs are reliable, so the chain uses EFX + PAN.
 The same build measured Main's first return from a receive at 2.99 s after
 the scheduler started (the worker's first poll at 7 ms, the first gain
 request at 31 ms), so the switches now arm 1 s after Main is ready.
+The emulation now models this: key changes enter as panel messages (0x91
+press, 0x90 release, bank and bit at 0x808c7528+0x4025..0x4027, length words
+at +0x404c/+0x404e) through the stock parser, and the model drops a press at
+the same bit of another bank while a key is held (verify_stereo_aux_hooks.py,
+group 'panel', with a guard that every switch pair stays in one bank).

@@ -7,13 +7,13 @@ task, mixer and retire pass execute; the build's code and the planner's patch
 bytes are placed as the image would place them. Only the ramp request's queue
 send is short-circuited (the target is written at once). No device access.
 """
-import hashlib,json,random,struct
+import hashlib,json,random,re,struct
 from unicorn import UC_HOOK_CODE
 from unicorn.arm_const import (UC_ARM_REG_R0, UC_ARM_REG_R1, UC_ARM_REG_R2, UC_ARM_REG_R4, UC_ARM_REG_R5,
                                UC_ARM_REG_R6, UC_ARM_REG_R7, UC_ARM_REG_R8, UC_ARM_REG_S0, UC_ARM_REG_PC,
                                UC_ARM_REG_SP, UC_ARM_REG_LR)
 from verify_stereo_aux import Rig, B, C, STACK
-from verify_pad_protocol import ROOT,IMAGE
+from verify_pad_protocol import ROOT,IMAGE,BIAS
 from build_master_ref import build
 from plan_master_ref import plan,STEREO_SPECS
 
@@ -405,6 +405,70 @@ def switch():
     return dict(mono_rows='stock bit for bit',hold_ms=1500,arm_ms=10000,show_ms=2000,
                 saved_at='P+0xf25 (flash image)')
 
+# The panel controller as the main firmware sees it: each key press or release
+# arrives as a message (0x91 press, 0x90 release, with the key's group and bit
+# from the stock key table 0x800a153c) that the stock parser 0x800393d0 turns
+# into the key bit the switches read. Measured on the mixer (experiment 37):
+# while a key is held, a press of the key at the same bit in another group is
+# often never reported; the model always loses it (the worst case).
+PANEL=0x808c7528
+KEY_GROUP={k:struct.unpack_from('<II',IMAGE,0x800a153c+8*k-BIAS)[::-1] for k in range(32)}   # key -> (group, bit)
+SOURCE_PAIRS=[tuple(map(int,m)) for m in re.findall(r'\{(\d+),(\d+),[A-Z_]+_MAGIC\}',
+              (ROOT/'src/capture/master/panel.c').read_text())]
+
+class Panel:
+    def __init__(self,p,lossy=True):
+        self.p,self.lossy,self.held,self.lost=p,lossy,set(),set()
+    def message(self,kind,key):
+        group,bit=KEY_GROUP[key]
+        self.p.uc.mem_write(PANEL+0x4025,bytes([kind,group,bit]));self.p.uc.mem_write(PANEL+0x404c,struct.pack('<HH',3,3))
+        self.p.run(0x800393d0)
+    def press(self,key):
+        g,b=KEY_GROUP[key];self.held.add(key)
+        if self.lossy and any(KEY_GROUP[h][1]==b and KEY_GROUP[h][0]!=g for h in self.held-{key}):self.lost.add(key)
+        else:self.message(0x91,key)
+    def release(self,key):
+        self.held.discard(key)
+        if key in self.lost:self.lost.discard(key)
+        else:self.message(0x90,key)
+
+def panel():
+    """Switch pairs survive the panel's measured key reporting."""
+    for a,b in SOURCE_PAIRS:   # static guard: both keys of a pair in one panel key group
+        assert KEY_GROUP[a][0]==KEY_GROUP[b][0] and KEY_GROUP[a][1]!=KEY_GROUP[b][1],(a,b,KEY_GROUP[a],KEY_GROUP[b])
+    assert SOURCE_PAIRS==[(16,17),(18,19)] and KEY_GROUP[19][1]==KEY_GROUP[20][1] and KEY_GROUP[19][0]!=KEY_GROUP[20][0]
+    def holds(pair,order,stagger,lossy=True):
+        """Press the pair (first key, then the second after stagger ms), hold
+        2 s, release; polls every 25 ms through the real key read. Toggles posted."""
+        p=Probe(True);posts=[];stub(p,0x80020ca0,calls=posts);stub(p,0x8001fb80)   # Main events; long-press timer
+        p.uc.mem_write(NAMES['mr_main_ready'],struct.pack('<I',1001))
+        panel=Panel(p,lossy);first,second=pair if order==0 else pair[::-1]
+        magic=0x4c364158 if pair==(16,17) else 0x4c364348
+        def at(ms):p.uc.mem_write(0x801f9050,struct.pack('<I',ms));p.run(NAMES['panel_poll'])
+        for ms in range(5000,5200,25):at(ms)
+        for n in range(3):                       # three holds in a row
+            start=6000+n*4000;panel.press(first)
+            for ms in range(start,start+stagger,25):at(ms)
+            panel.press(second)
+            for ms in range(start+stagger,start+stagger+2000,25):at(ms)
+            panel.release(first);panel.release(second)
+            for ms in range(start+stagger+2000,start+4000,25):at(ms)
+        return [q for q in posts if q[1]==magic]
+    results={}
+    for pair in SOURCE_PAIRS:
+        for order in (0,1):
+            for stagger in (0,150,400):
+                got=len(holds(pair,order,stagger));results[f'{pair}/{order}/{stagger}']=got
+                assert got==3,(pair,order,stagger,got)                 # one toggle per hold, every time
+    # Negative control: the model reproduces experiment 37 through the stock
+    # parser and key read: with LEVEL held, a PAN press never sets PAN.
+    reads={}
+    for lossy in (True,False):
+        p=Probe(True);stub(p,0x80020ca0);stub(p,0x8001fb80);panel=Panel(p,lossy)
+        panel.press(20);panel.press(19);reads[lossy]=(p.run(0x80008478,[19]),p.run(0x80008478,[20]))
+    assert reads=={True:(0,1),False:(1,1)},reads
+    return dict(pairs=[list(x) for x in SOURCE_PAIRS],holds=results,pan_with_level_held_reads=reads[True])
+
 def master_unchanged():
     """The same control sequence leaves the master rows identical to stock."""
     rows=[]
@@ -431,6 +495,7 @@ def main():
     passed('hooks_set_aux1_to_G_times_left_and_aux2_to_G_times_right_on_every_path',**prototype())
     passed('master_rows_are_unchanged_by_the_hooks',**master_unchanged())
     passed('mono_is_stock_and_holding_aux1_aux2_toggles_with_save_and_leds_refused_while_any_recording',**switch())
+    passed('switch_pairs_stay_in_one_panel_key_group_and_survive_the_panels_measured_key_reporting',**panel())
     result=dict(passed=True,groups=len(cases),results=cases,firmware_sha256=hashlib.sha256(IMAGE).hexdigest(),
         elf_sha256=PLAN['elf_sha256'],limitations=[
             'The ramp request queue send is short-circuited; the ramp task is run separately with real slots',
