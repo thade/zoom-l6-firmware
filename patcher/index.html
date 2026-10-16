@@ -101,7 +101,7 @@ footer div { max-width: 960px; margin: 0 auto; padding: 18px 16px 30px; font-siz
 <header>
   <div class="bar">
     <span class="brand"><span class="dot" aria-hidden="true"></span>L6 Overdub/Stereo AUX Firmware <span class="chip" id="version">…</span></span>
-    <nav><a href="#guide">Install guide</a><a href="https://github.com/thade/zoom-l6-firmware">About &amp; source</a></nav>
+    <nav><a href="#guide" id="guideLink">Install guide</a><a href="https://github.com/thade/zoom-l6-firmware">About &amp; source</a></nav>
   </div>
 </header>
 
@@ -156,10 +156,14 @@ footer div { max-width: 960px; margin: 0 auto; padding: 18px 16px 30px; font-siz
       <div class="check"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.2" role="img" aria-label="Passed"><circle cx="12" cy="12" r="10"/><path d="m7.5 12.5 3 3 6-6.5"/></svg>
         <div><div class="k" id="sameLine">Identical to the published file</div><div class="v" id="imageHash"></div></div></div>
     </div>
-    <p><a class="button primary" id="download" download="L6.BIN" href="#">Download L6.BIN</a></p>
-    <p class="small">The firmware file, about 3.7 MB. Next: <a href="#guide">copy it to the card and update the mixer</a>.</p>
+    <div id="downloadBox">
+      <p><a class="button primary" id="download" download="L6.BIN" href="#">Download L6.BIN</a></p>
+      <p class="small">The firmware file, about 3.7 MB. Next: <a href="#guide">copy it to the card and update the mixer</a>.</p>
+      <p class="small" id="sendNo">To send the file straight to the mixer instead, open this page in Chrome or Edge on a computer.</p>
+      <p class="small" id="toSend" hidden><a href="#done" id="toSendLink">Send it straight to the mixer instead</a></p>
+    </div>
     <div class="send" id="send" hidden>
-      <h3>Or send it straight to the mixer</h3>
+      <h3>Send it to the mixer</h3>
       <p class="small">Connect the L6 to this computer by USB, switched on as usual with its card in, and quit ZOOM L6 Editor. Your browser asks to allow MIDI access, then to pick the card.</p>
       <ol>
         <li id="m1"><div class="row"><button class="button primary" id="b1" type="button">Connect to the L6</button><span class="state" id="t1">Step 1 of 4</span></div></li>
@@ -170,8 +174,8 @@ footer div { max-width: 960px; margin: 0 auto; padding: 18px 16px 30px; font-siz
           <div class="row"><button class="button primary" id="b4" type="button" disabled>Leave File Transfer Mode</button><span class="state" id="t4"></span></div></li>
       </ol>
       <p class="small" id="sendNext" hidden><strong>Now update the mixer:</strong> switch it off, then hold PLAY/STOP and press POWER (<a href="#update">step 4</a>).</p>
+      <p class="small"><a href="#guide" id="toCopy">Copy the file to the card myself instead</a></p>
     </div>
-    <p class="small" id="sendNo" hidden>To send the file straight to the mixer instead, open this page in Chrome or Edge on a computer.</p>
   </section>
 
   <section class="card bad" id="wrong" hidden role="alert">
@@ -193,7 +197,6 @@ footer div { max-width: 960px; margin: 0 auto; padding: 18px 16px 30px; font-siz
 
   <section class="card" id="guide">
     <h2>3. Copy the file to the card</h2>
-    <p class="small">Skip this if you sent the file straight to the mixer.</p>
     <ol class="list">
       <li>Put the L6's microSD card in your computer with a card reader, or connect the L6 by USB and click <strong>File Transfer Mode</strong> in ZOOM L6 Editor.</li>
       <li>Copy <code>L6.BIN</code> to the top folder of the card, replacing any <code>L6.BIN</code> already there.</li>
@@ -255,6 +258,20 @@ let recipe = null;
 let url = null;
 let made = null;   // the built image and its hash
 
+// One route at a time: send to the mixer where the browser can, else (or on
+// request) download and copy the file to the card yourself.
+const canSend = supported();
+function route(r) {
+  const send = r === 'send';
+  $('send').hidden = !send || !made;
+  $('downloadBox').hidden = send;
+  $('guide').hidden = send;
+  $('sendNo').hidden = canSend;
+  $('toSend').hidden = !canSend;
+  $('guideLink').href = send ? '#update' : '#guide';
+}
+route(canSend ? 'send' : 'copy');
+
 async function loadRecipe() {
   const index = await (await fetch('recipes/index.json', { cache: 'no-cache' })).json();
   const version = index.versions.includes(params.get('version')) ? params.get('version') : index.current;
@@ -304,8 +321,7 @@ async function handle(file) {
       $('sameLine').textContent = `Identical to the published ${recipe.version} file`;
       $('imageHash').textContent = 'SHA-256 ' + result.hash;
       made = result;
-      $('send').hidden = !supported();
-      $('sendNo').hidden = supported();
+      route(canSend ? 'send' : 'copy');
       show('done');
       setStep(3);
       $('status').textContent = '';
@@ -392,6 +408,8 @@ $('b3').addEventListener('click', () => step(3, async () => {
   stepState(3, `L6.BIN written to “${dir.name}” and checked.`, 'ok');
   $('ejected').disabled = false;
 }));
+$('toCopy').addEventListener('click', () => route('copy'));
+$('toSendLink').addEventListener('click', () => route('send'));
 $('ejected').addEventListener('change', () => { $('b4').disabled = !$('ejected').checked; });
 $('b4').addEventListener('click', () => step(4, async () => {
   stepState(4, 'Leaving File Transfer Mode (up to a minute: the L6 reconnects)…');
