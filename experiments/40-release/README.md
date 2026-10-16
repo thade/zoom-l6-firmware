@@ -47,3 +47,6 @@ Recovery from a firmware that hangs at startup was shown in
    holds work.
 3. With a card whose pad folders have no `MASTER.WAV` (moved aside), restart:
    all four appear, and the next takes fill pads 1–4.
+4. The browser patcher in Chrome: make `L6.BIN` from Zoom's zip, then send it
+   to the mixer (File Transfer Mode, write and read back, eject, leave File
+   Transfer Mode) and update with PLAY/STOP.

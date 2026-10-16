@@ -5,7 +5,17 @@ download, in the browser: no Python, git or compiler, and it works on
 Windows. Nothing is uploaded, and the page contains none of Zoom's firmware.
 
 - `index.html`: the page (get Zoom's file, accept the risks, drop the zip or
-  `L6.BIN`, download the result, then the install guide).
+  `L6.BIN`, download the result or send it to the mixer, then the install
+  guide).
+- `mixer.js`: send to the mixer, in Chrome and Edge on a computer. Over USB
+  MIDI (Web MIDI, SysEx) it puts the L6 into File Transfer Mode with the same
+  fixed messages and timing as
+  [tools/device/l6_transfer_mode.py](../tools/device/l6_transfer_mode.py),
+  writes `L6.BIN` to the card the user picks (File System Access API; it
+  must hold `SOUND_PAD/PAD1`–`PAD4`) and reads it back, and after the user
+  ejects the card leaves File Transfer Mode. The update itself still needs
+  the PLAY/STOP power-on: the bootloader only updates from the card then.
+  Other browsers get the download only.
 - `patcher.js`: the build, a JavaScript copy of `rebuild()` in
   [tools/firmware/recipe.py](../tools/firmware/recipe.py). It refuses any
   input that is not the stock v1.10 `L6.BIN` (SHA-256 `64f1f36b…`) and any
@@ -19,7 +29,9 @@ Windows. Nothing is uploaded, and the page contains none of Zoom's firmware.
 
 Checks: `tests/emulation/verify_master_everyday.py` (the committed recipe is
 current and rebuilds the image) and `tests/emulation/verify_patcher.py`
-(`patcher.js` under Node rebuilds the image and refuses other input). The
+(`patcher.js` under Node rebuilds the image and refuses other input;
+`mixer.js` against a modelled L6 Editor port and card folders). Real Web MIDI
+and folder access are checked by hand in Chrome. The
 page's zip handling uses [fflate](https://github.com/101arrowz/fflate) 0.8.2
 from jsDelivr.
 
