@@ -6,17 +6,24 @@
 // primed session (heartbeats), then a USB re-enumeration with new ports.
 import { Mixer, MixerError, writeFirmware, isL6Card, supported } from '../../patcher/mixer.js';
 import { sha256 } from '../../patcher/patcher.js';
+import { isZip, unzip } from '../../patcher/zip.js';
+import { readFileSync } from 'node:fs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 class Port extends EventTarget {
   constructor(name, l6, kind) { super(); this.name = name; this.manufacturer = 'ZOOM Corporation'; this.state = 'connected'; this.l6 = l6; this.kind = kind; }
-  send(msg) { this.l6.sent.push(Array.from(msg)); if (this.kind === 'editor') setTimeout(() => this.l6.receive(Array.from(msg)), 3); }
+  send(msg) {
+    if (this.l6.busy) throw Object.assign(new Error('port in use'), { name: 'InvalidStateError' });
+    if (this.kind === 'editor') { this.l6.sent.push(Array.from(msg)); setTimeout(() => this.l6.receive(Array.from(msg)), 3); }
+    else this.l6.leaked.push(Array.from(msg));
+  }
 }
 
 class FakeL6 {
-  constructor({ names = ['L6 for L6 Editor Port', 'L6 for L6 Editor Port'], extra = [] } = {}) {
-    this.names = names; this.extra = extra; this.session = 0; this.ftm = 0; this.beats = 0; this.sent = []; this.access = { inputs: new Map(), outputs: new Map() };
+  constructor({ names = ['L6 for L6 Editor Port', 'L6 for L6 Editor Port'], extra = ['L6 Mixer Control Port', 'L6 MIDI I/O Port'], access } = {}) {
+    this.names = names; this.extra = extra; this.session = 0; this.ftm = 0; this.beats = 0; this.sent = []; this.leaked = []; this.busy = false;
+    this.access = access || { inputs: new Map(), outputs: new Map() };
     this.attach();
   }
   attach() {
@@ -28,7 +35,7 @@ class FakeL6 {
       this.access.outputs.set('xo' + id + name, new Port(name, this, 'other'));
     }
   }
-  detach() { for (const m of [this.access.inputs, this.access.outputs]) { for (const p of m.values()) p.state = 'disconnected'; m.clear(); } }
+  detach() { for (const m of [this.access.inputs, this.access.outputs]) for (const [k, p] of m) if (p.l6 === this) { p.state = 'disconnected'; m.delete(k); } }
   reply(msg) { this.input.dispatchEvent(Object.assign(new Event('midimessage'), { data: Uint8Array.from(msg) })); }
   receive(m) {
     const is = (x) => m.length === x.length && x.every((b, i) => m[i] === b);
@@ -76,12 +83,29 @@ const imageHash = await sha256(image);
   out.written = back.hash === imageHash && back.bytes === image.length;
   out.exit = await mixer.exit(); out.after = await mixer.state();
   out.only_fixed = l6.sent.every((m) => [6, 7, 8].includes(m.length) && m[0] === 0xf0 && m.at(-1) === 0xf7);
+  out.other_ports_untouched = l6.leaked.length === 0;
+  out.first_state = mixer.firstState;
+}
+// Two L6s: refused, nothing sent.
+{
+  const a = new FakeL6(); const b = new FakeL6({ access: a.access });
+  try { await Mixer.connect(a.nav()); out.two = 'connected'; } catch (e) { out.two = e instanceof MixerError && e.kind; }
+  out.two_silent = a.sent.length === 0 && b.sent.length === 0;
+}
+// The port held by another program (Windows, the Editor open).
+{ const l6 = new FakeL6(); l6.busy = true; try { await Mixer.connect(l6.nav()); out.busy = 'connected'; } catch (e) { out.busy = e instanceof MixerError && e.kind; } }
+// Zoom's zip read by zip.js (deflated and stored), as the page does.
+for (const [key, path] of [['zip_deflated', process.argv[2]], ['zip_stored', process.argv[3]]]) {
+  if (!path) continue;
+  const bytes = new Uint8Array(readFileSync(path));
+  const entries = await unzip(bytes, (n) => /(^|\/)l6\.bin$/i.test(n));
+  out[key] = isZip(bytes) && Object.keys(entries).length === 1 ? await sha256(Object.values(entries)[0]) : null;
 }
 // Already in transfer mode; already out of it.
 { const l6 = new FakeL6(); l6.ftm = 1; const mixer = await Mixer.connect(l6.nav()); out.enter_again = await mixer.enter(); }
 { const l6 = new FakeL6(); const mixer = await Mixer.connect(l6.nav()); out.exit_when_out = await mixer.exit(); }
 // Windows-style names: the Editor port beside another L6 port.
-{ const l6 = new FakeL6({ names: ['MIDIIN2 (L6)', 'MIDIOUT2 (L6)'], extra: ['L6'] }); const mixer = await Mixer.connect(l6.nav()); out.windows_names = await mixer.state(); }
+{ const l6 = new FakeL6({ names: ['MIDIIN2 (L6)', 'MIDIOUT2 (L6)'], extra: ['L6', 'MIDIIN3 (L6)'] }); const mixer = await Mixer.connect(l6.nav()); out.windows_names = await mixer.state(); out.windows_key = mixer.key; }
 // Refusals: no permission, no L6, a folder that is not an L6 card.
 try { await Mixer.connect({ requestMIDIAccess: async () => { throw new Error('denied'); } }); } catch (e) { out.denied = e instanceof MixerError && e.kind; }
 try { await Mixer.connect({ requestMIDIAccess: async () => ({ inputs: new Map(), outputs: new Map() }) }); } catch (e) { out.absent = e instanceof MixerError && e.kind; }

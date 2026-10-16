@@ -3,23 +3,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; base-uri 'none'; form-action 'none'">
 <title>L6 Firmware Patcher</title>
 <meta name="description" content="Make the unofficial overdub/stereo AUX firmware for the Zoom LiveTrak L6 from Zoom's own v1.10 firmware, in your browser.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Archivo+Narrow:wght@500;600&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #FFFFFF; --ink: #111111; --ink-2: #333333; --muted: #5E5E5E; --faint: #9A9A9A; --numeral: #D0D0D0;
+  --bg: #FFFFFF; --ink: #111111; --ink-2: #333333; --muted: #5E5E5E; --faint: #767676; --numeral: #D0D0D0;
   --rule: #111111; --line: #DDDDDD; --red: #E10600; --red-ink: #C40500; --ok: #1A7F45; --wash: #F6F6F6; --on-red: #FFFFFF;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0E0E0E; --ink: #F2F2F2; --ink-2: #D6D6D6; --muted: #A8A8A8; --faint: #6E6E6E; --numeral: #3A3A3A;
+    --bg: #0E0E0E; --ink: #F2F2F2; --ink-2: #D6D6D6; --muted: #A8A8A8; --faint: #8A8A8A; --numeral: #3A3A3A;
     --rule: #F2F2F2; --line: #2E2E2E; --red: #FF3B2F; --red-ink: #FF6B61; --ok: #4CC47E; --wash: #1A1A1A; --on-red: #0E0E0E;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0E0E0E; --ink: #F2F2F2; --ink-2: #D6D6D6; --muted: #A8A8A8; --faint: #6E6E6E; --numeral: #3A3A3A;
+  --bg: #0E0E0E; --ink: #F2F2F2; --ink-2: #D6D6D6; --muted: #A8A8A8; --faint: #8A8A8A; --numeral: #3A3A3A;
   --rule: #F2F2F2; --line: #2E2E2E; --red: #FF3B2F; --red-ink: #FF6B61; --ok: #4CC47E; --wash: #1A1A1A; --on-red: #0E0E0E;
 }
 * { box-sizing: border-box; }
@@ -54,7 +55,9 @@ p, ol, ul, dl { margin: 0; }
 .outline { border: 2px solid var(--ink); background: transparent; color: var(--ink); }
 .solid { border: 0; background: var(--red); color: var(--on-red); }
 .solid:disabled, .solid[aria-disabled="true"] { background: var(--numeral); color: var(--muted); cursor: not-allowed; }
-.cols3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; list-style: none; padding: 0; }
+.cols3, .cols2 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; list-style: none; padding: 0; }
+.cols2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid var(--red); outline-offset: 2px; }
 label.accept { display: flex; align-items: center; gap: 12px; min-height: 44px; font-weight: 700; cursor: pointer; }
 label.accept input { width: 22px; height: 22px; accent-color: var(--red); flex: none; }
 .drop { border: 2px dashed var(--ink); padding: 40px 20px; display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
@@ -89,7 +92,7 @@ footer .wrap { padding-top: 20px; padding-bottom: 36px; display: grid; grid-temp
 @media (max-width: 760px) {
   .row { display: flex; flex-direction: column; gap: 14px; padding: 32px 0; }
   .num { font-size: 64px; }
-  .cols3, dl.facts, footer .wrap { grid-template-columns: 1fr; }
+  .cols3, .cols2, dl.facts, footer .wrap { grid-template-columns: 1fr; }
   .lead { margin-top: 0; }
 }
 </style>
@@ -137,7 +140,8 @@ footer .wrap { padding-top: 20px; padding-bottom: 36px; display: grid; grid-temp
       <div class="drop off" id="drop">
         <p class="big">Drop <code>L6_v1.10_E.zip</code> here</p>
         <p class="small">or the <code>L6.BIN</code> inside it</p>
-        <label class="button solid" id="chooseLabel" aria-disabled="true">Choose the file<input type="file" id="file" accept=".zip,.bin,.BIN" hidden disabled></label>
+        <button class="button solid" id="choose" type="button" disabled>Choose the file</button>
+        <input type="file" id="file" accept=".zip,.bin,.BIN" hidden>
         <p class="small" id="dropNote">Tick the box above first. The file stays on your computer.</p>
       </div>
       <p class="small" id="status" role="status" aria-live="polite"></p>
@@ -175,11 +179,11 @@ footer .wrap { padding-top: 20px; padding-bottom: 36px; display: grid; grid-temp
       <div id="send" hidden>
         <h2>Send it to the mixer.</h2>
         <p class="small" style="margin: 12px 0 16px">L6 switched on as usual with its card in, connected to this computer by USB; ZOOM L6 Editor closed. Your browser asks to allow MIDI access, then to pick the card.</p>
-        <ol class="tasks">
-          <li id="m1" class="now"><span class="k">a</span><span class="t">Connect to the L6 <button class="button solid" id="b1" type="button">Connect</button></span><span class="state" id="t1"></span></li>
-          <li id="m2" class="wait"><span class="k">b</span><span class="t">Open File Transfer Mode <button class="button solid" id="b2" type="button" disabled>Open</button></span><span class="state" id="t2">The card then appears on this computer as a drive.</span></li>
-          <li id="m3" class="wait"><span class="k">c</span><span class="t">Choose the card and write L6.BIN <button class="button solid" id="b3" type="button" disabled>Choose</button></span><span class="state" id="t3">Pick the card's top folder (it holds RECORDER and SOUND_PAD).</span></li>
-          <li id="m4" class="wait"><span class="k">d</span><span class="t">Eject the card, then leave File Transfer Mode <button class="button solid" id="b4" type="button" disabled>Leave</button></span>
+        <ol class="tasks" aria-live="polite">
+          <li id="m1" class="now"><span class="k">a</span><span class="t">Connect to the L6 <button class="button solid" id="b1" type="button" aria-label="Connect to the L6">Connect</button></span><span class="state" id="t1"></span></li>
+          <li id="m2" class="wait"><span class="k">b</span><span class="t">Open File Transfer Mode <button class="button solid" id="b2" type="button" disabled aria-label="Open File Transfer Mode">Open</button></span><span class="state" id="t2">The card then appears on this computer as a drive.</span></li>
+          <li id="m3" class="wait"><span class="k">c</span><span class="t">Choose the card and write L6.BIN <button class="button solid" id="b3" type="button" disabled aria-label="Choose the card and write L6.BIN">Choose</button></span><span class="state" id="t3">Pick the card's top folder (it holds RECORDER and SOUND_PAD).</span></li>
+          <li id="m4" class="wait"><span class="k">d</span><span class="t">Eject the card, then leave File Transfer Mode <button class="button solid" id="b4" type="button" disabled aria-label="Leave File Transfer Mode">Leave</button></span>
             <span class="extra"><span class="small">In Finder click ⏏ next to the card; on Windows use <em>Safely Remove Hardware</em>.</span>
               <label class="accept" style="min-height: 32px"><input type="checkbox" id="ejected" disabled> I've ejected the card</label></span>
             <span class="state" id="t4"></span></li>
@@ -193,7 +197,7 @@ footer .wrap { padding-top: 20px; padding-bottom: 36px; display: grid; grid-temp
         <h2>Copy the file to the card.</h2>
         <div id="downloadBox" hidden style="margin: 14px 0 4px">
           <p><a class="button solid" id="download" download="L6.BIN" href="#">Download L6.BIN</a></p>
-          <p class="small" style="margin-top: 8px">The firmware file, about 3.7 MB.</p>
+          <p class="small" style="margin-top: 8px">The firmware file: 3,756,544 bytes (about 3.8 MB).</p>
         </div>
         <ol class="list" style="margin-top: 14px">
           <li>Put the L6's microSD card in your computer with a card reader, or connect the L6 by USB and click <strong>File Transfer Mode</strong> in ZOOM L6 Editor.</li>
@@ -206,7 +210,7 @@ footer .wrap { padding-top: 20px; padding-bottom: 36px; display: grid; grid-temp
           <span class="in">RECORDER</span>
           <span class="in">SOUND_PAD</span>
         </div>
-        <p class="small" style="margin-top: 14px"><strong>On a Mac:</strong> copying can leave a hidden <code>._L6.BIN</code> next to it. Remove it before ejecting by running <code>dot_clean -m /Volumes/&lt;card name&gt;</code> in Terminal.</p>
+        <p class="small" style="margin-top: 14px"><strong>On a Mac:</strong> copying can leave a hidden <code>._L6.BIN</code> next to it. Remove it before ejecting by running <code>dot_clean -m /Volumes/&lt;card name&gt;</code> in Terminal (or delete <code>._L6.BIN</code> if you can see it).</p>
         <p class="small" id="sendNo" style="margin-top: 14px">To send the file straight to the mixer instead, open this page in Chrome or Edge on a computer.</p>
         <p id="toSend" hidden style="margin-top: 14px"><a href="#install" id="toSendLink">Send it straight to the mixer instead</a></p>
       </div>
@@ -218,9 +222,9 @@ footer .wrap { padding-top: 20px; padding-bottom: 36px; display: grid; grid-temp
     <div class="body">
       <h2>Update the mixer.</h2>
       <ol class="list measure">
-        <li>Power the L6 from its USB port (batteries may not be enough).</li>
-        <li>With the mixer off, put the card in.</li>
-        <li>Hold <strong>PLAY/STOP</strong> and press <strong>POWER</strong>, holding PLAY/STOP until the power light comes on.</li>
+        <li>Keep the L6 powered from its USB port (batteries may not be enough).</li>
+        <li>Switch the mixer off. If you took the card out, put it back.</li>
+        <li>Hold <strong>PLAY/STOP</strong>, then press and hold <strong>POWER</strong> until the power light comes on; then let go.</li>
         <li>The power light blinks green slowly while it updates (about 30 seconds), then quickly when it's done. Don't switch off during the update.</li>
         <li>Switch the mixer off and on again.</li>
       </ol>
@@ -231,12 +235,13 @@ footer .wrap { padding-top: 20px; padding-bottom: 36px; display: grid; grid-temp
   <section class="row">
     <span class="side label">First use</span>
     <div class="body">
-      <ul class="cols3" style="grid-template-columns: repeat(2, minmax(0, 1fr))">
+      <ul class="cols2">
         <li><strong>Overdub chain: hold EFX + PAN</strong> for 1.5 seconds. Both lights blink: on. Both light steadily: off. It starts off, and the mixer remembers it.</li>
-        <li><strong>Stereo AUX: hold AUX 1 + AUX 2.</strong> Both lights blink: stereo (AUX 1 left, AUX 2 right). Both light steadily: two mono sends, as on a stock L6.</li>
+        <li><strong>Stereo AUX: hold AUX 1 + AUX 2</strong> for 1.5 seconds. Both lights blink: stereo (AUX 1 left, AUX 2 right). Both light steadily: two mono sends, as on a stock L6.</li>
       </ul>
       <p class="measure">With the chain on, each take you record moves onto pad 1 a few seconds after you stop, and older takes move along pads 2–4. Press pad 1 during the next take to layer over it. Keep the <strong>MASTER</strong> and <strong>SOUND PAD</strong> knobs at their 0 dB marks and the master compressor off, or every layer gets quieter or compressed again.</p>
       <p class="small measure">While the chain is on, the mixer puts a small silent <code>MASTER.WAV</code> in each pad folder; leave those in place. Turn the chain off to keep your own sounds on the pads.</p>
+      <p class="small measure">More in the <a href="https://github.com/thade/zoom-l6-firmware#using-it">full guide</a>.</p>
     </div>
   </section>
 
@@ -255,184 +260,6 @@ footer .wrap { padding-top: 20px; padding-bottom: 36px; display: grid; grid-temp
   </div>
 </footer>
 
-<script type="module">
-import { unzipSync } from 'https://cdn.jsdelivr.net/npm/fflate@0.8.2/esm/browser.js';
-import { build, sha256, PatchError } from './patcher.js';
-import { Mixer, MixerError, supported, writeFirmware } from './mixer.js';
-
-const $ = (id) => document.getElementById(id);
-const short = (h) => h.slice(0, 8) + '…' + h.slice(-7);
-const params = new URLSearchParams(location.search);
-let recipe = null;
-let url = null;
-let made = null;   // the built image and its hash
-
-// Section 3 shows one route: send to the mixer where the browser can, else
-// (or on request) download and copy the file to the card yourself.
-const canSend = supported();
-let current = canSend ? 'send' : 'copy';
-function route(r) {
-  current = r;
-  const send = r === 'send';
-  $('send').hidden = !send || !made;
-  $('sendWait').hidden = !send || Boolean(made);
-  $('guide').hidden = send;
-  $('downloadBox').hidden = !made;
-  $('sendNo').hidden = canSend;
-  $('toSend').hidden = !canSend;
-}
-route(current);
-
-async function loadRecipe() {
-  const index = await (await fetch('recipes/index.json', { cache: 'no-cache' })).json();
-  const version = index.versions.includes(params.get('version')) ? params.get('version') : index.current;
-  recipe = await (await fetch(`recipes/${version}.json`, { cache: 'no-cache' })).json();
-  $('version').textContent = recipe.version;
-  $('footHash').textContent = short(recipe.image_sha256);
-}
-
-// The current step's numeral is red.
-function setStep(n) {
-  for (let i = 1; i <= 4; i++) $('n' + i).classList.toggle('now', i === n);
-}
-
-function show(which) {
-  for (const id of ['done', 'wrong', 'mismatch']) $(id).hidden = id !== which;
-}
-
-// The L6.BIN inside Zoom's zip (any folder, any case), or the file itself.
-async function stockFrom(file) {
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
-    const entries = unzipSync(bytes, { filter: (f) => /(^|\/)l6\.bin$/i.test(f.name) });
-    const names = Object.keys(entries);
-    for (const name of names) if (await sha256(entries[name]) === recipe.stock_sha256) return { bytes: entries[name], label: `${file.name} → ${name}` };
-    return { bytes: names.length ? entries[names[0]] : bytes, label: names.length ? `${file.name} → ${names[0]}` : file.name };
-  }
-  return { bytes, label: file.name };
-}
-
-async function handle(file) {
-  if (!$('accept').checked || !recipe) return;
-  $('status').textContent = 'Making the file…';
-  show(null);
-  made = null;
-  route(current);
-  try {
-    const { bytes, label } = await stockFrom(file);
-    try {
-      const result = await build(bytes, recipe);
-      if (url) URL.revokeObjectURL(url);
-      url = URL.createObjectURL(new Blob([result.image], { type: 'application/octet-stream' }));
-      $('download').href = url;
-      $('stockHash').textContent = `${label} · ${bytes.length.toLocaleString()} bytes · SHA-256 ${short(result.stockHash)}`;
-      $('sameLine').textContent = `Identical to ${recipe.version}`;
-      $('imageHash').textContent = 'SHA-256 ' + result.hash;
-      made = result;
-      route(current);
-      show('done');
-      setStep(3);
-      $('status').textContent = '';
-      $('install').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    } catch (e) {
-      if (!(e instanceof PatchError)) throw e;
-      if (e.kind === 'stock') {
-        $('wrongDetail').textContent = `You dropped: ${label} · ${bytes.length.toLocaleString()} bytes · SHA-256 ${short(e.detail)} (expected ${short(recipe.stock_sha256)})`;
-        show('wrong');
-      } else {
-        $('mismatchDetail').textContent = `${e.kind}: ${e.detail}`;
-        show('mismatch');
-      }
-      $('status').textContent = '';
-    }
-  } catch (e) {
-    $('wrongDetail').textContent = `${file.name}: ${e.message}`;
-    show('wrong');
-    $('status').textContent = '';
-  }
-}
-
-$('accept').addEventListener('change', () => {
-  const on = $('accept').checked;
-  $('file').disabled = !on;
-  $('chooseLabel').setAttribute('aria-disabled', String(!on));
-  $('drop').classList.toggle('off', !on);
-  $('dropNote').textContent = on ? 'The file stays on your computer.' : 'Tick the box above first. The file stays on your computer.';
-  setStep(made ? 3 : on ? 2 : 1);
-});
-$('file').addEventListener('change', (e) => { if (e.target.files[0]) handle(e.target.files[0]); });
-const drop = $('drop');
-drop.addEventListener('dragover', (e) => { e.preventDefault(); if ($('accept').checked) drop.classList.add('over'); });
-drop.addEventListener('dragleave', () => drop.classList.remove('over'));
-drop.addEventListener('drop', (e) => { e.preventDefault(); drop.classList.remove('over'); if (e.dataTransfer.files[0]) handle(e.dataTransfer.files[0]); });
-$('download').addEventListener('click', () => setStep(4));
-$('toCopy').addEventListener('click', () => route('copy'));
-$('toSendLink').addEventListener('click', () => route('send'));
-
-// Send to the mixer: each task unlocks the next.
-let mixer = null;
-function task(n, text, kind) {
-  const t = $('t' + n);
-  if (text !== undefined) t.textContent = text;
-  t.classList.toggle('err', kind === 'err');
-  const li = $('m' + n);
-  li.classList.toggle('ok', kind === 'ok');
-  li.classList.toggle('wait', kind === 'wait');
-  li.classList.toggle('now', kind === 'now' || kind === 'err');
-}
-function unlock(n) { $('b' + n).disabled = false; task(n, undefined, 'now'); }
-function failText(e) {
-  if (e instanceof MixerError) {
-    if (e.kind === 'permission') return 'MIDI access was not allowed. Allow it in the browser (the icon in the address bar) and try again.';
-    if (e.kind === 'absent') return 'No L6 answered. Check the USB cable, that the L6 is on, and that ZOOM L6 Editor is closed.';
-    return e.message;
-  }
-  if (e && e.name === 'AbortError') return 'No folder chosen.';
-  return (e && e.message) || String(e);
-}
-async function step(n, fn) {
-  const b = $('b' + n);
-  b.disabled = true;
-  try { await fn(); } catch (e) { task(n, failText(e), 'err'); b.disabled = false; }
-}
-$('b1').addEventListener('click', () => step(1, async () => {
-  task(1, 'Connecting…', 'now');
-  mixer = await Mixer.connect();
-  const state = await mixer.state();
-  task(1, 'Connected.', 'ok');
-  if (state === 1) { task(2, 'Already in File Transfer Mode.', 'ok'); unlock(3); } else unlock(2);
-}));
-$('b2').addEventListener('click', () => step(2, async () => {
-  task(2, 'Asking the L6…', 'now');
-  await mixer.enter();
-  task(2, 'In File Transfer Mode: wait until the card shows up as a drive (a few seconds).', 'ok');
-  unlock(3);
-}));
-$('b3').addEventListener('click', () => step(3, async () => {
-  const dir = await window.showDirectoryPicker({ id: 'l6-card', mode: 'readwrite' });
-  task(3, 'Writing L6.BIN…', 'now');
-  const back = await writeFirmware(dir, made.image, sha256);
-  if (back.hash !== made.hash || back.bytes !== made.image.length) throw new MixerError('verify', 'L6.BIN on the card does not match: write it again.');
-  task(3, `L6.BIN written to “${dir.name}” and checked.`, 'ok');
-  $('ejected').disabled = false;
-  task(4, undefined, 'now');
-}));
-$('ejected').addEventListener('change', () => { $('b4').disabled = !$('ejected').checked; });
-$('b4').addEventListener('click', () => step(4, async () => {
-  task(4, 'Leaving File Transfer Mode (up to a minute: the L6 reconnects)…', 'now');
-  const r = await mixer.exit();
-  if (r.state === 0) {
-    task(4, 'Done: the L6 is out of File Transfer Mode.', 'ok');
-    $('sendNext').hidden = false;
-    setStep(4);
-  } else if (r.state === 1) {
-    throw new MixerError('exit', 'The L6 is still in File Transfer Mode. Check the card is ejected, then try again.');
-  } else {
-    throw new MixerError('exit', 'The L6 has not reconnected yet. Wait a few seconds, then press the button again to check.');
-  }
-}));
-
-loadRecipe().catch(() => { $('status').textContent = 'Could not load the release recipe. Reload the page to try again.'; });
-</script>
+<script type="module" src="page.js"></script>
 </body>
 </html>

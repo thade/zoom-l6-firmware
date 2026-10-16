@@ -47,7 +47,10 @@ class Link {
   close() { this.input.removeEventListener('midimessage', this.handler); }
   send(msg) {
     if (!ALLOWED.includes(String(msg))) throw new MixerError('internal', 'only fixed transfer-mode messages may be sent');
-    this.output.send(msg);
+    try { this.output.send(msg); } catch (e) {
+      // Windows gives a port to one program at a time.
+      throw new MixerError('busy', 'The L6 port is in use: close ZOOM L6 Editor and try again.');
+    }
   }
   // The first message matching within ms (queued ones first), or null.
   expect(match, ms) {
@@ -80,8 +83,12 @@ class Link {
   }
 }
 
+// Windows names a device's second port MIDIIN2 (L6) and MIDIOUT2 (L6):
+// one key for both.
+const portKey = (p) => p.name.replace(/^MIDI(?:IN|OUT)(\d+)/i, 'MIDI$1').trim();
+
 export class Mixer {
-  constructor(access) { this.access = access; }
+  constructor(access) { this.access = access; this.key = null; this.firstState = null; }
 
   static async connect(nav = globalThis.navigator) {
     let access;
@@ -89,30 +96,39 @@ export class Mixer {
       throw new MixerError('permission', 'MIDI access was not allowed');
     }
     const mixer = new Mixer(access);
-    const state = await mixer.state();
-    if (state === null) throw new MixerError('absent', 'No L6 found on USB');
+    mixer.firstState = await mixer.state();
+    if (mixer.firstState === null) throw new MixerError('absent', 'No L6 found on USB');
     return mixer;
   }
 
-  // Candidate Editor port pairs: an L6 port named for the Editor first, then
-  // any other L6 port (Windows names ports differently).
+  // Candidate Editor ports: an input and output of the same name on an L6,
+  // never its Mixer Control or MIDI I/O port (the DIN jacks). macOS names
+  // the Editor port; elsewhere each remaining pair is tried, the one that
+  // answered first. Two L6s: refused rather than guessed.
   pairs() {
-    const l6 = (p) => /\bL6\b/i.test(`${p.name} ${p.manufacturer}`) && p.state !== 'disconnected';
-    const ins = [...this.access.inputs.values()].filter(l6);
-    const outs = [...this.access.outputs.values()].filter(l6);
-    const rank = (p) => (/editor/i.test(p.name) ? 0 : 1);
-    const out = [];
-    for (const i of ins) for (const o of outs) out.push([i, o]);
-    return out.sort((a, b) => rank(a[0]) + rank(a[1]) - rank(b[0]) - rank(b[1]));
+    const usable = (p) => /\bL6\b/i.test(`${p.name} ${p.manufacturer}`) && p.state !== 'disconnected' &&
+      !/mixer control|midi i\/o/i.test(p.name);
+    const outs = new Map();
+    for (const o of this.access.outputs.values()) if (usable(o)) {
+      const k = portKey(o);
+      outs.set(k, outs.has(k) ? null : o);   // two outputs with one name: ambiguous
+    }
+    const found = [...this.access.inputs.values()].filter(usable).filter((i) => outs.get(portKey(i))).map((i) => [i, outs.get(portKey(i))]);
+    const editor = found.filter(([i]) => /editor/i.test(i.name));
+    const keys = new Set(editor.map(([i]) => portKey(i)));
+    if (editor.length > keys.size || keys.size > 1 || [...outs.values()].includes(null)) throw new MixerError('several', 'More than one L6 is connected: unplug the others and try again.');
+    if (editor.length) return editor;
+    return found.sort((a, b) => (portKey(b[0]) === this.key) - (portKey(a[0]) === this.key));
   }
 
-  // Run fn on a link over the first pair that answers the editor open.
+  // Run fn on a link over the first pair that answers the editor open; later
+  // calls try that pair first.
   async withLink(fn) {
     for (const [input, output] of this.pairs()) {
       const link = new Link(input, output);
       try {
         const reply = await link.openSession();
-        if (reply) return await fn(link, reply);
+        if (reply) { this.key = portKey(input); return await fn(link, reply); }
       } finally { link.close(); }
     }
     return undefined;

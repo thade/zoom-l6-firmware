@@ -3,8 +3,8 @@
 with the committed release recipe: it rebuilds the published image from the
 stock L6 v1.10 file, refuses any other input, and refuses a damaged recipe
 by its output hash. patcher/mixer.js (send to the mixer) against a modelled
-L6 Editor port and card folders (patcher_mixer.mjs). Not covered: the page's
-zip handling (fflate), real Web MIDI and folder access. Skipped without
+L6 Editor port and card folders (patcher_mixer.mjs), and zip.js on zips of
+the stock file. Not covered: real Web MIDI and folder access. Skipped without
 Node. No device access.
 """
 import json,shutil,subprocess,sys,tempfile
@@ -41,13 +41,21 @@ def main():
     assert out['hash']==recipe['image_sha256'] and out['bytes']==recipe['image_bytes'] and out['stock']==recipe['stock_sha256'],out
     assert (out['wrong'],out['damaged'],out['short'])==('stock','result','stock'),out
     cases=[dict(case='node_rebuilds_the_published_image_and_refuses_other_input_and_damage',version=recipe['version'],**out)]
-    r=subprocess.run([node,str(Path(__file__).with_name('patcher_mixer.mjs'))],capture_output=True,text=True,timeout=300)
+    import zipfile
+    with tempfile.TemporaryDirectory() as tmp:
+        zips=[]
+        for name,method in (('deflated.zip',zipfile.ZIP_DEFLATED),('stored.zip',zipfile.ZIP_STORED)):
+            z=Path(tmp)/name;zips.append(str(z))
+            with zipfile.ZipFile(z,'w',method) as f:f.writestr('L6_v1.10_E/readme.txt','x');f.write(STOCK,'L6_v1.10_E/L6.BIN')
+        r=subprocess.run([node,str(Path(__file__).with_name('patcher_mixer.mjs')),*zips],capture_output=True,text=True,timeout=300)
     if r.returncode:sys.exit(r.stdout+r.stderr)
     m=json.loads(r.stdout)
     assert (m['before'],m['enter'],m['during'],m['written'],m['exit']['state'],m['after'],m['only_fixed'])==(0,'acknowledged',1,True,0,0,True),m
-    assert (m['enter_again'],m['exit_when_out']['state'],m['windows_names'])==('already',0,0),m
+    assert (m['enter_again'],m['exit_when_out']['state'],m['windows_names'],m['windows_key'])==('already',0,0,'MIDI2 (L6)'),m
+    assert (m['other_ports_untouched'],m['first_state'],m['two'],m['two_silent'],m['busy'])==(True,0,'several',True,'busy'),m
+    assert m['zip_deflated']==m['zip_stored']==recipe['stock_sha256'],m
     assert (m['denied'],m['absent'],m['not_card'],m['card_check'],m['supported'])==('permission','absent','not-card',True,[True,False,False]),m
-    cases.append(dict(case='send_to_the_mixer_enters_writes_checks_and_leaves_transfer_mode_with_fixed_messages',**m))
+    cases.append(dict(case='send_to_the_mixer_enters_writes_checks_and_leaves_transfer_mode_with_fixed_messages_on_the_editor_port_only',**m))
     (ROOT/'analysis/patcher_verification.json').write_text(json.dumps(dict(passed=True,groups=len(cases),results=cases),indent=2)+'\n')
     print(json.dumps(dict(passed=True,groups=len(cases))))
 if __name__=='__main__':main()
