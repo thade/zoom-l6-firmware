@@ -14,6 +14,11 @@ hardware result. An emulator result does not complete a hardware item.
       dropping one when the history of the first is still being written.
 - [ ] Measure the hooks' stack use on the stock recorder and Main tasks (only
       the worker's has been measured).
+- [ ] While the firmware writes a pad folder's `MASTER.WAV` (about a dozen
+      file calls in one worker step), the switch-hold detector does not poll,
+      so on a slow card a hold in progress may restart. Only when an anchor
+      is created; could write one chunk per step
+      ([experiment 40](../experiments/40-release/README.md)).
 - [x] The PAN + LEVEL hold was unreliable on the mixer. Experiment 36 made
       the holds tolerate a misread poll; the diagnostic build (experiment 37)
       then showed the panel often never reports PAN while LEVEL is held (they
@@ -33,6 +38,19 @@ hardware result. An emulator result does not complete a hardware item.
       (experiment 39), so installing needs only `L6.BIN`
       ([experiment 40](../experiments/40-release/README.md), passed on the
       mixer); the installer, README and setup no longer copy the anchor.
+
+## Browser patcher
+
+Done: the [patcher page](https://thade.github.io/zoom-l6-firmware/) makes
+the release from Zoom's file and, in Chrome or Edge, sends it to the mixer
+([patcher/](../patcher/README.md), [experiment 40](../experiments/40-release/README.md)).
+
+- [ ] Send to the mixer on Windows (Chrome or Edge): the L6's MIDI port names
+      there, and whether the folder picker accepts the card's top folder
+      (a drive root). Only Chrome on macOS has been tried.
+- [ ] The download route in Safari and Firefox, end to end on a real card.
+- [ ] At each release, keep the previous recipe in `patcher/recipes/` so
+      `?version=` can rebuild the exact image someone installed.
 
 ## Four-pad take history
 
