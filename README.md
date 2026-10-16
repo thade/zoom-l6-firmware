@@ -26,12 +26,12 @@ not included: you download it from Zoom and build the image yourself.
 
 ## Before you install: risks
 
-- This changes your mixer's firmware. The SD-card updater is in the mixer's
-  bootloader, which these images never change, and it runs before the
-  firmware does when PLAY/STOP is held at power-on. A deliberately broken
-  firmware that hung at startup was recovered this way
-  ([troubleshooting](#the-mixer-wont-start-after-an-update)). That is good
-  evidence, not a guarantee.
+- This changes your mixer's firmware. If a firmware ever fails to start, you
+  can put Zoom's own firmware back from the card: the updater lives in the
+  mixer's bootloader, which these images never change. This was tested with
+  a deliberately broken firmware (see
+  [Troubleshooting](#the-mixer-wont-start-after-an-update)). It's strong
+  evidence, though not a guarantee.
 - Zoom's firmware licence notice forbids altering or reverse engineering its
   firmware without permission. Building and installing this is your decision
   and your responsibility. The MIT licence below covers this project's code

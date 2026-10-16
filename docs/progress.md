@@ -8,8 +8,9 @@ take folder, and the stereo AUX send with the AUX 1 + AUX 2 mono/stereo
 switch, on Zoom's v1.10. It was installed and passed on 16 October 2026. Its
 features have run daily on one mixer since 12 October; experiments 34–38
 (table below) took it from the release review build to the EFX + PAN switch.
-Recovery from an image that hangs before startup completes remains unproven
-([experiment 18](../experiments/18-recovery-hang/README.md) is parked).
+Recovery from an image that hangs at startup was shown on 16 October 2026
+([experiment 18](../experiments/18-recovery-hang/README.md)): the bootloader
+runs the PLAY/STOP update before the firmware starts.
 
 Open work: [future work](future-work.md). The detailed log up to 0.1.0 is in
 [archive/progress-log.md](archive/progress-log.md).

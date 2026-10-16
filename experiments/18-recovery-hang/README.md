@@ -49,7 +49,9 @@ installed, PLAY/STOP held reaches update mode and a stock update restores the
 flash, and a power cut at any point of an update leaves the mixer in update
 mode at the next power-on.
 
-## Risk
+## Risk (before the test)
+
+The test passed (see Results); this was the worst case planned for.
 
 If recovery works, the mixer returns to stock with one more update. If it does
 not, the mixer stays unbootable until a hardware route is used: the i.MX RT1040

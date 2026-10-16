@@ -171,6 +171,8 @@ Zoom's official guide describes retrying an SD update after a failed update or
 failed startup. That is encouraging evidence of a stock retry path, not proof
 that recovery will work after an arbitrary custom image. We have neither tested
 that recovery nor demonstrated that the updater accepts changed firmware.
+Update 16 October 2026: both since shown; see bootloader_findings.txt and
+experiment 18.
 https://zoomcorp.com/media/documents/L6_Firmware_Update_Guide_EN.pdf
 The support page still lists system version 1.10 when checked on this date:
 https://zoomcorp.com/en/us/digital-mixer-multi-track-recorders/digital-mixer-recorder/livetrak-l6-final/l6-support/
