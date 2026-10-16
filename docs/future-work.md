@@ -1,6 +1,6 @@
 # Future work
 
-Open work after 0.1.0. Items are ideas or agreed requirements, not
+Open work after 0.2.0. Items are ideas or agreed requirements, not
 implemented features; check one off only with a linked implementation or
 hardware result. An emulator result does not complete a hardware item.
 
@@ -29,11 +29,10 @@ hardware result. An emulator result does not complete a hardware item.
       [bootloader findings](research/bootloader_findings.txt)), then
       [experiment 18](../experiments/18-recovery-hang/README.md) passed on
       the mixer. The README and the patcher say so.
-- [ ] 0.2.0: the firmware writes the pad folders' `MASTER.WAV` anchors itself
-      (experiment 39), so installing needs only `L6.BIN`. Built as the
-      release mode ([experiment 40](../experiments/40-release/README.md));
-      the installer, README and setup no longer copy the anchor. Still to do:
-      the release checks on the mixer.
+- [x] 0.2.0: the firmware writes the pad folders' `MASTER.WAV` anchors itself
+      (experiment 39), so installing needs only `L6.BIN`
+      ([experiment 40](../experiments/40-release/README.md), passed on the
+      mixer); the installer, README and setup no longer copy the anchor.
 
 ## Four-pad take history
 
@@ -71,8 +70,9 @@ The original design record is in [archive/history-design.md](archive/history-des
 **Confirmed requirement:** a web-based configurator to replace Zoom's editor.
 
 - [ ] Agree supported computers and browsers and the editor functions needed.
-- [ ] Test whether browser MIDI with SysEx permission reaches the L6's
-      endpoints; evaluate a local bridge only if not.
+- [x] Test whether browser MIDI with SysEx permission reaches the L6's
+      endpoints: it does (the patcher's send-to-mixer, Chrome on macOS,
+      experiment 40). Windows is untested.
 - [ ] Connection and read-only settings first, then verified settings
       changes and pad configuration, then this firmware's features (AUX mode,
       chain on/off).

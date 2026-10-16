@@ -49,7 +49,7 @@ class Link {
     if (!ALLOWED.includes(String(msg))) throw new MixerError('internal', 'only fixed transfer-mode messages may be sent');
     try { this.output.send(msg); } catch (e) {
       // Windows gives a port to one program at a time.
-      throw new MixerError('busy', 'The L6 port is in use: close ZOOM L6 Editor and try again.');
+      throw new MixerError('busy', 'Another program is talking to the mixer. Close ZOOM L6 Editor (and any other music software using it), then press Connect again.');
     }
   }
   // The first message matching within ms (queued ones first), or null.
@@ -191,12 +191,12 @@ export async function isL6Card(dir) {
 // Write L6.BIN at the card's top and read it back. Returns the read-back
 // hash (the caller compares it with the image's).
 export async function writeFirmware(dir, image, sha256) {
-  if (!(await isL6Card(dir))) throw new MixerError('not-card', 'That folder is not an L6 card (no SOUND_PAD/PAD1–PAD4)');
+  if (!(await isL6Card(dir))) throw new MixerError('not-card', 'That doesn\'t look like the L6\'s card: it has no SOUND_PAD folder with PAD1–PAD4 inside. Press Choose and pick the card itself.');
   const handle = await dir.getFileHandle('L6.BIN', { create: true });
   const out = await handle.createWritable();
   try { await out.write(image); await out.close(); } catch (e) {
     try { await out.abort(); } catch {}
-    throw new MixerError('write', `Writing L6.BIN failed: ${e.message}`);
+    throw new MixerError('write', `Couldn't write L6.BIN to the card: ${e.message}. Check the card isn't locked or full, then press Choose again.`);
   }
   const back = new Uint8Array(await (await handle.getFile()).arrayBuffer());
   return { bytes: back.length, hash: await sha256(back) };

@@ -3,10 +3,10 @@
 experiment, byte for byte. No device access.
 
 Every installed mode must reproduce its image's hash exactly and is pinned
-to the commit or tag its image was built from (24-26, 28-30, 32-39 were
+to the commit or tag its image was built from (24-26, 28-30, 32-40 were
 installed, 37 and 39 being diagnostic builds; 27 and 31 were prepared and
-superseded before installation). `release` builds the current sources until
-its image is installed and pinned.
+superseded before installation). `release` is pinned to v0.2.0; a new
+release builds the current sources until its image is installed and pinned.
 
 reference    (24) pad 1 plays the last take's master
 chain        (25) pads 1-4 play the last four takes, newest on pad 1
@@ -97,11 +97,13 @@ MODES=dict(
                     stereo=True,switch=True,chain_switch=True,flash=True,anchors=True,
                     sha='48d7eae0b8e44fdd9f26ea98eb5524e417f943a5d39a31d6762744b8cdb06713'),
     # Release 0.2.0: 38 with the anchors written by the firmware (39 without
-    # its diagnostics) and the 0.1.0 follow-up tidy-ups. Built from the
-    # current sources (so a ZIP download builds it too) until installed and
-    # pinned.
-    release=dict(experiment=40,out=ROOT/D/'40_release',image='release',pads=4,trial=False,minimum=True,history=True,
-                 stereo=True,switch=True,chain_switch=True,anchors=True,version='0.2.0'))
+    # its diagnostics) and the 0.1.0 follow-up tidy-ups; installed with the
+    # browser patcher and checked 17 October 2026. Pinned to the v0.2.0 tag;
+    # without git history (a ZIP download, a shallow clone) it builds from
+    # the working tree instead, held to the same published hash.
+    release=dict(experiment=40,out=ROOT/D/'40_release',image='release',pin='v0.2.0',tree_fallback=True,pads=4,trial=False,
+                 minimum=True,history=True,stereo=True,switch=True,chain_switch=True,anchors=True,version='0.2.0',
+                 sha='0c72755eaa9e24854ddd60187765b4ff05d0f86df3edd76ef2b08423a775f0af'))
 
 @contextlib.contextmanager
 def trial_elf(m):

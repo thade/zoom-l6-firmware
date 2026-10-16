@@ -77,18 +77,18 @@ async function handle(file) {
     if (url) URL.revokeObjectURL(url);
     url = URL.createObjectURL(new Blob([result.image], { type: 'application/octet-stream' }));
     $('download').href = url;
-    $('stockHash').textContent = `${label} · ${bytes.length.toLocaleString()} bytes · SHA-256 ${short(result.stockHash)}`;
-    $('sameLine').textContent = `Identical to ${recipe.version}`;
-    $('imageHash').textContent = 'SHA-256 ' + result.hash;
+    $('stockHash').textContent = `${label} · ${bytes.length.toLocaleString()} bytes · fingerprint ${short(result.stockHash)}`;
+    $('sameLine').textContent = `The ${recipe.version} firmware file, checked`;
+    $('imageHash').textContent = 'Matches the published file exactly · SHA-256 ' + result.hash;
     made = result;
     route(current);
     show('done');
     setStep(3);
-    $('status').textContent = `Made the ${recipe.version} firmware file.`;
+    $('status').textContent = `Done: the ${recipe.version} firmware file is ready. Next, get it onto the card (step 3).`;
     $('install').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) {
     if (e instanceof PatchError && e.kind === 'stock') {
-      $('wrongDetail').textContent = `You dropped: ${label} · ${bytes.length.toLocaleString()} bytes · SHA-256 ${short(e.detail)} (expected ${short(recipe.stock_sha256)})`;
+      $('wrongDetail').textContent = `Details: you dropped ${label}, ${bytes.length.toLocaleString()} bytes, fingerprint ${short(e.detail)}. Zoom's L6 v1.10 has fingerprint ${short(recipe.stock_sha256)}.`;
       show('wrong');
     } else {
       $('mismatchDetail').textContent = e instanceof PatchError ? `${e.kind}: ${e.detail}` : String(e && e.message || e);
@@ -136,11 +136,11 @@ function task(n, text, kind) {
 function unlock(n) { $('b' + n).disabled = false; task(n, undefined, 'now'); }
 function failText(e) {
   if (e instanceof MixerError) {
-    if (e.kind === 'permission') return 'MIDI access was not allowed. Allow it in the browser (the icon in the address bar) and try again.';
-    if (e.kind === 'absent') return 'No L6 answered. Check the USB cable, that the L6 is on, and that ZOOM L6 Editor is closed.';
+    if (e.kind === 'permission') return 'The browser wasn\'t allowed to talk to the mixer. Click the icon at the left of the address bar, allow MIDI, and press Connect again.';
+    if (e.kind === 'absent') return 'No mixer answered. Check that the L6 is switched on and plugged into this computer by USB, and that ZOOM L6 Editor is closed. Then press Connect again.';
     return e.message;
   }
-  if (e && e.name === 'AbortError') return 'No folder chosen.';
+  if (e && e.name === 'AbortError') return 'No folder was chosen. Press Choose and pick the card.';
   return (e && e.message) || String(e);
 }
 async function step(n, fn) {
@@ -161,14 +161,14 @@ $('b1').addEventListener('click', () => step(1, async () => {
 $('b2').addEventListener('click', () => step(2, async () => {
   task(2, 'Asking the L6…', 'now');
   await mixer.enter();
-  task(2, 'In File Transfer Mode: wait until the card shows up as a drive (a few seconds).', 'ok');
+  task(2, 'The mixer is in File Transfer Mode. Wait a few seconds for the card to appear on this computer as a drive, then press Choose.', 'ok');
   unlock(3);
 }));
 $('b3').addEventListener('click', () => step(3, async () => {
   const dir = await window.showDirectoryPicker({ id: 'l6-card', mode: 'readwrite' });
   task(3, 'Writing L6.BIN…', 'now');
   const back = await writeFirmware(dir, made.image, sha256);
-  if (back.hash !== made.hash || back.bytes !== made.image.length) throw new MixerError('verify', 'L6.BIN on the card does not match: write it again.');
+  if (back.hash !== made.hash || back.bytes !== made.image.length) throw new MixerError('verify', 'The copy on the card didn\'t check out. Press Choose and write it again.');
   card = dir;
   task(3, `L6.BIN written to the card${dir.name ? ` “${dir.name}”` : ''} and checked.`, 'ok');
   $('ejected').disabled = false;
@@ -178,19 +178,19 @@ $('ejected').addEventListener('change', () => { $('b4').disabled = !$('ejected')
 $('b4').addEventListener('click', () => step(4, async () => {
   if (card && !warnedMounted && await stillMounted(card)) {
     warnedMounted = true;
-    throw new MixerError('mounted', 'The card still seems to be on this computer. Eject it first; if you already have, press Leave again.');
+    throw new MixerError('mounted', 'The card still seems to be in use on this computer. Eject it first (⏏ in Finder, or Safely Remove Hardware on Windows). If you already have, press Leave again.');
   }
-  task(4, 'Leaving File Transfer Mode (up to a minute: the L6 reconnects)…', 'now');
+  task(4, 'Leaving File Transfer Mode… this can take up to a minute while the mixer reconnects over USB.', 'now');
   const r = await mixer.exit();
   if (r.state === 0) {
-    task(4, 'Done: the L6 is out of File Transfer Mode.', 'ok');
+    task(4, 'Done. The mixer is back to normal and the file is on the card.', 'ok');
     $('sendNext').hidden = false;
     setStep(4);
   } else if (r.state === 1) {
-    throw new MixerError('exit', 'The L6 is still in File Transfer Mode. Check the card is ejected, then try again.');
+    throw new MixerError('exit', 'The mixer is still in File Transfer Mode. Make sure the card is ejected, then press Leave again.');
   } else {
-    throw new MixerError('exit', 'The L6 has not reconnected yet. Wait a few seconds, then press the button again to check.');
+    throw new MixerError('exit', 'The mixer hasn\'t reconnected yet. Wait a few seconds, then press Leave again.');
   }
 }));
 
-loadRecipe().catch(() => { $('status').textContent = 'Could not load the release recipe. Reload the page to try again.'; });
+loadRecipe().catch(() => { $('status').textContent = 'This page couldn\'t load the data it needs. Check your internet connection and reload the page.'; });

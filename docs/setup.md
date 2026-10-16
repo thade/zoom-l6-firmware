@@ -62,10 +62,12 @@ python tools/firmware/build_release.py
 
 Both write `release/0.2.0/`: `L6.BIN`, `SHA256SUMS`, `manifest.json` and
 `recipe.json` (the same release for the browser patcher).
-Once 0.2.0 is released its image is reproducible: the build stops if the
-image differs from its published hash, listed here then. (0.2.0 is in
-preparation: until then the image has no published hash, and the installer
-asks for `--any-image`.)
+The 0.2.0 image is reproducible: the build stops if the image differs from
+its published hash:
+
+```text
+0c72755eaa9e24854ddd60187765b4ff05d0f86df3edd76ef2b08423a775f0af  L6.BIN
+```
 
 Then [install](../README.md#install).
 

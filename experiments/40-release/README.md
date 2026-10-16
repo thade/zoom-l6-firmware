@@ -4,10 +4,26 @@
 firmware ([experiment 39](../39-flash-diag/README.md), without its
 diagnostics), so installing needs only `L6.BIN`. Everyday build.
 
-**Prepared locally; not yet installed.** The image hash changes until the
-release checks pin it (`tools/firmware/build_master_trial.py release`).
-Recovery from a firmware that hangs at startup was shown in
+**Installed 17 October 2026 with the browser patcher; passed. This is release
+0.2.0.** Recovery from a firmware that hangs at startup was shown in
 [experiment 18](../18-recovery-hang/README.md).
+
+## Results
+
+The image was made in Chrome by the browser patcher from Zoom's v1.10 file
+and sent to the mixer with its send-to-mixer steps (File Transfer Mode over
+USB MIDI, `L6.BIN` written to the card and read back, the card ejected, File
+Transfer Mode left), then installed with the PLAY/STOP update. The user then
+ran the procedure below: a take reached pad 1 with the chain on, the EFX +
+PAN and AUX 1 + AUX 2 holds worked, and with the four pad folders' anchors
+removed all four came back after a restart and the next takes filled pads
+1–4. All passed.
+
+| | 0.1.0 (experiment 38) | 0.2.0 (experiment 40) |
+|---|---|---|
+| Patch sites | 15 | 15 |
+| Code | 9,236 bytes | 11,004 bytes |
+| Image SHA256 | `99ded4b1…` | `0c72755eaa9e24854ddd60187765b4ff05d0f86df3edd76ef2b08423a775f0af` |
 
 ## Changes from 0.1.0
 
@@ -47,7 +63,7 @@ when an anchor is created (the first switch-on, or after one was deleted).
 
 ## Procedure (release checks)
 
-1. Install over experiment 39 with `install_release.py --any-image`.
+1. Install over experiment 39 (here: with the browser patcher, step 4).
 2. A take reaches pad 1 with the chain on; EFX + PAN and AUX 1 + AUX 2
    holds work.
 3. With a card whose pad folders have no `MASTER.WAV` (moved aside), restart:

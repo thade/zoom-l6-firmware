@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; base-uri 'none'; form-action 'none'">
-<title>L6 Firmware Patcher</title>
+<title>L6 Overdub Firmware</title>
 <meta name="description" content="Make the unofficial overdub/stereo AUX firmware for the Zoom LiveTrak L6 from Zoom's own v1.10 firmware, in your browser.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=Archivo+Narrow:wght@500;600&display=swap" rel="stylesheet">
@@ -108,14 +108,14 @@ footer .wrap { padding-top: 20px; padding-bottom: 36px; display: grid; grid-temp
 <main class="wrap">
   <section class="row hero">
     <h1>Make the firmware file for your Zoom L6.</h1>
-    <p class="lead">From Zoom's own L6 firmware v1.10, in this browser tab. Nothing is uploaded, and the page contains none of Zoom's firmware.</p>
+    <p class="lead">This page turns Zoom's own L6 firmware v1.10 into the unofficial overdub / stereo AUX firmware, right here in this browser tab. Nothing is uploaded, and the page contains none of Zoom's firmware.</p>
   </section>
 
   <section class="row">
     <span class="side num now" id="n1">1</span>
     <div class="body">
       <h2>Download Zoom's L6 firmware v1.10</h2>
-      <p class="measure">On Zoom's L6 support page, download <strong>L6 Firmware v1.10</strong>. You get <code>L6_v1.10_E.zip</code>; keep it zipped.</p>
+      <p class="measure">On Zoom's L6 support page, download <strong>L6 Firmware v1.10</strong>. You get <code>L6_v1.10_E.zip</code>; keep it zipped, you don't need to open it.</p>
       <p><a class="button outline" href="https://zoomcorp.com/en/us/digital-mixer-multi-track-recorders/digital-mixer-recorder/livetrak-l6-final/l6-support/" rel="noopener">Zoom's L6 support page →</a></p>
       <p class="small">The <strong>LiveTrak L6</strong>, not the L6max: the L6max has its own version 1.10.</p>
     </div>
@@ -148,9 +148,9 @@ footer .wrap { padding-top: 20px; padding-bottom: 36px; display: grid; grid-temp
 
       <div id="done" hidden>
         <dl class="facts">
-          <div><dt class="label">Input</dt><dd><strong>Zoom L6 v1.10</strong></dd><dd class="v" id="stockHash"></dd></div>
+          <div><dt class="label">From</dt><dd><strong>Zoom's L6 firmware v1.10</strong></dd><dd class="v" id="stockHash"></dd></div>
           <div><dt class="label">Made</dt><dd><strong>On this computer</strong></dd><dd class="v">Nothing uploaded</dd></div>
-          <div><dt class="label">Output</dt><dd><strong id="sameLine">Identical to the published file</strong></dd><dd class="v" id="imageHash"></dd></div>
+          <div><dt class="label">Result</dt><dd><strong id="sameLine">The firmware file, checked</strong></dd><dd class="v" id="imageHash"></dd></div>
         </dl>
       </div>
 
@@ -167,7 +167,7 @@ footer .wrap { padding-top: 20px; padding-bottom: 36px; display: grid; grid-temp
 
       <div class="alert" id="mismatch" hidden role="alert">
         <h2>Something went wrong making the file.</h2>
-        <p>The file this page made doesn't match the published one, so it isn't offered. Please <a href="https://github.com/thade/zoom-l6-firmware/issues">report it</a> with your browser's name and version.</p>
+        <p>The file this page made doesn't match the published one, so it hasn't been offered for download. Nothing has been written anywhere. Please <a href="https://github.com/thade/zoom-l6-firmware/issues">report it</a> with your browser's name and version and the line below.</p>
         <p class="small mono" id="mismatchDetail"></p>
       </div>
     </div>
@@ -178,17 +178,17 @@ footer .wrap { padding-top: 20px; padding-bottom: 36px; display: grid; grid-temp
     <div class="body">
       <div id="send" hidden>
         <h2>Send it to the mixer.</h2>
-        <p class="small" style="margin: 12px 0 16px">L6 switched on as usual with its card in, connected to this computer by USB; ZOOM L6 Editor closed. Your browser asks to allow MIDI access, then to pick the card.</p>
+        <p class="small" style="margin: 12px 0 16px">Before you start: the mixer is switched on as usual with its card in and connected to this computer by USB, and ZOOM L6 Editor is closed. The browser will ask permission to talk to the mixer (it calls this "MIDI access"): allow it. Later it asks you to pick the card.</p>
         <ol class="tasks" aria-live="polite">
           <li id="m1" class="now"><span class="k">a</span><span class="t">Connect to the L6 <button class="button solid" id="b1" type="button" aria-label="Connect to the L6">Connect</button></span><span class="state" id="t1"></span></li>
-          <li id="m2" class="wait"><span class="k">b</span><span class="t">Open File Transfer Mode <button class="button solid" id="b2" type="button" disabled aria-label="Open File Transfer Mode">Open</button></span><span class="state" id="t2">The card then appears on this computer as a drive.</span></li>
-          <li id="m3" class="wait"><span class="k">c</span><span class="t">Choose the card and write L6.BIN <button class="button solid" id="b3" type="button" disabled aria-label="Choose the card and write L6.BIN">Choose</button></span><span class="state" id="t3">Pick the card's top folder (it holds RECORDER and SOUND_PAD).</span></li>
-          <li id="m4" class="wait"><span class="k">d</span><span class="t">Eject the card, then leave File Transfer Mode <button class="button solid" id="b4" type="button" disabled aria-label="Leave File Transfer Mode">Leave</button></span>
-            <span class="extra"><span class="small">In Finder click ⏏ next to the card; on Windows use <em>Safely Remove Hardware</em>.</span>
+          <li id="m2" class="wait"><span class="k">b</span><span class="t">Put the mixer into File Transfer Mode <button class="button solid" id="b2" type="button" disabled aria-label="Put the mixer into File Transfer Mode">Open</button></span><span class="state" id="t2">The mixer pauses being a mixer and shows its card on this computer as a drive, just as ZOOM L6 Editor's File Transfer Mode does.</span></li>
+          <li id="m3" class="wait"><span class="k">c</span><span class="t">Choose the card and write L6.BIN <button class="button solid" id="b3" type="button" disabled aria-label="Choose the card and write L6.BIN">Choose</button></span><span class="state" id="t3">Pick the card itself (its top folder holds RECORDER and SOUND_PAD). If the browser asks whether this page may view or edit files there, allow it.</span></li>
+          <li id="m4" class="wait"><span class="k">d</span><span class="t">Eject the card, then take the mixer out of File Transfer Mode <button class="button solid" id="b4" type="button" disabled aria-label="Take the mixer out of File Transfer Mode">Leave</button></span>
+            <span class="extra"><span class="small">First eject the card: in Finder click ⏏ next to it; on Windows use <em>Safely Remove Hardware</em>. Then tick the box and press Leave.</span>
               <label class="accept" style="min-height: 32px"><input type="checkbox" id="ejected" disabled> I've ejected the card</label></span>
             <span class="state" id="t4"></span></li>
         </ol>
-        <p class="small" id="sendNext" hidden style="margin-top: 14px"><strong>Now update the mixer</strong> (<a href="#update">step 4</a>).</p>
+        <p class="small" id="sendNext" hidden style="margin-top: 14px"><strong>The file is on the card. Now update the mixer</strong> (<a href="#update">step 4</a>).</p>
         <p style="margin-top: 14px"><a href="#install" id="toCopy">Copy the file to the card myself instead</a></p>
       </div>
       <p class="small" id="sendWait" hidden>Make the file first (step 2), then send it to the mixer here.</p>
@@ -200,7 +200,7 @@ footer .wrap { padding-top: 20px; padding-bottom: 36px; display: grid; grid-temp
           <p class="small" style="margin-top: 8px">The firmware file: 3,756,544 bytes (about 3.8 MB).</p>
         </div>
         <ol class="list" style="margin-top: 14px">
-          <li>Put the L6's microSD card in your computer with a card reader, or connect the L6 by USB and click <strong>File Transfer Mode</strong> in ZOOM L6 Editor.</li>
+          <li>Get the card onto your computer: either take the microSD card out of the mixer and put it in a card reader, or leave it in, connect the mixer by USB, and click <strong>File Transfer Mode</strong> in ZOOM L6 Editor (Zoom's free app). Either way the card appears as a drive.</li>
           <li>Copy <code>L6.BIN</code> to the top folder of the card, replacing any <code>L6.BIN</code> already there.</li>
           <li>Eject the card properly before taking it out (or before leaving File Transfer Mode).</li>
         </ol>
@@ -210,7 +210,6 @@ footer .wrap { padding-top: 20px; padding-bottom: 36px; display: grid; grid-temp
           <span class="in">RECORDER</span>
           <span class="in">SOUND_PAD</span>
         </div>
-        <p class="small" style="margin-top: 14px"><strong>On a Mac:</strong> copying can leave a hidden <code>._L6.BIN</code> next to it. Remove it before ejecting by running <code>dot_clean -m /Volumes/&lt;card name&gt;</code> in Terminal (or delete <code>._L6.BIN</code> if you can see it).</p>
         <p class="small" id="sendNo" style="margin-top: 14px">To send the file straight to the mixer instead, open this page in Chrome or Edge on a computer.</p>
         <p id="toSend" hidden style="margin-top: 14px"><a href="#install" id="toSendLink">Send it straight to the mixer instead</a></p>
       </div>
@@ -228,7 +227,7 @@ footer .wrap { padding-top: 20px; padding-bottom: 36px; display: grid; grid-temp
         <li>The power light blinks green slowly while it updates (about 30 seconds), then quickly when it's done. Don't switch off during the update.</li>
         <li>Switch the mixer off and on again.</li>
       </ol>
-      <p class="small measure">If the power light blinks red quickly, the update failed: switch off, check the card, and try again. If the mixer stays dark afterwards, it isn't broken: see <a href="https://github.com/thade/zoom-l6-firmware#the-mixer-wont-start-after-an-update">If the mixer won't start</a>.</p>
+      <p class="small measure">If the power light blinks red quickly, the update failed: switch off, check that <code>L6.BIN</code> is in the card's top folder, and try again. If the mixer stays dark afterwards, it isn't broken: see <a href="https://github.com/thade/zoom-l6-firmware#if-the-mixer-wont-start-after-an-update">If the mixer won't start</a>.</p>
     </div>
   </section>
 
@@ -237,10 +236,10 @@ footer .wrap { padding-top: 20px; padding-bottom: 36px; display: grid; grid-temp
     <div class="body">
       <ul class="cols2">
         <li><strong>Overdub chain: hold EFX + PAN</strong> for 1.5 seconds. Both lights blink: on. Both light steadily: off. It starts off, and the mixer remembers it.</li>
-        <li><strong>Stereo AUX: hold AUX 1 + AUX 2</strong> for 1.5 seconds. Both lights blink: stereo (AUX 1 left, AUX 2 right). Both light steadily: two mono sends, as on a stock L6.</li>
+        <li><strong>Stereo AUX: hold AUX 1 + AUX 2</strong> for 1.5 seconds. Both lights blink: stereo (AUX 1 is the left side, AUX 2 the right). Both light steadily: two separate mono sends, as the mixer normally works.</li>
       </ul>
       <p class="measure">With the chain on, each take you record moves onto pad 1 a few seconds after you stop, and older takes move along pads 2–4. Press pad 1 during the next take to layer over it. Keep the <strong>MASTER</strong> and <strong>SOUND PAD</strong> knobs at their 0 dB marks and the master compressor off, or every layer gets quieter or compressed again.</p>
-      <p class="small measure">While the chain is on, the mixer puts a small silent <code>MASTER.WAV</code> in each pad folder; leave those in place. Turn the chain off to keep your own sounds on the pads.</p>
+      <p class="small measure">While the chain is on, the mixer keeps a tiny silent <code>MASTER.WAV</code> in each pad folder on the card; leave those alone. Pads in the chain all show the name <code>MASTER.WAV</code>; that's normal. Every take also gets a <code>HISTORY.TXT</code> listing what went into it. Switch the chain off whenever you want to keep your own sounds on the pads.</p>
       <p class="small measure">More in the <a href="https://github.com/thade/zoom-l6-firmware#using-it">full guide</a>.</p>
     </div>
   </section>
@@ -256,7 +255,7 @@ footer .wrap { padding-top: 20px; padding-bottom: 36px; display: grid; grid-temp
 <footer>
   <div class="wrap">
     <span>Independent work, not affiliated with or endorsed by Zoom. Zoom, LiveTrak and L6 are trademarks of Zoom Corporation.</span>
-    <span>This page's code is MIT licensed. It builds only the published file <span class="mono" id="footHash">…</span>.</span>
+    <span>This page's code is MIT licensed. It can only ever make one file: the published firmware, fingerprint <span class="mono" id="footHash">…</span>.</span>
   </div>
 </footer>
 

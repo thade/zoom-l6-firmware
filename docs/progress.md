@@ -2,12 +2,14 @@
 
 ## Status
 
-**0.1.0** is the experiment 38 image: the take chain on pads 1–4 with an
-EFX + PAN on/off switch (off until switched on), a `HISTORY.TXT` in every
-take folder, and the stereo AUX send with the AUX 1 + AUX 2 mono/stereo
-switch, on Zoom's v1.10. It was installed and passed on 16 October 2026. Its
-features have run daily on one mixer since 12 October; experiments 34–38
-(table below) took it from the release review build to the EFX + PAN switch.
+**0.2.0** is the experiment 40 image: 0.1.0 (the take chain on pads 1–4 with
+an EFX + PAN on/off switch, a `HISTORY.TXT` in every take folder, the stereo
+AUX send with the AUX 1 + AUX 2 switch, on Zoom's v1.10) with the pad
+folders' `MASTER.WAV` anchors written by the firmware, so installing needs
+only `L6.BIN`. It was installed with the browser patcher (which makes the
+image from Zoom's file and can send it to the mixer) and passed on
+17 October 2026. 0.1.0 (experiment 38) passed on 16 October; the features
+have run daily on one mixer since 12 October.
 Recovery from an image that hangs at startup was shown on 16 October 2026
 ([experiment 18](../experiments/18-recovery-hang/README.md)): the bootloader
 runs the PLAY/STOP update before the firmware starts.
@@ -79,7 +81,7 @@ Open work: [future work](future-work.md). The detailed log up to 0.1.0 is in
 | 37 | [Panel switch diagnostics](../experiments/37-panel-diag/README.md) | Installed 16 Oct; found PAN lost while LEVEL held |
 | 38 | [Release 0.1.0: EFX + PAN](../experiments/38-release/README.md) | Installed 16 Oct; passed |
 | 39 | [Firmware-written anchors, flash backup](../experiments/39-flash-diag/README.md) | Passed (toward 0.2.0) |
-| 40 | [Release 0.2.0](../experiments/40-release/README.md) | Prepared |
+| 40 | [Release 0.2.0](../experiments/40-release/README.md) | Installed 17 October; passed; this is 0.2.0 |
 
 ## Checks
 
