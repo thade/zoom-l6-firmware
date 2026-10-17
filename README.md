@@ -6,42 +6,42 @@ send you can switch on and off. Version **0.2.0**, made from Zoom's own
 firmware **v1.10**.
 
 This is independent work, not affiliated with or endorsed by Zoom. Zoom's
-firmware is not included here: you download it from Zoom, and the
+firmware is not included. You download it from Zoom, and the
 [patcher page](https://thade.github.io/zoom-l6-firmware/) turns it into the
-new firmware file on your own computer (or you can
-[build it yourself](docs/setup.md)).
+new firmware file on your own computer. You can also
+[build it yourself](docs/setup.md).
 
 ## What it adds
 
-- **Your last four takes on the sound pads.** Switch the *overdub chain* on
-  (hold EFX + PAN) and every take you record goes onto pad 1 a few seconds
-  after you stop; the one before moves to pad 2, and so on to pad 4. Play
-  pad 1 while you record the next take and the new take contains both: that
-  is the overdub. Nothing is copied, so no card space is used up. Takes
-  shorter than 2 seconds are skipped. The chain is off until you switch it
-  on, so out of the box the pads work exactly as they always did.
+- **Your last four takes on the sound pads.** When the *overdub chain* is
+  on (hold EFX + PAN), each take you record goes onto pad 1 a few seconds
+  after you stop, the one before moves to pad 2, and so on to pad 4. To
+  overdub, play pad 1 while you record the next take. The pads play the
+  takes where they already are on the card, so no card space is used. Takes
+  shorter than 2 seconds stay off the pads. The chain is off until you
+  switch it on, and until then the pads work as before.
 - **A list of what went into each take.** Every take folder gets a
   `HISTORY.TXT` naming the earlier takes and pad sounds it contains, newest
-  first, so you can always find the original recordings (with their separate
-  tracks) behind a finished mix.
-- **A stereo AUX send, switchable.** Hold **AUX 1** and **AUX 2** together
-  for 1.5 seconds to switch between Zoom's two separate mono sends and one
-  stereo send (AUX 1 is the left side, AUX 2 the right, following each
-  channel's pan). The mixer remembers your choice.
+  first. From a finished mix you can trace back to each original recording
+  and its separate tracks.
+- **A stereo AUX send.** Hold **AUX 1** and **AUX 2** together for 1.5
+  seconds to switch between Zoom's two separate mono sends and one stereo
+  send, with AUX 1 as the left side and AUX 2 the right, placed by each
+  channel's pan. The setting is kept when the mixer is switched off.
 
 ## Before you install
 
 - **This replaces your mixer's firmware.** If a firmware ever fails to start,
-  you can put Zoom's own firmware back from the card: the small built-in
-  program that performs updates is never touched by this project. That
-  recovery was tested with a deliberately broken firmware (see
+  you can put Zoom's own firmware back from the card, because the small
+  built-in program that performs updates is never changed by this project.
+  This was tested with a deliberately broken firmware (see
   [If the mixer won't start](#if-the-mixer-wont-start-after-an-update)).
-  That is strong evidence, but not a guarantee.
+  It is good evidence, not a guarantee.
 - **Zoom's licence forbids altering or reverse-engineering its firmware
   without permission.** Installing this is your decision and your
   responsibility. This project's MIT licence covers its own code only and
   comes with no warranty.
-- **Testing so far is limited.** These features have been used every day on
+- **Testing has been limited.** These features have been used every day on
   one mixer since 12 October 2026; the 0.2.0 file itself was installed with
   the patcher page and checked on 17 October. Some situations have only been
   tested in a software simulation of the mixer, not on a real one (see
@@ -87,31 +87,31 @@ To build the file from source instead, see
 ## Using it
 
 **Switching the overdub chain on and off.** Hold **EFX** and **PAN** together
-for 1.5 seconds. Both lights blink for 2 seconds: the chain is on. Both light
-steadily for 2 seconds: it is off. (Afterwards the mixer shows the view of
-whichever of the two buttons you pressed second, as a normal press would.)
-While you hold EFX the MUTE buttons act on the effect sends, as they always
-do, so don't touch MUTE during the hold. The combination does nothing in the
-first 4 seconds after switching on, or while recording. The mixer remembers
-the setting when switched off. A fresh install starts with the chain off:
-takes don't go onto the pads and the pads keep whatever you put on them, but
-every take still gets its `HISTORY.TXT`.
+for 1.5 seconds. If both lights blink for 2 seconds, the chain is now on. If
+both light steadily for 2 seconds, it is off. (Afterwards the mixer shows the
+view of whichever of the two buttons you pressed second, as a normal press
+would.) While you hold EFX the MUTE buttons act on the effect sends, as they
+always do, so don't touch MUTE during the hold. The combination does nothing in
+the first 4 seconds after switching on, or while recording. The mixer remembers
+the setting when switched off. A fresh install starts with the chain off: takes
+don't go onto the pads and the pads keep whatever you put on them, but every
+take still gets its `HISTORY.TXT`.
 
 **Overdubbing.** Switch the chain on, then record a take as usual. A few
-seconds after you stop (the mixer finishes saving first) it is on pad 1.
-Start the next take and press pad 1 to play the previous one into it.
+seconds after you stop, once the mixer has finished saving, the take is on
+pad 1. Press pad 1 during the next take to play it into the new recording.
 
 **Keep MASTER and SOUND PAD at their 0 dB marks** while you overdub, and keep
 the master compressor off. Set your listening level with **MONITOR** or your
-speakers instead. The reason: the mixer records each take *after* the master
-volume and compressor, and playing it from a pad (or with **PLAY/STOP**)
-sends it through them again. With MASTER turned down, every layer gets
-quieter each time round; with the compressor on, every layer gets compressed
-again. (This is simply how the L6 records and plays back.)
+speakers instead. The mixer records each take *after* the master volume and
+compressor, and playing it from a pad (or with **PLAY/STOP**) sends it
+through them again. With MASTER turned down, each layer comes out quieter
+than the last, and with the compressor on, each layer is compressed again.
+The L6 has always worked this way.
 
-**The pads.** While the chain is on, pads 1–4 belong to your takes: each new
-take pushes the older ones along and replaces whatever sound a pad had.
-Switching the chain off freezes the pads as they are, so switch it off when
+**The pads.** While the chain is on, pads 1–4 hold your takes. Each new take
+pushes the older ones along and replaces whatever sound was on the pad.
+Switching the chain off leaves the pads as they are, so switch it off when
 you want to keep your own sounds on them. Every pad in the chain shows the
 name `MASTER.WAV` (choosing that name by hand in the pad menu gives silence).
 Recordings made *onto* a pad, and recordings under 2 seconds, don't join the
@@ -120,28 +120,28 @@ chain.
 **Small `MASTER.WAV` files in the pad folders.** While the chain is on, the
 firmware puts a tiny silent `MASTER.WAV` (a tenth of a second) into each of
 the card's `SOUND_PAD/PAD1`–`PAD4` folders if there isn't one. Without it,
-the mixer would forget the pad's take when switched off. Leave these files
+the pad would lose its take when the mixer is switched off. Leave these files
 alone; if you delete one it comes back a few seconds after the card is next
 in use (after leaving File Transfer Mode, or at the next start with the chain
 on).
 
 **History files.** Each take's folder on the card
 (`RECORDER/<take name>/HISTORY.TXT`) lists the recordings and pad sounds it
-contains, newest first, up to 100 of them. If older ones had to be left out
-the file says `OMITTED`; you will find them in the history files of the takes
+contains, newest first, up to 100 of them. If older ones were left out, the
+file says `OMITTED`, and they are listed in the history files of the takes
 it names. Details: [history file format](docs/history-format.md).
 
-**Stereo AUX.** Hold **AUX 1** and **AUX 2** together for 1.5 seconds. Both
-AUX lights blink for 2 seconds: stereo. Both light steadily for 2 seconds:
-back to two mono sends. (Afterwards the mixer shows the AUX 2 view, as a tap
-of AUX 2 would.) The combination does nothing in the first 4 seconds after
+**Stereo AUX.** Hold **AUX 1** and **AUX 2** together for 1.5 seconds. If both
+AUX lights blink for 2 seconds, the send is now stereo. If both light steadily,
+it is back to two mono sends. (Afterwards the mixer shows the AUX 2 view, as a
+tap of AUX 2 would.) The combination does nothing in the first 4 seconds after
 switching on, or while recording. A fresh install starts in mono. In stereo,
-each channel's **AUX 1** level (and its send point) sets how loud it is in
-the stereo send and its **PAN** places it left or right; the AUX 2 level does
-nothing until you switch back to mono, where Zoom's two separate sends come
-back exactly as they were. In stereo, muting AUX 1 mutes the whole stereo
-send and muting AUX 2 does nothing. Pads and the built-in effects are not
-sent, same as always.
+each channel's **AUX 1** level (and its send point) sets how loud it is in the
+stereo send and its **PAN** places it left or right; the AUX 2 level does
+nothing until you switch back to mono, when Zoom's two separate sends return
+with their old settings. In stereo, muting AUX 1 mutes the whole stereo send
+and muting AUX 2 does nothing. As in Zoom's firmware, the pads and the built-in
+effects are not sent.
 
 **Effects loops.** Zoom's sends follow the channel fader by default
 ("post-fader"), so turning a channel down also turns its sends down. To send
@@ -161,24 +161,25 @@ reset), but Zoom's firmware ignores those as well.
 
 ## If the mixer won't start after an update
 
-A firmware that gets stuck while starting leaves the mixer completely dark:
-no lights, and your computer doesn't see it over USB. It looks dead, but it is
-only stuck, and you can fix it from the card.
+A firmware that gets stuck while starting leaves the mixer dark, with no
+lights, and your computer doesn't see it over USB. The mixer is not broken.
+You can fix it from the card.
 
 1. **Put Zoom's own firmware on the card.** Take the card out, put it in a
    card reader on your computer, and copy the `L6.BIN` from Zoom's own v1.10
-   zip into the card's top folder, replacing the one there. (A card reader is
-   the only way here: a stuck mixer can't show you its card.) Put the card
-   back in the mixer.
-2. **Switch the mixer off completely:** unplug *both* USB cables and take
-   out the batteries. Any one of those can keep it powered.
-3. **Update as usual:** plug USB power back in, hold **PLAY/STOP**, then
+   zip into the card's top folder, replacing the one there. (You need a card
+   reader for this, because a stuck mixer can't show you its card.) Put the
+   card back in the mixer.
+2. **Switch the mixer off completely.** Unplug *both* USB cables and take
+   out the batteries, since any one of them can keep it powered.
+3. **Update as usual.** Plug USB power back in, hold **PLAY/STOP**, then
    press and hold **POWER** until the power light comes on; let go. Wait for
    the slow green blinking to turn quick, then switch off and on.
 
 This works because the update is done by a small built-in program that runs
 *before* the firmware starts, and this project never changes that program.
-Evidence: [experiment 18](experiments/18-recovery-hang/README.md),
+The test is written up in
+[experiment 18](experiments/18-recovery-hang/README.md) and the
 [bootloader findings](docs/research/bootloader_findings.txt).
 
 ## Known limitations
@@ -188,8 +189,8 @@ Evidence: [experiment 18](experiments/18-recovery-hang/README.md),
 - The stereo send's sound was last measured at the AUX jacks on an earlier
   build ([experiment 32](experiments/32-aux-switch/README.md)); on 0.1.0 and
   0.2.0 only the switch and its lights were checked.
-- Losing power in the moment right after stopping a take, while its history
-  is written, is untested.
+- Losing power just after stopping a take, while its history is being
+  written, has not been tested.
 - If takes are started and stopped faster than the history files can be
   written, one take can miss the chain.
 - Saving scenes while in stereo, changing sends from ZOOM L6 Editor or over
@@ -201,7 +202,7 @@ Evidence: [experiment 18](experiments/18-recovery-hang/README.md),
 ## Building and developing
 
 - **[Build from source](docs/setup.md).** macOS or Linux, git and Python 3.12
-  or newer; the build ends with `release/0.2.0/L6.BIN`.
+  or newer; the build produces `release/0.2.0/L6.BIN`.
 - **Installer script.** With the mixer's card mounted,
   `python tools/device/install_release.py --eject` copies the built `L6.BIN`
   to it (after backing up the card's existing `L6.BIN` and settings file) and
