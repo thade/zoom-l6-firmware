@@ -17,9 +17,8 @@ new firmware file on your own computer. You can also
   on (hold EFX + PAN), each take you record goes onto pad 1 a few seconds
   after you stop, the one before moves to pad 2, and so on to pad 4. To
   overdub, play pad 1 while you record the next take. The pads play the
-  takes where they already are on the card, so no card space is used. Takes
-  shorter than 2 seconds stay off the pads. The chain is off until you
-  switch it on, and until then the pads work as before.
+  takes where they already are on the card, so no card space is used. The
+  chain is off until you switch it on.
 - **A list of what went into each take.** Every take folder gets a
   `HISTORY.TXT` naming the earlier takes and pad sounds it contains, newest
   first. From a finished mix you can trace back to each original recording
@@ -27,7 +26,7 @@ new firmware file on your own computer. You can also
 - **A stereo AUX send.** Hold **AUX 1** and **AUX 2** together for 1.5
   seconds to switch between Zoom's two separate mono sends and one stereo
   send, with AUX 1 as the left side and AUX 2 the right, placed by each
-  channel's pan. The setting is kept when the mixer is switched off.
+  channel's pan.
 
 ## Before you install
 
@@ -88,14 +87,18 @@ To build the file from source instead, see
 
 **Switching the overdub chain on and off.** Hold **EFX** and **PAN** together
 for 1.5 seconds. If both lights blink for 2 seconds, the chain is now on. If
-both light steadily for 2 seconds, it is off. (Afterwards the mixer shows the
+both light steadily for 2 seconds, it is off. Afterwards the mixer shows the
 view of whichever of the two buttons you pressed second, as a normal press
-would.) While you hold EFX the MUTE buttons act on the effect sends, as they
-always do, so don't touch MUTE during the hold. The combination does nothing in
-the first 4 seconds after switching on, or while recording. The mixer remembers
-the setting when switched off. A fresh install starts with the chain off: takes
-don't go onto the pads and the pads keep whatever you put on them, but every
-take still gets its `HISTORY.TXT`.
+would. While you hold EFX the MUTE buttons act on the effect sends, as they
+always do, so don't touch MUTE during the hold.
+
+**Both holds**, this one and the stereo AUX hold below, do nothing in the
+first 4 seconds after switching on, or while recording. The mixer keeps both
+settings when it is switched off.
+
+**With the chain off.** A fresh install starts this way. Takes don't go onto
+the pads and the pads keep whatever you put on them, but every take still
+gets its `HISTORY.TXT`.
 
 **Overdubbing.** Switch the chain on, then record a take as usual. A few
 seconds after you stop, once the mixer has finished saving, the take is on
@@ -133,15 +136,15 @@ it names. Details: [history file format](docs/history-format.md).
 
 **Stereo AUX.** Hold **AUX 1** and **AUX 2** together for 1.5 seconds. If both
 AUX lights blink for 2 seconds, the send is now stereo. If both light steadily,
-it is back to two mono sends. (Afterwards the mixer shows the AUX 2 view, as a
-tap of AUX 2 would.) The combination does nothing in the first 4 seconds after
-switching on, or while recording. A fresh install starts in mono. In stereo,
-each channel's **AUX 1** level (and its send point) sets how loud it is in the
-stereo send and its **PAN** places it left or right; the AUX 2 level does
-nothing until you switch back to mono, when Zoom's two separate sends return
-with their old settings. In stereo, muting AUX 1 mutes the whole stereo send
-and muting AUX 2 does nothing. As in Zoom's firmware, the pads and the built-in
-effects are not sent.
+it is back to two mono sends. Afterwards the mixer shows the AUX 2 view, as a
+tap of AUX 2 would. A fresh install starts in mono.
+
+**In stereo.** Each channel's **AUX 1** level (and its send point) sets how
+loud it is in the stereo send, and its **PAN** places it left or right. The
+AUX 2 level does nothing until you switch back to mono, when Zoom's two
+separate sends return with their old settings. Muting AUX 1 mutes the whole
+stereo send and muting AUX 2 does nothing. As in Zoom's firmware, the pads and
+the built-in effects are not sent.
 
 **Effects loops.** Zoom's sends follow the channel fader by default
 ("post-fader"), so turning a channel down also turns its sends down. To send
@@ -152,7 +155,7 @@ is saved with each scene.
 ## Going back to Zoom's firmware
 
 Copy the `L6.BIN` from Zoom's own zip to the card's top folder (replacing
-this one), then update the mixer exactly as in [Install, step 3](#install).
+this one), then update the mixer as in [Install, step 3](#install).
 Your recordings, pad sounds and settings stay. The small `MASTER.WAV` files in
 the pad folders and the `HISTORY.TXT` files can stay too; Zoom's firmware
 ignores them, and the pads keep playing the takes that were last on them. The
@@ -218,6 +221,7 @@ The test is written up in
 
 MIT licence for this repository's code and documentation: see
 [LICENSE](LICENSE). Zoom, LiveTrak and L6 are Zoom Corporation trademarks.
-The File Transfer Mode message sequence used by `tools/device/l6_transfer_mode.py`
-follows [philmillman/zoom-l6-companion](https://github.com/philmillman/zoom-l6-companion)
+The File Transfer Mode message sequence used by
+`tools/device/l6_transfer_mode.py` follows
+[philmillman/zoom-l6-companion](https://github.com/philmillman/zoom-l6-companion)
 (MIT) and Magicking/L6-MassStorage.
