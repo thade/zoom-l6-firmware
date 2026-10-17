@@ -144,9 +144,7 @@ loud it is in the stereo send, and its **PAN** places it left or right. The
 AUX 2 level does nothing until you switch back to mono, when Zoom's two
 separate sends return with their old settings. Muting AUX 1 mutes the whole
 stereo send and muting AUX 2 does nothing. As in Zoom's firmware, the pads and
-the built-in effects are not sent. The two jacks share one output limiter in
-stereo, as the main outputs do, so a loud peak turns both sides down together
-and the stereo image stays put. The limiter only acts near full scale.
+the built-in effects are not sent.
 
 **Effects loops.** Zoom's sends follow the channel fader by default
 ("post-fader"), so turning a channel down also turns its sends down. To send
@@ -191,10 +189,9 @@ The test is written up in
 
 - Only takes recorded at 48 kHz join the chain; a take long enough to be
   split into two files (about 93 minutes) does not.
-- The stereo send and its shared limiter were measured at the AUX jacks with
-  test tones ([experiment 41](experiments/41-linked-limiters/README.md)), not
-  with music. The loud side's own reduction could not be read directly,
-  because the recording interface clips at that level.
+- The stereo send's sound was last measured at the AUX jacks with test tones
+  ([experiment 41](experiments/41-linked-limiters/README.md)), not with
+  music.
 - Losing power just after stopping a take, while its history is being
   written, has not been tested.
 - If takes are started and stopped faster than the history files can be
