@@ -1,0 +1,147 @@
+AUX output limiters: linking the two sides (stock L6 v1.10, 17 October 2026)
+=============================================================================
+
+Static reading of the copied audio code (analysis/ram_audio_disassembly.txt)
+and its initialisation in MAIN; nothing here is hardware evidence and nothing
+was built. Question: in stereo AUX mode (experiments 30-34), the two AUX
+jacks keep their stock output limiters, one per jack. A stereo bus normally
+has one limiter whose gain applies to both sides, so the image does not move
+when one side limits. What would linking the AUX pair take?
+
+Result
+------
+The master pair's limiter is linked: one detector reads the louder of left
+and right and one gain series is applied to both. The two AUX limiters are
+independent, each with its own detector, envelope and gain series. Their
+parameters are initialised identically. Linking them needs a 12-byte change
+in each of two per-sample loops of the audio code plus a routine of about
+ten instructions of ours, and can be delivered either in the image (a change
+to the DSP record, which the build has refused on principle so far) or by
+our startup code writing the bytes into RAM before the scheduler starts
+(the shipped DSP record stays byte for byte stock). Neither is built or
+tested; section 4 says how to test it.
+
+1. The three output processors
+------------------------------
+Let B = 0x20010a48. One state block at B+0x6260 holds three 0x30-byte
+processors: AUX 1 at +0x00, AUX 2 at +0x30, master at +0x60. Fields, AUX 1
+offsets (AUX 2 and master the same, +0x30 and +0x60):
+
+  +0x00 enable            +0x04 attack coefficient    +0x08 release coefficient
+  +0x0c envelope          +0x10 level factor          +0x18 lookahead delay buffer
+  +0x1c lookahead length  +0x20 delay write index     +0x24 constant 0x30
+
+Initialisation (MAIN 0x80011e70-0x800120c0, r7 = 1.0f, r1 = 0x3f7ffe6e):
+AUX 1 and AUX 2 receive the same coefficients (strd r7,r1 at +4 and at
++0x34), the same lookahead (0x71 samples) and the same factor (1.0); only
+the delay buffers differ (B+0x39b8+0x388 and +0x54c). All three enables come
+from the same register. Experiment 30 saw the AUX limiters engage on the
+jacks at high level, so they are enabled in normal use.
+
+The output function processes 64-frame blocks. The limiter threshold s20 is
+a constant from the literal pool (0x20227626), shared by all three; s22 is
+1.0. Per sample: x = |sample|; if x > envelope, envelope += attack * (x -
+envelope); else envelope *= release, floored at x. gain = threshold /
+(factor * envelope) when that product exceeds the threshold, else 1. The 64
+gains go to a stack array (sp+0x18), then the block is read back through
+the lookahead delay and multiplied by them.
+
+  Master (0x202278d8, enable B+0x62c0): per sample loads L (B+0x33b8) and
+    R (+0x100), takes |.| of each through the veneer 0x2022d63a (which is
+    fabsf at 0x80077fa4: clear the sign bit), vmaxnm, one envelope, one gain
+    array, applied to both sides. Linked.
+  AUX 1 (0x20227bdc, enable B+0x6260): samples B+0x35b8 only, envelope +0xc,
+    its own gain array.
+  AUX 2 (0x20227e5c, enable B+0x6290): samples B+0x36b8 only, envelope
+    +0x3c, its own gain array.
+
+So the AUX outputs are two mono limiters, as the sends were two mono mixes.
+With the stereo filter (stereo_aux_findings.txt), a strong transient on one
+side turns that side down alone, and the image shifts for the attack and
+release of the limiter. The limiters only engage near full scale: at the
+unity marks nothing limited in experiment 30; at maximum send and level,
+signals above about -45 dBFS at the USB input did.
+
+2. What linking takes
+---------------------
+Make both AUX detectors read max(|AUX1[n]|, |AUX2[n]|). The AUX blocks are
+0x100 bytes apart, like master L and R. Because the two processors have the
+same coefficients, factor, threshold and lookahead, both loops then compute
+the same gain series bit for bit, each applying it to its own side through
+its own delay line: no shared state, no change to the delay stage.
+
+The detector loops (AUX 1 at 0x20227c6a, AUX 2 at 0x20227eee) each start:
+
+  vldr s0,[r5]          4 bytes   (r5: the current sample)
+  bl 0x2022d63a         4 bytes   (fabsf)
+  vcmp.f32 s0,s16       4 bytes   (s16: the envelope)
+  vmrs apsr_nzcv,fpscr            (the loop branches on these flags)
+
+A bl from 0x2022xxxx cannot reach our code at 0x800axxxx (SDRAM), and no
+veneer is free, so the 12 bytes become:
+
+  movw r0,#lo; movt r0,#hi; blx r0; nop
+
+r0-r3 and ip are free in both loops: the existing bl already clobbers them
+and the stage after the loop reloads them. Our routine, in assembly:
+
+  vldr s0,[r5]; vldr s2,[r5,#0x100]   (AUX 2's routine: [r5,#-0x100])
+  vabs.f32 s0,s0; vabs.f32 s2,s2; vmaxnm.f32 s0,s0,s2
+  vcmp.f32 s0,s16; bx lr
+
+The FPSCR flags survive the return and the loop's vmrs reads them. Two
+routines, one per sign of the offset. In mono the sends are two different
+mixes and must not be linked, so the routine first reads the mode bytes
+(CONFIG+0x30d/0x30e, stock.h) and in mono takes |own side| alone; that is
+one load and a compare per sample. The stock loop already calls into SDRAM
+for every sample (the fabsf veneer), so the cost per sample is unchanged in
+kind: one call, plus one load, one vabs and a vmaxnm.
+
+3. Two ways to deliver it
+-------------------------
+a. In the image. Change the 24 bytes in the compressed DSP record. The
+   recipe reinserts the DSP literals from the user's own file
+   (tools/firmware/recipe.py), so the changed bytes would ship as our own
+   instruction bytes at two offsets, with no stock data; the browser patcher
+   needs the same step. plan_master_ref.py refuses any DSP hook on
+   principle, and the boot emulation compares the expanded DSP image with
+   stock; both would change deliberately. The README's statement that the
+   DSP code stays stock goes.
+b. At startup. At the first startup site (0x80067a84: every task created,
+   the scheduler not yet started, the scatter copy done since entry at
+   0x80001400) our code checks the 24 bytes read as stock, writes the
+   replacement into RAM, then cleans the data cache lines and invalidates
+   the instruction cache lines (DCCMVAC 0xe000ef68, ICIMVAU 0xe000ef58,
+   DSB, ISB). If the bytes are not as expected it does nothing and the mixer
+   limits as stock. The shipped DSP record, the recipe, the patcher and the
+   boot check are unchanged; the emulator can run the output function with
+   and without the write. It is still a change to running DSP code and the
+   README must say so. Needs checking first: the MPU attributes of the
+   region holding 0x20220000 (memory_layout_findings.txt lists region 10,
+   the SDRAM, only); the MPU is set up by main at 0x8001b320 before the
+   startup site, so the write must be allowed there.
+
+Either way the audio behaviour is the same. (b) keeps the image's DSP bytes
+stock and the patcher unchanged.
+
+4. Verification
+---------------
+Emulator: run the original output function on synthetic 64-frame AUX blocks
+with one side above the threshold and the other below, stock and patched.
+Stock: the quiet side's gains stay 1.0. Patched, in stereo: both sides get
+the same gain series, equal to what the master loop computes for the same
+samples; in mono: as stock. The master block, the delay stages and the other
+output paths unchanged. The RAM audio code already runs in fixtures
+(stereo_aux_findings.txt section 4).
+
+Hardware: the experiment-30 setup (USB tones into input 5, both jacks
+recorded by a two-input interface, tools/device/l6_aux_measure.py). Left
+tone hot enough to limit (above about -45 dBFS at maximum send and level),
+right tone at -20 dBFS. Today the right level does not move while the left
+limits; linked, it dips by the left side's gain reduction, with the same
+attack and release.
+
+Open before building: the OCRAM MPU attributes (route b); whether anything
+else reads the two AUX gain arrays or envelopes (nothing found in the output
+function); the exact bytes of the two loops in the expanded image, read from
+the emulator rather than from the disassembly listing.

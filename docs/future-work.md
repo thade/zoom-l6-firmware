@@ -106,6 +106,12 @@ and AUX 2 right, following channel pan, inputs only
 
 - [ ] Send mute in stereo: today AUX 1's mute mutes the pair and AUX 2's mute
       applies only in mono; decide whether that is right.
+- [ ] The two AUX output limiters are independent, so in stereo a strong
+      transient on one side moves the image while that side limits; the
+      master pair's limiter is linked. Linking them needs a 12-byte change in
+      each of two audio-code loops, delivered in the image or written into
+      RAM at startup; not built
+      ([AUX limiter findings](research/aux_limiter_link_findings.txt)).
 - [ ] Optional: send pads or internal effects to the pair (needs new routing).
 - [ ] Optional: switch the mode over MIDI (an NRPN pair; see the
       [AUX switch findings](research/aux_switch_findings.txt)) or from the
