@@ -29,7 +29,9 @@ Hosted at https://thade.github.io/zoom-l6-firmware/.
   `tools/firmware/build_release.py`: the token skeleton of the compressed DSP
   record (its literal bytes come from the user's file), our packed code, the
   patch bytes, copies of stock bytes the new scatter table moves, and both
-  hashes. No stock byte is in it (checked by `verify_master_everyday.py`).
+  hashes. A build that changes bytes of the DSP code lists them as
+  `span.dsp_edits` (format 2; a recipe without any stays format 1). No stock
+  byte is in it (checked by `verify_master_everyday.py`).
   `recipes/index.json` names the current release; `?version=` picks another.
 
 Checks: `tests/emulation/verify_master_everyday.py` (the committed recipe is

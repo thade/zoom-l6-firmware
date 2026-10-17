@@ -82,6 +82,7 @@ Open work: [future work](future-work.md). The detailed log up to 0.1.0 is in
 | 38 | [Release 0.1.0: EFX + PAN](../experiments/38-release/README.md) | Installed 16 Oct; passed |
 | 39 | [Firmware-written anchors, flash backup](../experiments/39-flash-diag/README.md) | Passed (toward 0.2.0) |
 | 40 | [Release 0.2.0](../experiments/40-release/README.md) | Installed 17 October; passed; this is 0.2.0 |
+| 41 | [Linked AUX limiters](../experiments/41-linked-limiters/README.md) | Installed 17 October; passed on the jacks |
 
 ## Checks
 

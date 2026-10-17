@@ -43,18 +43,20 @@ def size_patch(frames):
 
 def align4(n):return (n+3)&~3
 
-def reuse_packing(elf_path,dsp=True):
+def reuse_packing(elf_path,dsp=True,dsp_patches=()):
     """Stock-decoder packing that places code and globals in consumed DSP input.
 
     Scatter order: patched DSP expands first from the start of its source span,
     then code expands over the consumed bytes, then globals are zeroed. Packed
     code sits beyond both destinations, so no expansion overwrites unread input.
-    This is the interval experiment 16 executed from on hardware."""
+    This is the interval experiment 16 executed from on hardware.
+    dsp_patches: byte-checked patches inside the DSP code (site, bytes, patch),
+    applied before it is packed (the linked AUX limiters, plan_master_ref.py)."""
     stock=SOURCE.read_bytes();jumps=jump_plan(elf_path,source_reuse=True,dsp=dsp);source,dest,length,_=SCATTER
     assert struct.unpack_from('<I',stock,TABLE_END_LITERAL-BIAS)[0]==TABLE_END
     assert stock[TABLE_END-BIAS:TABLE_LIMIT-BIAS]==bytes(TABLE_LIMIT-TABLE_END)
     dsp=bytearray(stock[source-BIAS:source-BIAS+length])
-    for q in jumps['patches']:dsp[q['site']-dest:q['site']-dest+q['bytes']]=bytes.fromhex(q['patch'])
+    for q in [*jumps['patches'],*dsp_patches]:dsp[q['site']-dest:q['site']-dest+q['bytes']]=bytes.fromhex(q['patch'])
     with elf_path.open('rb') as f:
         segments=[g for g in ELFFile(f).iter_segments() if g['p_type']=='PT_LOAD' and g['p_filesz']]
         assert len(segments)==1 and segments[0]['p_vaddr']==CODE_INTERVAL[0];code=segments[0].data()

@@ -25,7 +25,8 @@ function unbase64(text) {
 }
 
 // The compressed DSP stream: the skeleton's token headers with the literal
-// bytes taken, in order, from the user's own stock DSP record.
+// bytes taken, in order, from the user's own stock DSP record (with the
+// recipe's few DSP edits, if any, applied to it first).
 export function clothe(skeleton, plain) {
   const out = [];
   let c = 0;
@@ -48,13 +49,15 @@ export function clothe(skeleton, plain) {
 }
 
 export async function build(stock, recipe) {
-  if (recipe.format !== 1) throw new PatchError('recipe', String(recipe.format));
+  if (recipe.format !== 1 && recipe.format !== 2) throw new PatchError('recipe', String(recipe.format));
   const stockHash = await sha256(stock);
   if (stockHash !== recipe.stock_sha256) throw new PatchError('stock', stockHash);
   const image = Uint8Array.from(stock);
   const s = recipe.span;
   const span = new Uint8Array(s.length).fill(s.fill);
-  span.set(clothe(unbase64(s.skeleton), stock.subarray(s.literals_from, s.literals_from + s.length)), 0);
+  const plain = Uint8Array.from(stock.subarray(s.literals_from, s.literals_from + s.length));
+  for (const [offset, data] of s.dsp_edits || []) plain.set(unbase64(data), offset);
+  span.set(clothe(unbase64(s.skeleton), plain), 0);
   span.set(unbase64(s.code), s.code_at);
   image.set(span, s.offset);
   for (const op of recipe.ops) {

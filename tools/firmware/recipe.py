@@ -12,7 +12,9 @@ reuse_packing, build_simple_trial.py assemble):
 The compressed DSP stream is a token stream whose literal bytes are the stock
 DSP bytes in order. The recipe keeps only the tokens (the skeleton) and
 reinserts the literals from the user's own stock file, so neither the
-compressor nor any stock data ships. Patch bytes that equal stock bytes at
+compressor nor any stock data ships. A build that patches the DSP code (the
+linked AUX limiters: two call sites) lists those few bytes of ours as edits
+applied to the literals first (format 2). Patch bytes that equal stock bytes at
 another place (the scatter records the new table moves) become copy
 operations from the user's file. Our packed code is our compiler's output;
 like any Thumb code it shares short instruction sequences with stock code
@@ -25,7 +27,7 @@ import base64,hashlib,struct
 from capture_jump_patches import SCATTER
 from build_deployment_probe import CHECKSUM_OFFSET,STOCK_SHA
 
-FORMAT=1
+FORMAT=2            # 1: no DSP edits; readers accept both
 BIAS=0x80000e00
 MIN_COPY=8          # stock-equal runs this long or longer become copies
 
@@ -90,22 +92,32 @@ def make(stock,image,pack,version):
     source,_,length,_=SCATTER;lo=source-BIAS;hi=lo+length
     dsp=stock[lo:hi]
     if pack['packed_dsp']!=image[lo:lo+len(pack['packed_dsp'])]:raise ValueError('span does not start with the packed DSP record')
+    # The build's DSP bytes differ from stock only at its DSP patch sites.
+    edits=[];i=0
+    while i<length:
+        if pack['dsp'][i]==dsp[i]:i+=1;continue
+        j=i
+        while j<length and pack['dsp'][j]!=dsp[j]:j+=1
+        edits.append([i,b64(pack['dsp'][i:j])]);i=j
     at=pack['code_source']-source
     if pack['packed_code']!=image[lo+at:lo+at+len(pack['packed_code'])]:raise ValueError('packed code not where planned')
-    recipe=dict(format=FORMAT,version=version,stock_sha256=STOCK_SHA,image_sha256=sha(image),image_bytes=len(image),
+    # Format 1 without DSP edits, so an unchanged release keeps its recipe file.
+    recipe=dict(format=FORMAT if edits else 1,version=version,stock_sha256=STOCK_SHA,image_sha256=sha(image),image_bytes=len(image),
                 checksum=dict(offset=CHECKSUM_OFFSET,sum_from=0x200),
                 span=dict(offset=lo,length=length,fill=0xff,literals_from=lo,skeleton=b64(strip(pack['packed_dsp'],len(dsp))),
-                          code_at=at,code=b64(pack['packed_code'])),
+                          **(dict(dsp_edits=edits) if edits else {}),code_at=at,code=b64(pack['packed_code'])),
                 ops=operations(stock,image,lo,hi))
     if rebuild(stock,recipe)!=image:raise ValueError('recipe does not rebuild the image')
     return recipe
 
 def rebuild(stock,recipe):
     """Reference implementation of the browser patcher."""
-    if recipe['format']!=FORMAT or sha(stock)!=recipe['stock_sha256']:raise ValueError('wrong recipe or stock image')
+    if recipe['format'] not in (1,2) or sha(stock)!=recipe['stock_sha256']:raise ValueError('wrong recipe or stock image')
     s=recipe['span'];img=bytearray(stock);lo=s['offset']
     span=bytearray([s['fill']])*s['length']
-    packed=clothe(unb64(s['skeleton']),stock[s['literals_from']:s['literals_from']+s['length']])
+    plain=bytearray(stock[s['literals_from']:s['literals_from']+s['length']])
+    for offset,data in s.get('dsp_edits',[]):data=unb64(data);plain[offset:offset+len(data)]=data
+    packed=clothe(unb64(s['skeleton']),bytes(plain))
     code=unb64(s['code']);span[:len(packed)]=packed;span[s['code_at']:s['code_at']+len(code)]=code
     img[lo:lo+s['length']]=span
     for op in recipe['ops']:
@@ -118,5 +130,5 @@ def stock_bytes(stock,recipe,window=MIN_COPY):
     """Audit: windows of the skeleton and the put bytes that also occur in the
     stock image (the packed code is our compiler's output, whose common
     instruction sequences can coincide with stock code)."""
-    shipped=[unb64(recipe['span']['skeleton'])]+[unb64(op[2]) for op in recipe['ops'] if op[0]=='put']
+    shipped=[unb64(recipe['span']['skeleton'])]+[unb64(e[1]) for e in recipe['span'].get('dsp_edits',[])]+[unb64(op[2]) for op in recipe['ops'] if op[0]=='put']
     return sum(1 for blob in shipped for k in range(len(blob)-window+1) if stock.find(blob[k:k+window])>=0)

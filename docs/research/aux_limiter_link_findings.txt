@@ -145,3 +145,58 @@ Open before building: the OCRAM MPU attributes (route b); whether anything
 else reads the two AUX gain arrays or envelopes (nothing found in the output
 function); the exact bytes of the two loops in the expanded image, read from
 the emulator rather than from the disassembly listing.
+
+5. Built and run in the emulator (17 October 2026, experiment 41)
+------------------------------------------------------------------
+Built as the `linked` mode of tools/firmware/build_master_trial.py: release
+0.2.0 plus the two call sites and two routines (sa_limit_a, sa_limit_b in
+src/capture/master/master_hooks.S, assembled only with AUX_LINK). Image
+SHA-256 34df789bc9eabf0b6060a12700cbd889d39ef4b8833f2c34db05b3bf72f3e90b,
+11,140 bytes of code (136 more than 0.2.0), 340 bytes of globals. Not
+installed.
+
+One thing the static reading missed: AUX 1's limiter block writes its
+limited output back over its own sample block before AUX 2's block runs, so
+AUX 2's detector cannot read AUX 1's samples any more. The master pair has
+no such problem because one pass handles both sides. So AUX 1's routine
+keeps the louder value of each sample in a 64-float buffer of ours
+(sa_louder, indexed by the loop counter r7) and AUX 2's routine reads it
+back. This makes AUX 2's gains depend on AUX 1's limiter having run in the
+same block; both enables are set from one register by the initialiser
+(0x80011920) and no other writer of them was found.
+
+Also corrected: the delay is 48 samples (state +0x24); 0x71 is the ring
+length.
+
+tests/emulation/verify_aux_limiter.py (six groups): the plan changes only
+the 24 bytes at the two sites, each decoding as movw/movt r0, blx r0, nop
+with the routine's address; the stock blocks are independent (the quiet
+side keeps gain 1.0 while the loud side limits) and delay by 48 samples;
+patched, in stereo, both sides' gain series equal, bit for bit, the series
+stock computes when fed the louder of both sides, and each side's output is
+its own delayed sample times that gain; in mono, or without the worker,
+gains, outputs, limiter state and the loops' registers are as stock; the
+routines preserve the loops' registers in stereo too; the release recipe
+(format 2, span.dsp_edits) carries the two 12-byte edits and rebuilds the
+image, and the browser patcher's JavaScript rebuilds it too
+(verify_patcher.py). The stock DSP state initialiser fills the limiter
+state; the output level factor is set to its settled value of 1.0. The
+mixer stages before the limiters and the output conversion after them are
+not run.
+
+The hardware test is section 4; its result is section 6.
+
+6. On the mixer (17 October 2026)
+---------------------------------
+Installed with the installer over 0.2.0, then 0.2.0 reinstalled as a
+control and 41 again. With USB tones into input 5 (AUX 1 send and level at
+maximum, stereo mode) and the jacks recorded by the Syntakt, a steady quiet
+tone on the right was turned down by 0, 0, 2.0, 4.0, 6.0 and 8.0 dB while
+one-second left bursts at -14, -10, -8, -6, -4 and -2 dBFS were on: nothing
+below the threshold, then one dB per dB, with the attack inside 50 ms and
+the release about half a second. On 0.2.0 the same runs left the right side
+at its level throughout. In mono both builds agree within 0.6 dB, and the
+standard stereo tones are identical on both. The left jack sits at the
+interface's full scale once limiting, so its own reduction is read from the
+right side's dip. Table and details: experiments/41-linked-limiters/README.md;
+evidence in deployment/41_linked/.

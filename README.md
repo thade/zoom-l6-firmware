@@ -201,6 +201,11 @@ The test is written up in
   simulation of the mixer, not on a real one.
 - The stereo switch also works in the L6's settings and test modes; that has
   not been tried.
+- In stereo, the two AUX jacks keep Zoom's separate output limiters, so a
+  very loud peak on one side turns that side down alone for a moment. They
+  only act near full scale. A build that links them has been measured on a
+  mixer and will go into the next release
+  ([experiment 41](experiments/41-linked-limiters/README.md)).
 
 ## Building and developing
 
