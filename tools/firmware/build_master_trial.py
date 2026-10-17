@@ -26,6 +26,7 @@ release_0_1_0 (38) version 0.1.0: 36 with EFX + PAN for the chain, armed ~4 s af
 flash_diag   (39) diagnostic: firmware-written anchors, the status query and flash reads
 release_0_2_0 (40) version 0.2.0: 38 with the anchors written by the firmware
 release      (41) version 0.3.0: 40 with the two AUX output limiters linked in stereo (two DSP call sites) (default)
+stack_diag   (42) diagnostic: 41 with the status query and the task stack headroom (schema 8)
 
 Writes the trial image and the anchor file: a short silent 48 kHz stereo
 32-bit float WAV with the same 512-byte header layout as the extra files the
@@ -111,14 +112,20 @@ MODES=dict(
     # builds from the working tree instead, held to the same published hash.
     release=dict(experiment=41,out=ROOT/D/'41_linked',image='linked',pin='v0.3.0',tree_fallback=True,pads=4,trial=False,
                  minimum=True,history=True,stereo=True,switch=True,chain_switch=True,anchors=True,link=True,version='0.3.0',
-                 sha='34df789bc9eabf0b6060a12700cbd889d39ef4b8833f2c34db05b3bf72f3e90b'))
+                 sha='34df789bc9eabf0b6060a12700cbd889d39ef4b8833f2c34db05b3bf72f3e90b'),
+    # Diagnostic: the release with the status query, which reports the stack
+    # headroom of the stock recorder, Main and MIDI tasks and of the worker,
+    # and the least stack each hook found free. Built from the current
+    # sources; pinned once installed.
+    stack_diag=dict(experiment=42,out=ROOT/D/'42_stack_diag',image='stack_diag',pads=4,minimum=True,history=True,
+                    stereo=True,switch=True,chain_switch=True,anchors=True,link=True,stack=True))
 
 @contextlib.contextmanager
 def trial_elf(m):
     """The ELF: current sources, or the pinned commit's in a temporary tree.
     A mode with tree_fallback builds the working tree when the pin cannot be
     read (no git history); its hash check then decides."""
-    def current():return build(trial=m.get('trial',True),stereo=m.get('stereo',False),diag=m.get('diag',False),flash=m.get('flash',False),link=m.get('link',False))
+    def current():return build(trial=m.get('trial',True),stereo=m.get('stereo',False),diag=m.get('diag',False),flash=m.get('flash',False),link=m.get('link',False),stack=m.get('stack',False))
     if 'pin' not in m:yield current();return
     try:archive=subprocess.run(['git','archive',m['pin'],*PINNED_SOURCES],cwd=ROOT,capture_output=True,check=True).stdout
     except (OSError,subprocess.CalledProcessError):
@@ -128,7 +135,7 @@ def trial_elf(m):
         yield current();return
     with tempfile.TemporaryDirectory(prefix='l6-pinned-') as tree:
         tarfile.open(fileobj=io.BytesIO(archive)).extractall(tree,filter='data')
-        yield build(trial=m.get('trial',True),root=Path(tree),stereo=m.get('stereo',False),diag=m.get('diag',False),flash=m.get('flash',False),link=m.get('link',False))
+        yield build(trial=m.get('trial',True),root=Path(tree),stereo=m.get('stereo',False),diag=m.get('diag',False),flash=m.get('flash',False),link=m.get('link',False),stack=m.get('stack',False))
 
 def anchor():
     h=bytearray(512);payload=ANCHOR_FRAMES*8
@@ -169,6 +176,7 @@ def trial(mode='reference'):
         protocol=('6F/6E kind7 schema1; recorder/worker/handoff/heap words and the assigned path' if mode=='reference'
                   else 'none: no status query' if not diagnostic
                   else '6F/6E kind7 schema7 (chain, anchors, flash counters) and kind8 flash reads' if m.get('flash')
+                  else '6F/6E kind7 schema8; schema 5 with task stack headroom and the hooks\' least free stack in place of the AUX gain rows' if m.get('stack')
                   else '6F/6E kind7 schema6; schema 5 with the panel switch diagnostics in place of the AUX gain rows' if m.get('diag')
                   else '6F/6E kind7 schema5; as schema 4 plus the AUX mode, toggles and refusals' if mode=='switch'
                   else '6F/6E kind7 schema4; as schema 3 plus the AUX1 and AUX2 gain rows' if mode=='stereo'
@@ -200,6 +208,7 @@ def trial(mode='reference'):
             (['No status query: hardware behaviour is checked by ear and from the saved pad paths'] if not diagnostic else []))+[
             *(['Deleting a referenced take folder is untested'] if m['experiment']<29 else []),
             *(['Worker stack is measured by painting 7 KiB below its entry frame'] if diagnostic else []),
+            *(['Task stack headroom is read from the stock A5 fill; the hooks note the least stack free below their own frame'] if m.get('stack') else []),
             'Early-hang recovery: shown on the mixer in experiment 18 (the bootloader runs the PLAY/STOP update before MAIN)',
             'No installation, staging or installed-flash readback is performed by this builder'])
     return data,wav,report,t

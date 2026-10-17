@@ -104,4 +104,15 @@ void panel_poll(void);
 int panel_recording(void);
 void panel_show(uint32_t sel_a,uint32_t sel_b,uint32_t blink);
 void panel_restore(void);
+#ifdef STACK_DIAG
+/* Diagnostic builds (experiment 42): how much of its task's stack each hook
+ * finds free below its own frame, at the least, and which task it ran on.
+ * See docs/research/task_stack_findings.txt. */
+enum {SD_ADMIT,SD_STOP,SD_PLAY,SD_RECEIVE,SD_QUERY,SD_HOOKS};
+extern uint32_t sd_free[SD_HOOKS],sd_task[SD_HOOKS];
+void sd_note(uint32_t hook);
+#define SD_NOTE(h) sd_note(h)
+#else
+#define SD_NOTE(h) ((void)0)
+#endif
 #endif

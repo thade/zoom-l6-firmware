@@ -67,6 +67,21 @@ static const uint16_t ANCHOR_TMP[]=u"A:\\SOUND_PAD\\PAD1\\MASTER.TMP";
 #define ANCHOR_DIGIT 16u        /* index of the pad digit in ANCHOR_PATH */
 
 static uint32_t interrupt(void) {uint32_t v;__asm__ volatile("mrs %0, ipsr":"=r"(v));return v;}
+#ifdef STACK_DIAG
+/* The stock kernel fills every task stack with A5 bytes when it creates the
+ * task (0x80076c60), so the status query can read each task's headroom. This
+ * adds the hooks' part: the least stack a hook found free below its own
+ * frame (sp less the task's stack base, TCB+0x30), and the task it ran on. */
+#define CURRENT_TCB W(0x808e291cu)
+KEEP uint32_t sd_free[SD_HOOKS],sd_task[SD_HOOKS];
+KEEP void sd_note(uint32_t hook) {
+    uint32_t sp;__asm__ volatile("mov %0, sp":"=r"(sp));
+    if(interrupt() || hook>=SD_HOOKS)return;
+    uint32_t tcb=CURRENT_TCB;if(!tcb)return;
+    uint32_t free=sp-W(tcb+0x30u);
+    if(!sd_task[hook] || free<sd_free[hook]){sd_free[hook]=free;sd_task[hook]=tcb;}
+}
+#endif
 /* Equal strings of at most n units including the NUL. */
 static int same16(const uint16_t *a,const uint16_t *b,uint32_t n) {
     for(uint32_t i=0;i<n;i++){if(a[i]!=b[i])return 0;if(!a[i])return 1;}
@@ -112,7 +127,7 @@ static void record_played(MasterRef *g,uint32_t pad,uint32_t gen) {
 /* Stock pad start 0x80018310 (after its pad check), on Main for every trigger:
  * pad buttons, MIDI and the Editor. Only starts during an open take count. */
 KEEP void mr_play(uint32_t kind,uint32_t pad) {
-    (void)kind;
+    (void)kind;SD_NOTE(SD_PLAY);
     MasterRef *g=LD(&mr_state);
     if(!g || pad>=MR_PADS || !LD(&g->played_open))return;
     record_played(g,pad,LD(&g->played_gen));
@@ -128,6 +143,7 @@ static int normal_recording(void) {
 /* Stock recorder start, after all seven streams are registered (0x8000b158).
  * Pad-record takes (a pad record target) are not ordinary takes. */
 KEEP void mr_admit(void) {
+    SD_NOTE(SD_ADMIT);
     MasterRef *g=LD(&mr_state);if(!g)return;
     /* Any admission ends a take whose stop never reached the setter (card
      * cleanup finalizes without it). */
@@ -145,7 +161,7 @@ KEEP void mr_admit(void) {
 /* Stock stop cursor setter (0x80006918), inside RecStop before the stock
  * files are finalized. Only RecStop's call ends a take. */
 KEEP void mr_stop(uint32_t selected,uint32_t caller) {
-    (void)selected;
+    (void)selected;SD_NOTE(SD_STOP);
     MasterRef *g=LD(&mr_state);if(!g)return;
     if(caller!=REC_STOP_RETURN)return;
     ST(&g->played_open,0);   /* first: later pad starts belong to no take */
@@ -296,6 +312,7 @@ static void list_anchor(MasterRef *g,uint32_t pad,uint32_t stamp) {
 KEEP uint32_t mr_main_ready;   /* tick (never 0) when Main first returned from a receive */
 KEEP uint32_t mr_main_waits;
 KEEP int32_t mr_main_receive(uint32_t *packet) {
+    SD_NOTE(SD_RECEIVE);
     __atomic_fetch_add(&mr_main_waits,1,__ATOMIC_RELEASE);   /* the previous packet is handled */
     int32_t result=RECEIVE(packet);
     if(!mr_main_ready)__atomic_store_n(&mr_main_ready,TICKS|1u,__ATOMIC_RELAXED);

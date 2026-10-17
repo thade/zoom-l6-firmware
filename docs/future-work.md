@@ -12,8 +12,12 @@ hardware result. An emulator result does not complete a hardware item.
 - [ ] Power loss right after stopping a take, while its history is written.
 - [ ] Rapid back-to-back takes: queue a second stopped take instead of
       dropping one when the history of the first is still being written.
-- [ ] Measure the hooks' stack use on the stock recorder and Main tasks (only
-      the worker's has been measured).
+- [ ] Run [experiment 42](../experiments/42-stack-headroom/README.md) on
+      the mixer: the stack headroom of the stock recorder, Main and MIDI
+      tasks with the hooks running. From the code the hooks add at most
+      about 400 bytes to the recorder's 16 KiB and 220 to Main's 32 KiB; the
+      trial builds' status query, about 630 bytes on a 4 KiB MIDI task, is
+      the one to watch ([task stack findings](research/task_stack_findings.txt)).
 - [ ] While the firmware writes a pad folder's `MASTER.WAV` (about a dozen
       file calls in one worker step), the switch-hold detector does not poll,
       so on a slow card a hold in progress may restart. Only when an anchor

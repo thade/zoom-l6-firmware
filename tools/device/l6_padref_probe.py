@@ -22,6 +22,9 @@ RING_EVENTS=('keys','start','restart','misread','release','toggle')
 FLASH_FIELDS=HISTORY_FIELDS+('aux_mode','aux_toggles','aux_refused','chain_mode','main_ready','anchor_pending',
     'anchor_existed','anchor_created','anchor_failed','anchor_listed','anchor_status','flash_reads','flash_refused')   # schema 7 (experiment 39)
 ANCHOR_STATUS=('ok','existed','create','write','close','rename','probe','deferred')
+STACK_TASKS=('recplayctl','main','midisetting','worker');STACK_HOOKS=('admit','stop','play','receive','query')
+STACK_FIELDS=HISTORY_FIELDS+('aux_mode','aux_toggles','aux_refused')+tuple(f'{t}_headroom' for t in STACK_TASKS)+tuple(
+    f'{h}_{k}' for h in STACK_HOOKS for k in ('free','task'))   # schema 8 (experiment 42)
 PATH_WORDS=16
 STATUS=('ok','revoked','missing','split','io','format','short')
 HANDOFF_STATES=('none','posted','assigned','skipped','failed','lost','superseded')
@@ -32,7 +35,7 @@ def request(token=0):
     return bytes((0xf0,0x52,0,0,0x6f,7,token,0xf7))
 def decode(packet):
     if len(packet)<6 or packet[:6]!=bytes((0xf0,0x52,0,0,0x6e,7)):return None
-    fields={8+5*(len(f)+PATH_WORDS):f for f in (FIELDS,CHAIN_FIELDS,HISTORY_FIELDS,STEREO_FIELDS,SWITCH_FIELDS,PANEL_FIELDS,FLASH_FIELDS)}.get(len(packet))
+    fields={8+5*(len(f)+PATH_WORDS):f for f in (FIELDS,CHAIN_FIELDS,HISTORY_FIELDS,STEREO_FIELDS,SWITCH_FIELDS,PANEL_FIELDS,FLASH_FIELDS,STACK_FIELDS)}.get(len(packet))
     if not fields or packet[-1]!=0xf7 or any(x>127 for x in packet[6:-1]):
         raise ValueError('invalid status reply length or encoding')
     values=[]
@@ -40,13 +43,21 @@ def decode(packet):
         v=packet[7+5*i:12+5*i]
         if v[4]>15:raise ValueError('status word exceeds 32 bits')
         values.append(sum(b<<(7*j) for j,b in enumerate(v)))
-    schema={id(FIELDS):1,id(CHAIN_FIELDS):2,id(HISTORY_FIELDS):3,id(STEREO_FIELDS):4,id(SWITCH_FIELDS):5,id(PANEL_FIELDS):6,id(FLASH_FIELDS):7}[id(fields)]
+    schema={id(FIELDS):1,id(CHAIN_FIELDS):2,id(HISTORY_FIELDS):3,id(STEREO_FIELDS):4,id(SWITCH_FIELDS):5,id(PANEL_FIELDS):6,id(FLASH_FIELDS):7,id(STACK_FIELDS):8}[id(fields)]
     if values[:2]!=[schema,0x4c4d01]:raise ValueError('unsupported status schema or marker')
     text=lambda words:bytes((w>>(7*k))&127 for w in words for k in range(4)).split(b'\0')[0].decode('ascii')
     row=dict(zip(fields,values),token=packet[6])
     if schema>=5:row['aux_stereo']=row['aux_mode']==0x5aa5
     if schema==7:
         row['chain_on']=row['chain_mode']==0x3cc3
+    if schema==8:
+        # Per task: bytes at the bottom of its stack never written (the stock
+        # A5 fill); per hook: the least stack free below its own frame and the
+        # task it ran on ('none' until the hook has run).
+        row['headroom']={t:row.pop(f'{t}_headroom') for t in STACK_TASKS}
+        row['hooks']={h:dict(free=row.pop(f'{h}_free'),task=STACK_TASKS[row[f'{h}_task']-1] if 0<row[f'{h}_task']<=len(STACK_TASKS) else 'none')
+                      for h in STACK_HOOKS}
+        for h in STACK_HOOKS:row.pop(f'{h}_task')
     if schema==6:
         row['chain_on']=row['chain_mode']==0x3cc3
         ring=[row.pop(f'ring_{i}') for i in range(32)]

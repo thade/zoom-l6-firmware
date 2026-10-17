@@ -89,6 +89,7 @@ Open work: [future work](future-work.md). The detailed log up to 0.1.0 is in
 | 39 | [Firmware-written anchors, flash backup](../experiments/39-flash-diag/README.md) | Passed (toward 0.2.0) |
 | 40 | [Release 0.2.0](../experiments/40-release/README.md) | Installed 17 October; passed; release 0.2.0 |
 | 41 | [Linked AUX limiters](../experiments/41-linked-limiters/README.md) | Installed 17 October; passed on the jacks; this is 0.3.0 |
+| 42 | [Task stack headroom](../experiments/42-stack-headroom/README.md) | Built 17 October; not installed |
 
 ## Checks
 

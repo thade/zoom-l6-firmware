@@ -73,6 +73,41 @@ static uint32_t flash_query(const uint8_t *p) {
     ((void (*)(const uint8_t*,uint32_t,uint32_t))0x80031649u)(reply,len,2);
     return 1;
 }
+#elif defined(STACK_DIAG)
+/* Schema 8 (experiment 42): task stack headroom replaces the AUX gain rows.
+ * The stock kernel fills each task's stack with A5 bytes when it creates the
+ * task, so the bytes at the bottom still unwritten are the task's headroom
+ * so far: RecPlayCtl, Main, MidiSettingRcvMsg (the query's own task) and the
+ * worker (its own paint counts as unwritten too). Then, per hook, the least
+ * stack it found free below its own frame and the task it ran on (1 RecPlayCtl,
+ * 2 Main, 3 MidiSettingRcvMsg, 4 the worker, 0 none or another). */
+#define SCHEMA 8u
+extern MasterRef *mr_state;
+#define TASKS 4u
+#define AUX_WORDS (TASKS+2u*SD_HOOKS)
+#define TCB_STACK(t) W((t)+0x30u)    /* lowest address of the task's stack */
+#define TCB_TOP(t) W((t)+0x64u)      /* its initial top */
+#define STOCK_FILL 0xa5a5a5a5u
+static const uint32_t SLOTS[3]={0x80446dc0u,0x80446da4u,0x80446db0u};   /* RecPlayCtl, Main, MidiSettingRcvMsg handles */
+static uint32_t task_of(uint32_t i) {
+    if(i<3u)return W(SLOTS[i]);
+    const MasterRef *g=LD(&mr_state);return g?g->task:0;
+}
+static uint32_t headroom(uint32_t tcb) {
+    if(!tcb)return 0;
+    const volatile uint32_t *p=(const volatile uint32_t *)TCB_STACK(tcb),*top=(const volatile uint32_t *)TCB_TOP(tcb),*low=p;
+    if(!p || !top)return 0;
+    while(p<top && (*p==STOCK_FILL || *p==MR_STACK_PAINT))p++;
+    return (uint32_t)p-(uint32_t)low;
+}
+static uint32_t extra(uint32_t i) {
+    if(i<TASKS)return headroom(task_of(i));
+    i-=TASKS;
+    if(!(i&1u))return sd_free[i>>1];
+    uint32_t tcb=sd_task[i>>1];
+    for(uint32_t t=0;t<TASKS;t++)if(tcb && task_of(t)==tcb)return t+1u;
+    return 0;
+}
 #else
 #define SCHEMA 5u
 #define AUX_WORDS 20u
@@ -112,11 +147,13 @@ KEEP uint32_t mr_query(const uint8_t *packet) {
        p[4]!=0x6f || p[5]!=7 || p[6]>127 || p[7]!=0xf7 ||
        *(volatile const uint8_t*)0x80629b60u!=2)return 0;
     uint32_t ipsr;__asm__ volatile("mrs %0,ipsr":"=r"(ipsr));if(ipsr)return 0;
+    SD_NOTE(SD_QUERY);
     const MasterRef *g=LD(&mr_state);
 #define F(x) (g?(x):0)
-    /* Words are encoded straight into the reply (Main's stack is not measured;
-     * the larger diagnostic reply lives in the globals instead). */
-#if defined(PANEL_DIAG) || defined(FLASH_DIAG)
+    /* Words are encoded straight into the reply, on the parser's 4 KiB
+     * MidiSettingRcvMsg stack; the larger diagnostic replies live in the
+     * globals instead (docs/research/task_stack_findings.txt). */
+#if defined(PANEL_DIAG) || defined(FLASH_DIAG) || defined(STACK_DIAG)
     static uint8_t reply[8+5*(VALUES+AUX_WORDS+PATH_WORDS)];
 #else
     uint8_t reply[8+5*(VALUES+AUX_WORDS+PATH_WORDS)];
@@ -134,7 +171,7 @@ KEEP uint32_t mr_query(const uint8_t *packet) {
         AUX_MODE[0]|AUX_MODE[1]<<8,&sa_toggles?sa_toggles:0xffffffffu,&sa_refused?sa_refused:0xffffffffu};
 #undef F
     for(uint32_t i=0;i<VALUES;i++)encode(reply,i,values[i]);
-#if defined(PANEL_DIAG) || defined(FLASH_DIAG)
+#if defined(PANEL_DIAG) || defined(FLASH_DIAG) || defined(STACK_DIAG)
     for(uint32_t i=0;i<AUX_WORDS;i++)encode(reply,VALUES+i,extra(i));
 #else
     for(uint32_t i=0;i<AUX_WORDS;i++)encode(reply,VALUES+i,AUX_GAINS[i]);

@@ -1,0 +1,129 @@
+TASK STACKS AND THE HOOKS' STACK USE
+17 October 2026
+
+Result
+The stock recorder task (RecPlayCtl) has a 16,384-byte stack and Main a
+32,768-byte one. The hooks add at most about 400 bytes to the recorder's and
+220 bytes to Main's, from the code. The stock kernel fills every task stack
+with A5 bytes when it creates the task, so a trial build can read each
+task's headroom without a paint of its own: experiment 42 does, and also
+notes the least stack each hook found free. Nothing has been measured on the
+mixer yet. The one figure worth watching is the trial builds' status query,
+which runs on a 4,096-byte MIDI task and uses about 630 bytes of it in the
+builds that keep the reply on the stack (experiments 24 to 36); the
+diagnostic builds 37, 39 and 42 keep it in the globals and use about 250.
+
+No device, card or firmware image was modified. The release image is
+unchanged (tests/emulation/verify_stack_diag.py builds 0.3.0 from the tree).
+
+1. The stock task table
+The initializer 0x80048248 creates 35 tasks from the table at 0x800a1bd4
+(24 bytes each: entry, name, stack words, argument, priority, handle slot)
+through the creator 0x80076c60. The creator allocates words * 4 bytes for
+the stack and a 0x94-byte task control block (TCB) through 0x8006de78, fills
+the stack with A5 bytes (memset 0x8000178e at 0x80076c9e), and keeps the
+stack's lowest address at TCB+0x30 and its initial top (8-aligned) at
+TCB+0x64, the priority at +0x2c and +0x70, the name at +0x34. The handle slot
+receives the TCB. The running task's TCB is at 0x808e291c. This is FreeRTOS
+xTaskCreate with its stack fill, as the bootloader findings already named it.
+
+  task                   entry      stack bytes  created at  runtime priority
+  Main                   8006dd71   32,768       priority 13   13
+  RecPlayCtl             80034bc9   16,384       0             12 (experiment 22)
+  SamplerFileAssign      80036291   16,384       0             9
+  MidiSettingRcvMsg      8002e7a9    4,096       0
+  every other task                   4,096       0 (ApTimer 31)
+  Idle (0x800745dc)                    360 (90 words)
+  L6PadRef (ours)                    8,192 (2048 words), priority 1
+
+MidiSettingRcvMsg collects the Editor's SysEx and calls the parser
+0x800301f0 (pad_protocol_findings.txt), where the trial builds' status query
+is hooked.
+
+2. Which task runs each hook
+  site        adapter          task              what runs
+  0x8000b158  mr_admit_hook    RecPlayCtl        mr_admit, inside the record-start
+                                                 callback (0x8000b090 from 0x8000b1ba,
+                                                 0x8000b6f6)
+  0x80006918  mr_stop_hook     RecPlayCtl        mr_stop, inside the RecStop (0x8004ba48)
+                                                 and PlayStop (0x8004b918) callbacks
+  0x80018316  mr_play_hook     Main              mr_play, the stock pad start
+  5 sites     mr_main_receive  Main              a BL to our function instead of the
+                                                 stock receive: no adapter frame
+  0x80010398  sa_ramp          the task asking   the stereo AUX filter, then the stock
+              and 4 veneers    for a gain change request with its prologue replayed
+  0x800301f0  health_parser    MidiSettingRcvMsg mr_query (trial builds only)
+  startup     two hooks        the boot stack    before the scheduler starts
+
+3. The hooks' added depth
+The adapter (src/capture/hook_macros.inc, and mr_stop_hook in
+master_hooks.S) pushes r0-r12 and lr (56 bytes), apsr and fpscr (8) and
+s0-s31 (128): 192 bytes, then aligns sp down to 8, which can add 4. The
+query's health_parser pushes r0-r4 and lr: 24 bytes. The C frames below are
+clang's (zig 0.13, -Os) for the stereo, linked, trial build of 17 October
+(-fstack-usage, checked against the disassembly), with the deepest chain of
+our own callees; stock functions the hooks call are not counted, since they
+run on these tasks in stock too.
+
+  function          frame  own callees                 deepest
+  mr_admit             24  record_played 24                 48
+  mr_stop             192  memcpy 8 (path[80] is 160)      200
+  mr_play               0  record_played 24                 24
+  mr_main_receive     144  sa_toggle 8, panel_show 40      192
+  mr_query            600  (reply 383 and values 156 on the stack)
+  mr_query (static)   216  sd_note 8 (37, 39, 42)          224
+  sa_ramp              32  then the stock request           32
+  sa_mono_pan           8                                     8
+  sa_balance           24                                    24
+  sa_reset1/2          16                                    16
+
+Worst case per task, adapter included:
+  RecPlayCtl   admit 196 + 48 = 244;  stop 196 + 200 = 396   of 16,384 (2.4 %)
+  Main         play 196 + 24 = 220;   receive 192             of 32,768 (0.7 %)
+  MidiSetting  query 24 + 608 = 632 (24-36), 24 + 224 = 248 (37, 39, 42)
+                                                              of 4,096 (15 %, 6 %)
+  worker       its own task, measured by the paint (experiment 28: 3,188 of 8,192)
+
+mr_main_receive also calls the stock pad functions the Editor's select
+handler uses (lookup, validate, assign, list, count, path, unlink), the
+delay and the event post; those run on Main in stock, from a different
+depth. mr_query calls nothing of stock but the reply sender. The stock
+parser's own depth on the 4-KiB task is not known; the query has run on it
+in every trial build since experiment 24 without a fault, which says little
+about the margin. That margin is what experiment 42 measures.
+
+4. The measurement (experiment 42, trial build stack_diag)
+Because of the A5 fill, the bytes at the bottom of a task's stack that are
+still A5 are bytes the task has never used. The status query (schema 8,
+-DSTACK_DIAG) reads that headroom for RecPlayCtl, Main and MidiSettingRcvMsg
+from their handle slots (0x80446dc0, 0x80446da4, 0x80446db0) and for the
+worker from its handle, scanning from TCB+0x30 up to TCB+0x64 while the
+words are A5A5A5A5 or the worker's own paint. Reading another task's stack
+is a read of ordinary RAM on the same core; nothing is written.
+
+The hooks' part: in that build each of mr_admit, mr_stop, mr_play,
+mr_main_receive and mr_query first calls sd_note, which records the least
+(sp - stack base) it has seen for that hook and the running task's TCB
+(0x808e291c), outside interrupts only. The query reports the five minima and
+the task as an index (1 RecPlayCtl, 2 Main, 3 MidiSettingRcvMsg, 4 the
+worker), which also confirms on the mixer which task each hook runs on. The
+note is taken below the hook's own frame, after its prologue, so the figure
+already includes that frame and the adapter above it.
+
+Decoded by tools/device/l6_padref_probe.py (schema 8: headroom per task,
+free and task per hook). Everything is under STACK_DIAG; the release and
+every pinned build are byte for byte as before.
+
+Verification and limits
+tests/emulation/verify_stack_diag.py, 3 groups: the diagnostic build
+patches the 16 release sites plus the query and the working tree still
+builds 0.3.0's published image; schema 8 reads each task's headroom from
+control blocks and A5-filled stacks laid out as the creator leaves them (a
+missing task and a fully written stack read 0; the worker's paint counts as
+unwritten); each hook notes the least stack free below its own frame and
+the task it ran on, keeps the minimum, and lowers it when a later run is
+deeper. In the emulator the notes sat 24 (admit), 192 (stop), 200 (play,
+through its adapter), 144 (receive) and 216 (query) bytes below the window
+top. The stack sizes are read from the table in the image, not from a
+running mixer; the hooks' depth is static; no task has been measured on the
+mixer. The 4-KiB MIDI task's stock depth is unknown until then.
