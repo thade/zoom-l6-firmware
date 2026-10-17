@@ -13,7 +13,7 @@ instead.
 - A **full clone**: `git clone https://github.com/thade/zoom-l6-firmware.git`,
   then `cd zoom-l6-firmware`. A ZIP download or `--depth 1` clone builds the
   release but cannot rebuild the earlier experiments the checks compare
-  against (0.1.0 builds from the `v0.1.0` tag).
+  against (0.1.0 and 0.2.0 build from the `v0.1.0` and `v0.2.0` tags).
 
 ## 2. Python environment
 
@@ -60,13 +60,13 @@ image alone:
 python tools/firmware/build_release.py
 ```
 
-Both write `release/0.2.0/`: `L6.BIN`, `SHA256SUMS`, `manifest.json` and
+Both write `release/0.3.0/`: `L6.BIN`, `SHA256SUMS`, `manifest.json` and
 `recipe.json` (the same release for the browser patcher).
-The 0.2.0 image is reproducible: the build stops if the image differs from
+The 0.3.0 image is reproducible: the build stops if the image differs from
 its published hash:
 
 ```text
-0c72755eaa9e24854ddd60187765b4ff05d0f86df3edd76ef2b08423a775f0af  L6.BIN
+34df789bc9eabf0b6060a12700cbd889d39ef4b8833f2c34db05b3bf72f3e90b  L6.BIN
 ```
 
 Then [install](../README.md#install).

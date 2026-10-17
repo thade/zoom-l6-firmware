@@ -2,7 +2,7 @@
 
 Unofficial replacement firmware for the original **Zoom LiveTrak L6** (not
 the L6max). It lets you overdub using only the mixer, and adds a stereo AUX
-send you can switch on and off. Version **0.2.0**, made from Zoom's own
+send you can switch on and off. Version **0.3.0**, made from Zoom's own
 firmware **v1.10**.
 
 This is independent work, not affiliated with or endorsed by Zoom. Zoom's
@@ -41,8 +41,8 @@ new firmware file on your own computer. You can also
   responsibility. This project's MIT licence covers its own code only and
   comes with no warranty.
 - **Testing has been limited.** These features have been used every day on
-  one mixer since 12 October 2026; the 0.2.0 file itself was installed with
-  the patcher page and checked on 17 October. Some situations have only been
+  one mixer since 12 October 2026; the 0.3.0 file itself was installed and
+  measured at the AUX jacks on 17 October. Some situations have only been
   tested in a software simulation of the mixer, not on a real one (see
   [Known limitations](#known-limitations)).
 
@@ -144,7 +144,9 @@ loud it is in the stereo send, and its **PAN** places it left or right. The
 AUX 2 level does nothing until you switch back to mono, when Zoom's two
 separate sends return with their old settings. Muting AUX 1 mutes the whole
 stereo send and muting AUX 2 does nothing. As in Zoom's firmware, the pads and
-the built-in effects are not sent.
+the built-in effects are not sent. The two jacks share one output limiter in
+stereo, as the main outputs do, so a loud peak turns both sides down together
+and the stereo image stays put. The limiter only acts near full scale.
 
 **Effects loops.** Zoom's sends follow the channel fader by default
 ("post-fader"), so turning a channel down also turns its sends down. To send
@@ -189,9 +191,10 @@ The test is written up in
 
 - Only takes recorded at 48 kHz join the chain; a take long enough to be
   split into two files (about 93 minutes) does not.
-- The stereo send's sound was last measured at the AUX jacks on an earlier
-  build ([experiment 32](experiments/32-aux-switch/README.md)); on 0.1.0 and
-  0.2.0 only the switch and its lights were checked.
+- The stereo send and its shared limiter were measured at the AUX jacks with
+  test tones ([experiment 41](experiments/41-linked-limiters/README.md)), not
+  with music. The loud side's own reduction could not be read directly,
+  because the recording interface clips at that level.
 - Losing power just after stopping a take, while its history is being
   written, has not been tested.
 - If takes are started and stopped faster than the history files can be
@@ -201,16 +204,11 @@ The test is written up in
   simulation of the mixer, not on a real one.
 - The stereo switch also works in the L6's settings and test modes; that has
   not been tried.
-- In stereo, the two AUX jacks keep Zoom's separate output limiters, so a
-  very loud peak on one side turns that side down alone for a moment. They
-  only act near full scale. A build that links them has been measured on a
-  mixer and will go into the next release
-  ([experiment 41](experiments/41-linked-limiters/README.md)).
 
 ## Building and developing
 
 - **[Build from source](docs/setup.md).** macOS or Linux, git and Python 3.12
-  or newer; the build produces `release/0.2.0/L6.BIN`.
+  or newer; the build produces `release/0.3.0/L6.BIN`.
 - **Installer script.** With the mixer's card mounted,
   `python tools/device/install_release.py --eject` copies the built `L6.BIN`
   to it (after backing up the card's existing `L6.BIN` and settings file) and

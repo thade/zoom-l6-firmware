@@ -135,8 +135,8 @@ def main():
     from build_master_trial import trial
     from build_deployment_probe import SOURCE
     import recipe as recipes
-    image,_,report,t=trial('linked');stock=SOURCE.read_bytes()
-    recipe=recipes.make(stock,image,t['pack'],'linked')
+    image,_,report,t=trial('release');stock=SOURCE.read_bytes()
+    recipe=recipes.make(stock,image,t['pack'],report['version'])
     edits=recipe['span']['dsp_edits']
     assert recipe['format']==2 and [e[0] for e in edits]==[q['site']-SCATTER[1] for q in sorted(sites.values(),key=lambda q:q['site'])]
     assert [recipes.unb64(e[1]).hex() for e in edits]==[q['patch'] for q in sorted(sites.values(),key=lambda q:q['site'])]
@@ -147,7 +147,7 @@ def main():
     result=dict(passed=True,passed_groups=len(cases),results=cases,
         limitations=['The AUX limiter blocks run on synthetic blocks with the stock-initialised state; the mixer stages before them and the output conversion after them are not run here',
                      'The output level factor is set to its settled value; the stock ramp towards it is not exercised',
-                     'No hardware measurement: see docs/research/aux_limiter_link_findings.txt for the jack test'])
+                     'No hardware measurement here: experiments/41-linked-limiters/README.md has the jack test'])
     (ROOT/'analysis/aux_limiter_verification.json').write_text(json.dumps(result,indent=2)+'\n')
     print(json.dumps(dict(passed=True,groups=len(cases))))
 if __name__=='__main__':main()

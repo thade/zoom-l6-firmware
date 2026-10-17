@@ -2,14 +2,16 @@
 
 ## Status
 
-**0.2.0** is the experiment 40 image: 0.1.0 (the take chain on pads 1–4 with
+**0.3.0** is the experiment 41 image: 0.2.0 (the take chain on pads 1–4 with
 an EFX + PAN on/off switch, a `HISTORY.TXT` in every take folder, the stereo
-AUX send with the AUX 1 + AUX 2 switch, on Zoom's v1.10) with the pad
-folders' `MASTER.WAV` anchors written by the firmware, so installing needs
-only `L6.BIN`. It was installed with the browser patcher (which makes the
-image from Zoom's file and can send it to the mixer) and passed on
-17 October 2026. 0.1.0 (experiment 38) passed on 16 October; the features
-have run daily on one mixer since 12 October.
+AUX send with the AUX 1 + AUX 2 switch, the pad folders' `MASTER.WAV`
+anchors written by the firmware, on Zoom's v1.10) with the two AUX output
+limiters linked in stereo. It was installed and measured at the AUX jacks on
+17 October 2026, with 0.2.0 as the control. 0.2.0 (experiment 40) was
+installed with the browser patcher (which makes the image from Zoom's file
+and can send it to the mixer) and passed the same day; 0.1.0 (experiment 38)
+passed on 16 October. The features have run daily on one mixer since
+12 October.
 Recovery from an image that hangs at startup was shown on 16 October 2026
 ([experiment 18](../experiments/18-recovery-hang/README.md)): the bootloader
 runs the PLAY/STOP update before the firmware starts.
@@ -35,6 +37,10 @@ Open work: [future work](future-work.md). The detailed log up to 0.1.0 is in
    the everyday build. **34** carries the release review fixes, **35** adds
    the chain on/off switch, **36** hardens the switch holds, **37** diagnoses
    the PAN + LEVEL hold and **38**, 0.1.0, moves the chain to EFX + PAN.
+6. **Anchors and limiters (39–41, 16–17 Oct)**: **39** backs up the flash
+   and has the firmware write the pad anchors, **40**, 0.2.0, ships that
+   with the browser patcher, and **41**, 0.3.0, links the two AUX output
+   limiters in stereo.
 
 ## Experiments
 
@@ -81,8 +87,8 @@ Open work: [future work](future-work.md). The detailed log up to 0.1.0 is in
 | 37 | [Panel switch diagnostics](../experiments/37-panel-diag/README.md) | Installed 16 Oct; found PAN lost while LEVEL held |
 | 38 | [Release 0.1.0: EFX + PAN](../experiments/38-release/README.md) | Installed 16 Oct; passed |
 | 39 | [Firmware-written anchors, flash backup](../experiments/39-flash-diag/README.md) | Passed (toward 0.2.0) |
-| 40 | [Release 0.2.0](../experiments/40-release/README.md) | Installed 17 October; passed; this is 0.2.0 |
-| 41 | [Linked AUX limiters](../experiments/41-linked-limiters/README.md) | Installed 17 October; passed on the jacks |
+| 40 | [Release 0.2.0](../experiments/40-release/README.md) | Installed 17 October; passed; release 0.2.0 |
+| 41 | [Linked AUX limiters](../experiments/41-linked-limiters/README.md) | Installed 17 October; passed on the jacks; this is 0.3.0 |
 
 ## Checks
 

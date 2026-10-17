@@ -3,9 +3,9 @@
 [Release 0.2.0](../40-release/README.md) with the two AUX output limiters
 linked in stereo: each detector reads the louder of the two sides, so both
 sides get the same gain and the image holds while one side limits, as the
-master pair's limiter already does. Candidate for the next release.
+master pair's limiter already does. Everyday build.
 
-**Installed 17 October 2026; passed on the jacks.**
+**Installed 17 October 2026; passed on the jacks. This is release 0.3.0.**
 
 ## Results
 
@@ -70,7 +70,8 @@ clips there). Evidence stays in `deployment/41_linked/` (recordings,
 | Code | 11,004 bytes | 11,140 bytes |
 | Image SHA256 | `0c72755e…` | `34df789bc9eabf0b6060a12700cbd889d39ef4b8833f2c34db05b3bf72f3e90b` |
 
-Build: `python tools/firmware/build_master_trial.py linked`.
+Build: `python tools/firmware/build_release.py` (the `release` mode of
+`build_master_trial.py`, pinned to the `v0.3.0` tag).
 
 ## Checks
 
@@ -82,7 +83,11 @@ Build: `python tools/firmware/build_master_trial.py linked`.
   registers included; the recipe carries the edits and rebuilds the image.
 - `tests/emulation/verify_patcher.py`: the browser patcher's JavaScript
   rebuilds a recipe with the two edits.
-- `tools/firmware/verify_release.py` still passes for 0.2.0.
+- `tools/firmware/verify_release.py`: the exact image (the 15 MAIN sites and
+  the two DSP sites, boot, every earlier installed image rebuilt, 0.1.0 and
+  0.2.0 from their tags, the committed recipe), then the take chain, history
+  and anchor groups and the stereo AUX and switch groups on the release
+  link.
 
 ## Procedure (on the mixer)
 

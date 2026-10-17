@@ -1,6 +1,6 @@
 # Future work
 
-Open work after 0.2.0. Items are ideas or agreed requirements, not
+Open work after 0.3.0. Items are ideas or agreed requirements, not
 implemented features; check one off only with a linked implementation or
 hardware result. An emulator result does not complete a hardware item.
 
@@ -49,8 +49,9 @@ the release from Zoom's file and, in Chrome or Edge, sends it to the mixer
       there, and whether the folder picker accepts the card's top folder
       (a drive root). Only Chrome on macOS has been tried.
 - [ ] The download route in Safari and Firefox, end to end on a real card.
-- [ ] At each release, keep the previous recipe in `patcher/recipes/` so
-      `?version=` can rebuild the exact image someone installed.
+- [x] 0.3.0: each release keeps the earlier recipes in `patcher/recipes/`
+      (`build_release.py` adds the new one to `index.json`), so
+      `?version=0.2.0` rebuilds the exact image someone installed.
 
 ## Four-pad take history
 
@@ -106,12 +107,12 @@ and AUX 2 right, following channel pan, inputs only
 
 - [ ] Send mute in stereo: today AUX 1's mute mutes the pair and AUX 2's mute
       applies only in mono; decide whether that is right.
-- [ ] The two AUX output limiters are independent, so in stereo a strong
-      transient on one side moves the image while that side limits; the
-      master pair's limiter is linked. Linked in
+- [x] 0.3.0: the two AUX output limiters were independent, so in stereo a
+      strong transient on one side moved the image while that side limited;
+      the master pair's limiter is linked. Linked in
       [experiment 41](../experiments/41-linked-limiters/README.md) (two call
-      sites in the DSP code), measured on the jacks; to go into the next
-      release ([AUX limiter findings](research/aux_limiter_link_findings.txt)).
+      sites in the DSP code) and measured on the jacks against 0.2.0
+      ([AUX limiter findings](research/aux_limiter_link_findings.txt)).
 - [ ] Optional: send pads or internal effects to the pair (needs new routing).
 - [ ] Optional: switch the mode over MIDI (an NRPN pair; see the
       [AUX switch findings](research/aux_switch_findings.txt)) or from the

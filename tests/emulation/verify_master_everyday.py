@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Exact release image (0.2.0, experiment 40): the take chain with its on/off
-switch, take history, the switchable stereo AUX and the anchors written by
-the firmware, without diagnostics. Original reset and scatter
-expand it; the Editor parser, the DSP code and the ring size stay stock. Behaviour on this build is checked by
-`verify_master_ref.py everyday` (every group on the clean ELF) and
-`verify_stereo_aux_hooks.py everyday`. No device access.
+"""Exact release image (0.3.0, experiment 41): the take chain with its on/off
+switch, take history, the switchable stereo AUX, the anchors written by the
+firmware and the linked AUX output limiters, without diagnostics. Original
+reset and scatter expand it; the Editor parser and the ring size stay stock,
+and so does the DSP code except the two limiter detector call sites.
+Behaviour on this build is checked by `verify_master_ref.py everyday` (every
+group on the clean ELF), `verify_stereo_aux_hooks.py everyday` and
+`verify_aux_limiter.py`. No device access.
 """
 import json,struct
 from unicorn import UC_HOOK_CODE
@@ -17,6 +19,7 @@ from capture_jump_patches import SCATTER
 from plan_capture_composed import SIZE_SITE
 from plan_capture_packing import DECOMPRESS,ZERO
 from plan_simple_capture import QUERY_SPEC
+from plan_master_ref import LINK_SPECS
 from scatter_codec import expand
 import recipe as recipes
 
@@ -33,6 +36,7 @@ EXPERIMENT34='47d9f90d8fab846a3a28f51a28ff22332435c6d7ad7058fb2ea585d8be8a3e59'
 EXPERIMENT35='824e37c69c2086b4c4464b14ab5b698c32d154352b0aa1537095fd6cb5134932'
 EXPERIMENT36='c796f4e6bd0f2b5f3d11b2594cdc882a40765af43e3d0b0b41eb4c2f6d08d5af'
 EXPERIMENT38='99ded4b1fcefa1d968a7317e5df4ee65c670018c4a495cfc1ed903aa5aa70bb0'   # release 0.1.0
+EXPERIMENT40='0c72755eaa9e24854ddd60187765b4ff05d0f86df3edd76ef2b08423a775f0af'   # release 0.2.0
 
 def boot():
     m=Emulator(cpu_model=A.UC_CPU_ARM_CORTEX_M7,mclass=True);u=m.uc
@@ -43,7 +47,7 @@ def boot():
     assert seen==[0x80067a60]
     for at in range(0x800a68dc,0x800a695c,16):
         s,d,n,helper=struct.unpack_from('<4I',IMAGE,at-BIAS)
-        if d==SCATTER[1]:expected=IMAGE[SCATTER[0]-BIAS:SCATTER[0]-BIAS+SCATTER[2]]
+        if d==SCATTER[1]:expected=TP['dsp']   # the stock DSP code with the two limiter call sites patched
         else:expected=bytes(n) if helper==ZERO else expand(IMAGE[s-BIAS:],n)[0] if helper==DECOMPRESS else IMAGE[s-BIAS:s-BIAS+n]
         assert bytes(u.mem_read(d,n))==expected,(hex(d),n)
     assert bytes(u.mem_read(MANIFEST['code_start'],len(TP['code'])))==TP['code']
@@ -55,7 +59,8 @@ def main():
     for mode,sha in (('minimum',EXPERIMENT26),('everyday',EXPERIMENT27),('history',EXPERIMENT28),
                      ('daily',EXPERIMENT29),('stereo',EXPERIMENT30),('daily_stereo',EXPERIMENT31),
                      ('switch',EXPERIMENT32),('daily_switch',EXPERIMENT33),('review',EXPERIMENT34),
-                     ('chain_switch',EXPERIMENT35),('tolerant',EXPERIMENT36),('release_0_1_0',EXPERIMENT38)):
+                     ('chain_switch',EXPERIMENT35),('tolerant',EXPERIMENT36),('release_0_1_0',EXPERIMENT38),
+                     ('release_0_2_0',EXPERIMENT40)):
         assert digest(trial(mode)[0])==sha==MODES[mode]['sha'],mode
         local=MODES[mode]['out']/MODES[mode]['image']/'L6.BIN'   # an installed image kept locally
         assert not local.exists() or digest(local.read_bytes())==sha,mode
@@ -68,23 +73,28 @@ def main():
     q=QUERY_SPEC['site']-BIAS;assert DATA[q:q+4]==IMAGE[q:q+4]==bytes.fromhex(QUERY_SPEC['original'])
     assert DATA[SIZE_SITE-BIAS:SIZE_SITE-BIAS+4]==IMAGE[SIZE_SITE-BIAS:SIZE_SITE-BIAS+4]
     assert not any(n in TN for n in ('mr_query','health_parser','mr_stack_low'))
-    assert MANIFEST['experiment']==40 and MANIFEST['version']=='0.2.0' and MANIFEST['chain_switch'] and not MANIFEST['diagnostics'] and MANIFEST['minimum_take_seconds']==2
+    assert MANIFEST['experiment']==41 and MANIFEST['version']=='0.3.0' and MANIFEST['chain_switch'] and not MANIFEST['diagnostics'] and MANIFEST['minimum_take_seconds']==2
     assert MANIFEST['anchors_written'] and 'mr_main_waits' in TN
+    # The DSP code differs from stock only at the two limiter detector call sites (12 bytes each).
+    stock_dsp=IMAGE[SCATTER[0]-BIAS:SCATTER[0]-BIAS+SCATTER[2]];dsp=TP['dsp'];assert len(dsp)==len(stock_dsp)
+    changed={i for i in range(len(dsp)) if dsp[i]!=stock_dsp[i]}
+    assert changed<={q['site']-SCATTER[1]+k for q in LINK_SPECS for k in range(12)} and len(changed)>=2*len(LINK_SPECS)
+    assert MANIFEST['linked_aux_limiters'] and sorted(p['adapter'] for p in MANIFEST['DSP_patches'])==['sa_limit_a','sa_limit_b']
     assert MANIFEST['take_history'] and MANIFEST['stereo_aux'] and MANIFEST['aux_switch']
     assert {'sa_toggle','panel_poll','panel_restore','panel_show','mr_chain_toggles'}<=set(TN)
     words=struct.unpack_from('<II',DATA,0x800a6930-BIAS)+struct.unpack_from('<II',DATA,0x800a6940-BIAS)
     assert (words[0],words[0]+words[1],words[2],words[2]+words[3])==tuple(
         MANIFEST[k] for k in ('code_start','code_end','globals_start','globals_end'))
-    passed('exact_image_has_fifteen_sites_and_leaves_the_editor_parser_DSP_code_and_ring_size_stock',
+    passed('exact_image_has_fifteen_sites_plus_two_limiter_call_sites_and_leaves_the_editor_parser_and_ring_size_stock',
            trial_sha256=MANIFEST['trial_sha256'],code_bytes=MANIFEST['code_bytes'],
            globals_bytes=MANIFEST['globals_bytes'],spare_bytes=MANIFEST['spare_bytes'],
            rebuilt=dict(experiment26=EXPERIMENT26,experiment27=EXPERIMENT27,experiment28=EXPERIMENT28,
                         experiment29=EXPERIMENT29,experiment30=EXPERIMENT30,
                         experiment31=EXPERIMENT31,experiment32=EXPERIMENT32,experiment33=EXPERIMENT33,
                         experiment34=EXPERIMENT34,experiment35=EXPERIMENT35,
-                        experiment36=EXPERIMENT36,experiment38=EXPERIMENT38))
+                        experiment36=EXPERIMENT36,experiment38=EXPERIMENT38,experiment40=EXPERIMENT40))
     boot()
-    passed('original_reset_and_scatter_expand_the_image_with_the_stock_DSP_code')
+    passed('original_reset_and_scatter_expand_the_image_with_the_DSP_code_patched_only_at_the_two_limiter_sites')
     # The browser patcher's recipe rebuilds this image from stock (make()
     # checks it) and ships no stock data; once the release is pinned, the
     # committed copy the hosted patcher serves is current.

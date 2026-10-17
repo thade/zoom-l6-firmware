@@ -41,12 +41,12 @@ def main():
     assert out['hash']==recipe['image_sha256'] and out['bytes']==recipe['image_bytes'] and out['stock']==recipe['stock_sha256'],out
     assert (out['wrong'],out['damaged'],out['short'])==('stock','result','stock'),out
     cases=[dict(case='node_rebuilds_the_published_image_and_refuses_other_input_and_damage',version=recipe['version'],**out)]
-    # A recipe with DSP edits (format 2): the linked-limiter candidate, made
-    # here from its build, rebuilt by the same JavaScript.
+    # A recipe with DSP edits (format 2): the release (the linked limiters),
+    # made here from its build, rebuilt by the same JavaScript.
     from build_master_trial import trial
     import recipe as recipes
-    linked_image,_,linked_report,t=trial('linked')
-    linked=recipes.make(STOCK.read_bytes(),linked_image,t['pack'],'linked')
+    linked_image,_,linked_report,t=trial('release')
+    linked=recipes.make(STOCK.read_bytes(),linked_image,t['pack'],linked_report['version'])
     assert linked['format']==2 and len(linked['span']['dsp_edits'])==2 and all(len(recipes.unb64(e[1]))==12 for e in linked['span']['dsp_edits'])
     with tempfile.TemporaryDirectory() as tmp:
         script=Path(tmp)/'run.mjs';script.write_text(SCRIPT%json.dumps((ROOT/'patcher/patcher.js').as_uri()))
@@ -55,7 +55,7 @@ def main():
     if r.returncode:sys.exit(r.stdout+r.stderr)
     out2=json.loads(r.stdout)
     assert out2['hash']==linked['image_sha256']==linked_report['trial_sha256'] and (out2['wrong'],out2['damaged'],out2['short'])==('stock','result','stock'),out2
-    cases.append(dict(case='node_rebuilds_a_recipe_with_two_DSP_edits_the_linked_limiter_candidate',edits=linked['span']['dsp_edits'],**out2))
+    cases.append(dict(case='node_rebuilds_the_release_recipe_with_its_two_DSP_edits',edits=linked['span']['dsp_edits'],**out2))
     import zipfile
     with tempfile.TemporaryDirectory() as tmp:
         zips=[]

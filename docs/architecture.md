@@ -1,21 +1,28 @@
-# Architecture (0.2.0)
+# Architecture (0.3.0)
 
-The release adds about 11 KB of code (11,004 bytes) to Zoom's v1.10 firmware and patches 15
-stock instruction sites. It records nothing and copies no audio: the pads play
-the stock recorder's own `MASTER.WAV` files in place. The DSP code, the
-recorder, the SD driver and every recording file stay stock. Source:
-`src/capture/master/` ([source map](../src/README.md)).
+The release adds about 11 KB of code (11,140 bytes) to Zoom's v1.10 firmware,
+patches 15 stock instruction sites in MAIN and two call sites in the DSP
+code. It records nothing and copies no audio: the pads play the stock
+recorder's own `MASTER.WAV` files in place. The recorder, the SD driver and
+every recording file stay stock, and so does the DSP code apart from the two
+call sites where the AUX output limiters read their samples
+([below](#linked-aux-limiters)). Source: `src/capture/master/`
+([source map](../src/README.md)).
 
 ## Image layout
 
 Built by `tools/firmware/build_release.py` from the stock `L6.BIN`:
 
-- The added code (`0x800a9688`-`0x800ac184`) and 84 bytes of zeroed globals
+- The added code (`0x800a9688`-`0x800ac20c`) and 340 bytes of zeroed globals
   (`0x800b0a00`) are packed into the span the stock scatter loader frees after
   expanding the compressed DSP code at boot; the loader itself places them
   ([source-reuse findings](research/capture_source_reuse_findings.txt)).
-- Each patch site is a 4- or 6-byte branch to an adapter that saves the
+- Each MAIN patch site is a 4- or 6-byte branch to an adapter that saves the
   registers, calls C, replays the displaced stock instructions and resumes.
+- The two DSP sites are 12-byte calls (`movw`/`movt r0`, `blx r0`, `nop`)
+  into the added code. They are applied to the DSP record before it is
+  compressed, so the browser patcher's recipe lists those 24 bytes as edits
+  to the user's own stock bytes (recipe format 2).
 - The container length, descriptors, version strings and checksum are
   checked; no byte outside the planned spans changes. The build is
   reproducible byte for byte.
@@ -32,6 +39,7 @@ Built by `tools/firmware/build_release.py` from the stock `L6.BIN`:
 | Main | The five stock receive calls (`0x8002c258`...`0x8002c440`) | Assigns the chain; counts storage changes (card and transfer-mode events); toggles the chain and AUX modes |
 | Worker | Its own loop (every 25 ms) | Waits for the recorder, checks the master, writes `HISTORY.TXT`, polls the EFX + PAN and AUX 1 + AUX 2 holds |
 | Gain requests (any task) | Ramp request `0x80010398`; pan, balance and Editor reset veneers `0x80002ac0`, `0x800028d8`, `0x80002b78`, `0x80002b90` | The stereo AUX filter |
+| Audio (the copied DSP code) | AUX limiter detectors `0x20227c6a`, `0x20227eee` | In stereo, feeds both AUX output limiters the louder of the two sides |
 
 ## Take chain
 
@@ -95,6 +103,40 @@ Details: [stereo AUX findings](research/stereo_aux_findings.txt),
 [32](../experiments/32-aux-switch/README.md)–[34](../experiments/34-release/README.md) and
 [38](../experiments/38-release/README.md).
 
+## Linked AUX limiters
+
+Zoom's audio code runs an output limiter on each AUX jack and one on the
+master pair. The master limiter reads the louder of left and right and
+applies one gain to both sides. The two AUX limiters are separate, each with
+its own detector, envelope and gain series, though their settings are the
+same. Each one processes a block of 64 samples in two passes. A detector
+loop takes each sample's absolute value and follows it with an envelope
+(fast attack, slow release) to produce a gain per sample. The block is then
+read back through a lookahead delay and multiplied by those gains.
+
+The release changes the first three instructions of each detector loop
+(load the sample, take its absolute value, compare it with the envelope)
+into a call to one of two routines in `master_hooks.S`:
+
+- `sa_limit_a` (AUX 1's loop) loads AUX 1's sample and AUX 2's (the blocks
+  are 0x100 bytes apart), takes the larger absolute value, keeps it in a
+  64-float buffer and compares it with the envelope.
+- `sa_limit_b` (AUX 2's loop) reads that buffer instead of its own
+  samples, because AUX 1's limiter has already written its output over its
+  own block by then.
+
+Both loops therefore compute the same gain series, and each applies it to
+its own side through its own delay. The routines do this only in stereo
+(the mode bytes above) with the worker published; in mono, or on a mixer
+whose worker did not start, each does what the stock instructions did, so
+the limiters stay separate. Nothing else in the audio code changes, and the
+cost per sample stays one call, as stock already called into SDRAM for the
+absolute value.
+
+Details: [AUX limiter findings](research/aux_limiter_link_findings.txt) and
+[experiment 41](../experiments/41-linked-limiters/README.md), which measured
+it on the jacks.
+
 ## The panel switches
 
 `panel.c` serves both holds. The worker reads the live key state
@@ -123,8 +165,10 @@ suites. They execute the original firmware's instructions in an emulator
 (Unicorn) together with the release code: boot and scatter expansion of the
 exact image, the chain, history and storage-change cases, the stereo
 filter against the real gain-ramp task, and the switches driven by panel
-messages through the stock parser with the panel's measured key reporting. Hardware results are in each
-experiment's README.
+messages through the stock parser with the panel's measured key reporting.
+`tests/emulation/verify_aux_limiter.py` runs the two AUX limiter blocks of
+the copied audio code on synthetic sample blocks, stock and patched. Hardware
+results are in each experiment's README.
 
 ## Research behind it
 

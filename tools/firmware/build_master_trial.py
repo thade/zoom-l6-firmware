@@ -5,7 +5,7 @@ experiment, byte for byte. No device access.
 Every installed mode must reproduce its image's hash exactly and is pinned
 to the commit or tag its image was built from (24-26, 28-30, 32-40 were
 installed, 37 and 39 being diagnostic builds; 27 and 31 were prepared and
-superseded before installation). `release` is pinned to v0.2.0; a new
+superseded before installation). `release` is pinned to v0.3.0; a new
 release builds the current sources until its image is installed and pinned.
 
 reference    (24) pad 1 plays the last take's master
@@ -24,8 +24,8 @@ tolerant     (36) 35 with misread-tolerant switch holds
 panel_diag   (37) diagnostic: 36 with the status query and switch diagnostics
 release_0_1_0 (38) version 0.1.0: 36 with EFX + PAN for the chain, armed ~4 s after power-on
 flash_diag   (39) diagnostic: firmware-written anchors, the status query and flash reads
-release      (40) version 0.2.0: 38 with the anchors written by the firmware (default)
-linked       (41) candidate: 40 with the two AUX output limiters linked in stereo (two DSP call sites)
+release_0_2_0 (40) version 0.2.0: 38 with the anchors written by the firmware
+release      (41) version 0.3.0: 40 with the two AUX output limiters linked in stereo (two DSP call sites) (default)
 
 Writes the trial image and the anchor file: a short silent 48 kHz stereo
 32-bit float WAV with the same 512-byte header layout as the extra files the
@@ -99,17 +99,19 @@ MODES=dict(
                     sha='48d7eae0b8e44fdd9f26ea98eb5524e417f943a5d39a31d6762744b8cdb06713'),
     # Release 0.2.0: 38 with the anchors written by the firmware (39 without
     # its diagnostics) and the 0.1.0 follow-up tidy-ups; installed with the
-    # browser patcher and checked 17 October 2026. Pinned to the v0.2.0 tag;
-    # without git history (a ZIP download, a shallow clone) it builds from
-    # the working tree instead, held to the same published hash.
-    release=dict(experiment=40,out=ROOT/D/'40_release',image='release',pin='v0.2.0',tree_fallback=True,pads=4,trial=False,
-                 minimum=True,history=True,stereo=True,switch=True,chain_switch=True,anchors=True,version='0.2.0',
-                 sha='0c72755eaa9e24854ddd60187765b4ff05d0f86df3edd76ef2b08423a775f0af'),
-    # Candidate for the next release: 0.2.0 with the two AUX output limiters
-    # linked in stereo (the detectors read the louder side), two call sites in
-    # the DSP code. Not installed; unpinned until it is.
-    linked=dict(experiment=41,out=ROOT/D/'41_linked',image='linked',pads=4,trial=False,
-                minimum=True,history=True,stereo=True,switch=True,chain_switch=True,anchors=True,link=True))
+    # browser patcher and checked 17 October 2026. Pinned to the v0.2.0 tag
+    # (needs git history with tags: git fetch --tags).
+    release_0_2_0=dict(experiment=40,out=ROOT/D/'40_release',image='release',pin='v0.2.0',pads=4,trial=False,
+                       minimum=True,history=True,stereo=True,switch=True,chain_switch=True,anchors=True,version='0.2.0',
+                       sha='0c72755eaa9e24854ddd60187765b4ff05d0f86df3edd76ef2b08423a775f0af'),
+    # Release 0.3.0: 0.2.0 with the two AUX output limiters linked in stereo
+    # (the detectors read the louder side), two call sites in the DSP code;
+    # installed and measured on the jacks 17 October 2026. Pinned to the
+    # v0.3.0 tag; without git history (a ZIP download, a shallow clone) it
+    # builds from the working tree instead, held to the same published hash.
+    release=dict(experiment=41,out=ROOT/D/'41_linked',image='linked',pin='v0.3.0',tree_fallback=True,pads=4,trial=False,
+                 minimum=True,history=True,stereo=True,switch=True,chain_switch=True,anchors=True,link=True,version='0.3.0',
+                 sha='34df789bc9eabf0b6060a12700cbd889d39ef4b8833f2c34db05b3bf72f3e90b'))
 
 @contextlib.contextmanager
 def trial_elf(m):
