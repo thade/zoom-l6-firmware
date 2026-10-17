@@ -5,7 +5,7 @@ download, in the browser: no Python, git or compiler, and it works on
 Windows. Nothing is uploaded, and the page contains none of Zoom's firmware.
 Hosted at https://thade.github.io/zoom-l6-firmware/.
 
-- `index.html` and `page.js`: the page (get Zoom's file, accept the risks,
+- `index.html` and `page.js`: the page (what the firmware does, get Zoom's file, accept the risks,
   drop the zip or `L6.BIN`, then send the result to the mixer or download and
   copy it, and update). `zip.js` reads Zoom's zip with the browser's own
   deflate decoder. The page loads no third-party code: its Content Security
