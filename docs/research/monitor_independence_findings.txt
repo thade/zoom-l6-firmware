@@ -1,0 +1,283 @@
+Monitor output independent of MASTER (stock L6 v1.10, 18 October 2026)
+========================================================================
+
+A user asked whether the MONITOR output (headphones on the MONITOR jack)
+could be fed from a point before the MASTER knob, so that turning MASTER
+down for the room no longer turns the headphones down. On the stock mixer
+the monitor level follows MASTER, and the MONITOR knob scales it further
+without affecting the MASTER jacks (manual, "Adjusting the overall and
+monitoring levels"). The question was whether that is wiring or software.
+
+Static reading of the copied audio code (analysis/ram_audio_disassembly.txt),
+MAIN (analysis/main_linear_disassembly.txt), the firmware's strings and the
+manual's block diagram (Reference/manual.pdf, page 105). Nothing here was
+emulated or tried on the mixer. Let B = 0x20010a48 and C = 0x20016f68, the
+two audio state blocks.
+
+Result
+------
+The dependence is in the hardware. The firmware produces one stereo master
+stream, after the MASTER knob, the compressor and the master limiter, and
+sends it to one D/A converter. That converter's output goes to the MASTER
+jacks directly and to the MONITOR jack through the MONITOR knob, which is
+an analogue control the firmware never reads. No firmware change can give
+the MONITOR jack a different signal from the MASTER jacks.
+
+The only other analogue outputs are the AUX jacks, which have their own
+stream and their own D/A. A firmware could put the mix as it is before the
+MASTER knob on the AUX pair, as a third AUX mode next to mono and stereo,
+for headphones through an external amplifier (section 3). It is one
+12-byte call site in the audio code, a copy of 512 bytes per block and the
+mode handling; section 4 gives the effort. Without any change, the stereo
+AUX send of 0.3.0 already gives a MASTER-independent stereo mix of the six
+inputs on those jacks, without the pads, the effects and playback.
+
+1. The master path, block by block
+----------------------------------
+The audio callback 0x2022a790 runs four stages for every 64-frame block:
+0x20220ac8 (pad playback), 0x20224b90 (the channel mix into the master
+blocks B+0x33b8 (L) and B+0x34b8 (R) and the AUX blocks B+0x35b8 and
+B+0x36b8), 0x20220000 (the effects return, added to the master blocks) and
+0x202263e0, the output stage, entered by a tail branch. In 0x202263e0 the
+master blocks pass through these steps in this order.
+
+  a. PLAY/STOP (0x202263fc-0x202269f6). The played take's blocks at
+     B+0x37b8 and B+0x38b8 are multiplied by the gain B+0x61cc (ramp
+     B+0x61d0, cursor B+0x61d4) and the live mix by B+0x61bc (ramp
+     B+0x61c0, cursor B+0x61c4). When B+0x61dc is set, the played blocks
+     are copied over the live mix (0x2022d2a0 copies words: source,
+     destination, count). The three gains are set from MAIN at
+     0x8000d376-0x8000d42c. This is the PLAY/STOP switch of the block
+     diagram.
+  b. MASTER (0x202269f8-0x20227134). Both blocks are multiplied in place
+     by B+0x6214, per sample from a ramp when B+0x6220 points at one
+     (cursor B+0x6224, loop 0x20226a18), otherwise by the scalar (loop
+     0x20226b3c). Section 2 says where the value comes from.
+  c. COMP (0x20227136). The master compressor, state near B+0x63f0, set up
+     by 0x8000d4a0 (tap_processing_findings.txt).
+  d. The master limiter (0x202278d8, enable B+0x62c0): the louder of L and
+     R, one gain for both sides (aux_limiter_link_findings.txt).
+  e. The two AUX limiters (0x20227bdc and 0x20227e5c) run on the AUX
+     blocks here.
+  f. The recorder copy (0x202280e0): both master blocks to B+0x1610 and
+     B+0x1710 (0x20012058, 0x20012158), from where 0x2022a55a feeds
+     recorder streams 10 and 11, the take's MASTER.WAV
+     (uncompressed_tap_findings.txt). "REC DATA MASTER" in the diagram.
+  g. A clip to the converter's range (0x202281c6-0x2022852a: per-sample
+     compares in double precision with conditional stores).
+  h. The USB copy (0x2022852c): both blocks to B+0x40c8 and B+0x41c8, the
+     first two of the twelve channels that 0x20229538 interleaves for the
+     computer ("PC IN MASTER").
+  i. A soft mute (0x2022853e): a multiply by B+0x62f4 (ramp B+0x62f8,
+     cursor B+0x62fc). 0x8000d290 sets it to 0 or 1 over 16 ms; it is
+     called from 0x80006bd0, 0x8003c0a6, 0x8003f4c8 and 0x80048910, whose
+     purposes were not traced.
+  j. The meters (0x20228d08): the peak of each block held in B+0x6304 and
+     B+0x6308 ("LEVEL METER").
+  k. Conversion (0x20228df8-0x2022919e): each master block to saturated
+     32-bit integers at 0x20010648 (L) and 0x20010748 (R). The AUX blocks
+     follow (0x202291a0-0x20229536) into 0x20010848 and 0x20010948.
+
+After the callback returns (0x8001078e), the audio task's block function
+0x80010698 interleaves the integers frame by frame (0x800107a0-0x80010870):
+0x20010648 and 0x20010748 into the buffer 0x80033510(0), 0x20010848 and
+0x20010948 into 0x80033510(2). 0x80033510 returns 0x2000d4e0 for selector 0
+and 0x2000d8e0 for selector 2, plus 0x200 for the second half (the byte at
+0x801f9155). The DMA setup (0x8003318a-0x800331b0 and 0x8003323a-0x80033266,
+transfer descriptions built by 0x8001ea40) moves 0x2000d4e0 to SAI1's
+transmit data register (0x40384020) and 0x2000d8e0 to SAI3's (0x4038c020),
+eight bytes per request (one frame of two 32-bit words) and 0x400 bytes per
+transfer (two halves of 64 frames). SAI1's transmitter is set up for two
+channels (0x80033150). These are the only two transmit streams the firmware
+sets up. There is no third stream and no monitor buffer.
+
+The block diagram agrees. In its OUTPUT box the master line runs through
+PLAY/STOP, MASTER VOLUME, COMP and LIMITER, then the taps for REC DATA
+MASTER, PC IN MASTER and LEVEL METER, then one D/A. The D/A's output goes
+to MASTER L and MASTER R and, through MONITOR VOLUME, to MONITOR. A second
+D/A serves AUX 1 and AUX 2 after their limiters. The specifications give
+MONITOR as one stereo output on a TRS jack, 50 mW + 50 mW into 63 ohms
+with 14.7 ohms output impedance (a headphone amplifier), against +15 dBu
+and 147 ohms for MASTER and +9.5 dBu and 147 ohms for AUX.
+
+2. Where the knobs enter
+------------------------
+The mixer has four knobs: SOUND PAD, EFX RTN, MASTER and MONITOR. The
+firmware's event names include three knob events, EV_VR_SAMPLEPLAYER,
+EV_VR_EFX and EV_VR_MASTER (strings at 0x800a2bcc, 0x800a2be3 and
+0x800a2bbb; VR for variable resistor). There is no MONITOR event, no string
+containing "monitor" or "phones", and no field in the audio state that a
+monitor level could occupy, because every gain applied to the master
+blocks is listed in section 1.
+
+MASTER. Two dispatcher cases, both logging EV_VR_MASTER, handle the knob.
+0x80040470 clamps the value to 0..127 (0x8000bf10) and calls the level
+setter through the veneer 0x80002a88 with r1 = 0, which stores the gain at
+once; 0x8003ecd0 does the same with r1 = 1, which ramps it over 16 ms
+through 0x80010398. The setter 0x8000d5c0 maps the value through the
+128-entry float table 0x8008b288 (index 127 minus the value): 0 at values
+0 and 1, 1.0 at 87 (the 0 dB mark; start-up at 0x80006f86 and the reset
+path 0x8002fa7c set 87), 10.0 (+20 dB) at 126 and 127. That matches the
+manual's range of minus infinity to +20 dB. It stores the factor at
+C+0x1f0, multiplies by C+0x1e4 and C+0x1d8 (both 1.0 after the bulk
+recompute 0x8000d978) and writes B+0x6214. So MASTER is a digital gain in
+the DSP, applied before the compressor, the limiter, the recorder, USB and
+the D/A, which is why it moves everything downstream, the monitor
+included.
+
+MONITOR. The firmware never learns its position. The knobs it does know
+arrive as panel events. The main chip's own ADC (ADC1 at 0x400c4000, set up
+by 0x80032938 for five channels, 5, 4, 7, 6 and 3, from the table
+0x80079f9c, and filtered by the CpuAdc task 0x8001de40 as a median of
+three into a table at 0x80570d34) is read by 0x8001c002, 0x8003005e,
+0x80021052 and a diagnostic dump at 0x8001f800. None of these writes the
+audio state; what they measure was not identified (battery or USB power,
+by the neighbouring event names). The converters are configured over SPI
+(the audio device init 0x80032c20 calls the LPSPI init 0x80028858). The
+I2C bus (wrappers 0x80032b40 and 0x80032bb0) reads one device's registers
+2, 8, 0x41, 0x46, 0x4b, 0x6b, 0x74 and 0x75 at start-up and from
+0x80048480; nothing on either bus takes a knob value. The MONITOR knob
+therefore acts after the D/A, in the analogue headphone path, as the block
+diagram draws it.
+
+So the dependence is wired. The master D/A's output is one signal. The
+MASTER jacks get it as it is and the MONITOR jack gets it through the knob.
+Whatever the firmware puts in the master stream appears at both.
+
+3. What a firmware can do
+-------------------------
+Three options, in rising effort.
+
+  a. No change. Keep MASTER at the 0 dB mark, as the README asks for
+     overdubbing, and set the room level on the PA or the powered
+     speakers; MONITOR then sets the headphones alone. This is how the
+     stock design is meant to be used: MASTER is a mix level, not a room
+     level.
+  b. The stereo AUX send of 0.3.0. In stereo mode the AUX pair is a stereo
+     mix of the six inputs, placed by pan, following the channel levels
+     and mutes (post-fader sends), independent of MASTER, COMP and the
+     master limiter, on two line-level jacks. A headphone amplifier on the
+     AUX jacks gives MASTER-independent headphones today. Missing from it:
+     the pads, the effects return and PLAY/STOP playback, because the
+     sends are taken from the input lanes, and each channel's AUX 1 send
+     has to be set (the unity marks give the mix as the channel levels
+     have it).
+  c. A monitor feed on the AUX jacks, as a third AUX mode. At 0x202269f8,
+     before the MASTER gain, the firmware copies the two master blocks
+     over the two AUX blocks. From there the stock code treats the pair as
+     AUX: the AUX limiters (linked in stereo by 0.3.0's routines), the
+     conversion, the interleave, SAI3 and the AUX D/A. The jacks then carry
+     the complete mix, the inputs with EQ, level, pan and mute, the pads
+     with their levels and the SOUND PAD knob, the effects return with EFX
+     RTN, and the played take when PLAY/STOP is on, without MASTER, COMP
+     or the master limiter, at a fixed level. The listening level is set
+     on the headphone amplifier.
+
+The rest of this section is about option c.
+
+The site. The 12 bytes at 0x202269f8 are movw r0,#0x6220 (4 bytes), ldr
+r0,[r4,r0] (2), cmp r0,#0 (2) and beq.w 0x20226b3c (4). They become movw
+and movt r0 with the routine's address, blx r0 and a nop, as the two
+limiter sites did (plan_master_ref.py LINK_SPECS; recipe format 2 carries
+such edits as span.dsp_edits). The routine, in monitor mode, copies 0x200
+bytes from B+0x33b8 to B+0x35b8 (L and R are 0x100 apart on both sides,
+so one copy covers both), then replays the three instructions: load
+B+0x6220; when it is zero, continue at 0x20226b3c (the scalar gain loop),
+otherwise return to 0x20226a04 (the ramp loop). r4 holds B throughout the
+stage. r0-r3 and ip are free at the site, because both continuations begin
+by writing r0 and neither reads the flags. 0x202269f8 is the target of the
+cbz at 0x202269d2 and the site begins exactly there; no branch lands inside
+it. In mono and stereo the routine does the mode test and the replay only.
+
+The mode. A third value of the AUX mode bytes CONFIG+0x30d/0x30e (00 00
+mono, A5 5A stereo; 5A A5 would do for monitor), saved with the settings
+like the others. A release that does not know the value (0.3.0 tests for
+A5) reads it as mono. The stereo filter in stereo_aux.c can treat monitor
+as either mode: the AUX gain rows no longer matter, because the copy
+overwrites the AUX blocks after the mixer loops have run (they still run,
+which is harmless). The limiter routines' STEREO_OR test (master_hooks.S)
+must accept the new value so that the two AUX limiters stay linked on the
+copied stereo mix; otherwise the image shifts while one side limits
+(aux_limiter_link_findings.txt). The switch is an open choice: either the
+AUX 1 + AUX 2 hold cycles mono, stereo, monitor, with a third LED pattern
+to confirm it, or a second same-bank hold (bank 2 holds HIGH, FREQ, MID,
+LOW, AUX 1, AUX 2, EFX and PAN; EFX + PAN is the chain's). The requester
+and the owner should decide.
+
+Cost per block. One 0x200-byte copy, 128 word loads and stores, once per
+64-frame block of 1.33 ms, the same size as the USB copy stock already
+makes at 0x2022853a in the same stage, plus a mode test; in the other
+modes, the mode test and the replayed instructions. Code: one routine of
+about 30 instructions, a third 12-byte DSP edit, and the mode handling in
+stereo_aux.c, panel.c and master_hooks.S.
+
+Interactions.
+  - Take chain and recorder: none. The recorder copy at 0x202280e0 is
+    downstream of the site and unchanged, so MASTER.WAV still contains the
+    knob, COMP and the limiter, and the README's advice to keep MASTER and
+    SOUND PAD at 0 dB and COMP off while overdubbing stands. The monitor
+    feed makes the advice easier to follow, because the listening level no
+    longer has to come from MASTER.
+  - Stereo AUX: monitor mode replaces the stereo send. There is one AUX
+    pair, so the two cannot be had at once.
+  - Limiters: the master limiter is not in the monitor feed, because it
+    sits after MASTER; the AUX limiters are, at the same threshold.
+  - COMP: pre-MASTER is also pre-COMP, because the stock order is MASTER
+    then COMP. A compressed but MASTER-free monitor is not available from
+    the stock order.
+  - Level: the AUX jacks' maximum is +9.5 dBu against +15 dBu at MASTER,
+    so the same mix comes out about 5.5 dB lower on the AUX jacks than at
+    the MASTER jacks with MASTER at 0 dB, if both converters reach their
+    maximum at digital full scale, which no experiment has established.
+  - The alternate audio callbacks (0x800124d9, and the ones 0x8000ca98 and
+    0x8000cab0 install) apply the MASTER gain in MAIN (0x80012b30,
+    0x80016890) and would not be covered, as they are not by the limiter
+    link; which modes they serve is not established
+    (audio_task_and_taps_findings.txt).
+
+4. Effort, risks and the bench
+------------------------------
+Emulator. One suite on the model of tests/emulation/verify_aux_limiter.py,
+about six groups: the plan changes only the three DSP sites; the output
+stage 0x202263e0 run whole on synthetic master and AUX blocks
+(verify_tap_processing.py already runs the full master body), where in
+monitor mode the AUX blocks at the limiter entry equal the master blocks
+as they were at 0x202269f8 and the master output, the recorder copy and
+the USB copy are stock bit for bit; in mono and stereo everything,
+registers included, is stock; the ramp and the scalar continuations both
+taken; the recipe carries three edits and the browser patcher rebuilds the
+image (verify_patcher.py). The switch and the third mode value go into
+verify_stereo_aux_hooks.py's panel group and verify_master_everyday.py.
+
+Build. A mode in tools/firmware/build_master_trial.py, as experiment 41 was
+built before it became the release.
+
+Bench, with the setup of experiments 30 and 41 (USB tones into input 5,
+the AUX jacks into the Syntakt, tools/device/l6_aux_measure.py). In monitor
+mode, MASTER turned from 0 dB to minus infinity and to +20 dB must leave
+the AUX level unchanged while the MASTER jacks follow; a pad and PLAY/STOP
+playback must appear on the AUX jacks; COMP on must not change them; mono
+and stereo must still give experiment 41's figures. The MONITOR jack can
+be recorded the same way with a TRS-to-two-TS cable into the Syntakt's two
+inputs, which would show it following MASTER on stock and on the new build
+alike, and would give its level against the AUX jacks for choosing a
+headphone amplifier.
+
+Risks. A third edit to the DSP record, where the project has two. A third
+value in the mode bytes the panel toggles, with an LED pattern to confirm
+it. A user in monitor mode loses the AUX sends until switching back. Line
+level into headphones needs an amplifier. The alternate callbacks above.
+
+Effort. One note (this), one emulator suite, one trial build and one bench
+experiment, then a release: the way experiment 41 went from note to
+measurement in a day. The switch and its LED pattern add panel work and
+hooks-suite groups on top of that.
+
+5. What was not checked
+-----------------------
+Nothing was emulated or measured for this note. Not identified: the
+converter chips, the SAI frame format beyond two words per frame, the I2C
+device, what the main chip's ADC channels measure, the four soft-mute
+callers' purposes, and the alternate callbacks' modes. The block diagram is
+Zoom's drawing, not a schematic; the conclusion rests on it agreeing with
+the code, which has one master stream and no monitor control anywhere.

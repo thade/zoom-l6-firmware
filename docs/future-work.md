@@ -106,6 +106,25 @@ list the open questions for the requester.
       a FAT32 card (next to nothing on exFAT). Either needs the admission
       hook to accept a take with fewer than seven streams.
 
+## Monitor output and MASTER
+
+A user asked whether the MONITOR output could be fed from before the
+MASTER knob. The [monitor independence findings](research/monitor_independence_findings.txt)
+(18 October 2026) show that it cannot: the firmware sends one master
+stream to one D/A converter, whose output feeds the MASTER jacks and, through
+the analogue MONITOR knob, the MONITOR jack. The firmware never reads that
+knob.
+
+- [ ] Optional: a monitor feed on the AUX jacks, as a third AUX mode next
+      to mono and stereo. One 12-byte call site at `0x202269f8` copies the
+      master mix (inputs, pads, effects and playback) over the AUX blocks
+      before the MASTER gain, so the AUX pair carries the mix without
+      MASTER, COMP or the master limiter, for headphones through an
+      external amplifier. Needs the limiter routines to treat the mode as
+      stereo, a switch and LED pattern for the third state, one emulator
+      suite and one bench experiment; the stereo send is unavailable while
+      the mode is on.
+
 ## Browser configurator
 
 **Confirmed requirement:** a web-based configurator to replace Zoom's editor.
