@@ -10,9 +10,10 @@ take, for example by holding REC and pressing MUTE on the unused channels.
 A third rule was floated: leave out a channel that is muted with no sends.
 
 Static reading of the stock image (analysis/main_linear_disassembly.txt and
-analysis/ram_audio_disassembly.txt) and the existing notes. Nothing here was
-emulated or tried on the mixer. Sections 1-5 answer the five questions;
-section 6 is the recommendation, the effort and the open questions.
+analysis/ram_audio_disassembly.txt) and the existing notes; section 7 runs
+the original unlink in the emulator. Nothing was tried on the mixer.
+Sections 1-5 answer the five questions; section 6 is the recommendation, the
+effort and the open questions; section 7 the cost of a deletion.
 
 1. The seven track files and what tolerates a missing one
 ---------------------------------------------------------
@@ -236,10 +237,9 @@ which the worker already uses for temp files) and clear its has-file flag
 it absent and the player sets it off, all by stock code. A split take has
 one file per segment (0x80022bd0 gives the count) and every segment must go.
 The stop callback already finalizes, renames and removes Work for seven
-files; a few unlinks add directory and FAT writes, tens of milliseconds on a
-long take (a 10-minute 32-bit float stereo file is about 7,000 clusters),
-inside a callback that is synchronous anyway. HISTORY.TXT stays on the
-worker as it is.
+files, inside a callback that is synchronous anyway. What the unlinks add
+depends on the card: next to nothing on exFAT, seconds on FAT32 (section 7).
+HISTORY.TXT stays on the worker as it is.
 
 Card and power loss. A stock rename can leave the directory half changed
 when the final barrier fails (native_rename_findings.txt); an unlink cut by
@@ -265,8 +265,9 @@ the same filter reading the mixer struct, cheap to add behind a switch, but
 it changes stock behaviour without a mark, so it should be the requester's
 choice. Design (a) is feasible and the level detection is nearly free thanks
 to the stock peak hold, but its deletion step is the only part of either
-design that touches the card after the recording and the stop path, and it
-keeps the full write cost; add it later if marking proves tedious.
+design that touches the card after the recording and the stop path, it
+keeps the full write cost, and on a FAT32 card it makes the stop seconds
+longer (section 7); add it later if marking proves tedious.
 
 Effort, design (b) with the optional third rule:
 - Emulator: one suite for the prepare with marks and the start backend with
@@ -301,7 +302,58 @@ Open questions for the requester:
 5. MASTER.WAV is always kept, because the chain plays it; is that right for
    them?
 
-Not done here: no emulation, no hardware; the player's behaviour when a file
-fails to open at playback preparation, the exact LED indices of the signal
-indicators, and the feed of the recorder's input rings from the lanes were
-not traced.
+7. Simulation: what deleting a long track costs (18 October 2026)
+------------------------------------------------------------------
+tests/emulation/verify_unlink_cost.py places one track file of each length on
+a modeled card, mounts it with the original code and runs the original public
+unlink (0x80061f78), counting every SD sector read, write and barrier
+(report: analysis/unlink_cost.json). Two cards: FAT32 with 32 KiB clusters,
+and exFAT with 256 KiB clusters, the owner's card (native_exfat_findings.txt).
+Two layouts: the file alone and contiguous, and the file interleaved with the
+six other track files, which is what seven streams appending at once produce
+(the stock allocator hands out the next free cluster; the interleaved case in
+native_exfat_findings.txt shows a file turning into a chain that way). Stereo
+32-bit float, 384,000 bytes a second. The stock unlink moves one sector per
+request, so the counts are requests.
+
+  Card, layout                 take     clusters   reads   writes
+  FAT32, contiguous            10 min      7,032      59      113
+  FAT32, contiguous            93 min     65,391     514    1,023
+  FAT32, interleaved by 7       3 min      2,110     119      233
+  FAT32, interleaved by 7      10 min      7,032     388      771
+  FAT32, interleaved by 7      30 min     21,094   1,157    2,309
+  FAT32, interleaved by 7      93 min     65,391   3,580    7,155
+  exFAT, contiguous            93 min      8,174       3        3
+  exFAT, interleaved by 7      10 min        879      52        3
+  exFAT, interleaved by 7      93 min      8,174     451       15
+  plus one close barrier per file in every case.
+
+On FAT32 the unlink reads every FAT sector the chain touches once and writes
+it back twice, one sector at a time, once per FAT copy; the directory sector
+is one more write. Interleaved, every FAT sector of the take's region holds
+entries of all seven files, so each file costs the whole region: about seven
+times the contiguous count. The recorder's 512 KiB write chunks do not help,
+because one FAT sector covers 4 MiB of 32 KiB clusters and a round of seven
+chunks is 3.5 MiB. Five files deleted after a 10-minute take cost five times
+one file (3,855 writes). On exFAT the stock unlink clears bitmap bits and the
+directory entry and leaves the FAT entries alone, so it writes 2 to 15
+sectors however long the file is; a chained file adds one FAT read per 128
+clusters of the region.
+
+Time. Experiment 05 measured single small SD writes peaking at 7 ms and bulk
+reads at about 0.1 ms a sector; a lone sector read is nearer 0.5 ms. With
+2 ms per write and 0.5 ms per read as the typical case, and 7 ms and 1 ms as
+the worst observed: on the owner's exFAT card deleting a 93-minute track costs
+about 0.3 s (0.6 s worst), five 10-minute tracks about 0.2 s. On a FAT32
+card the same 93-minute track costs about 16 s (54 s worst) and five
+10-minute tracks about 9 s (29 s worst), all inside RecStop's callback,
+during which the recorder is busy and REC and PLAY wait. Stock's own stop
+work for seven files (header rewrites, renames, the Work removal) is a few
+dozen sector writes, so on FAT32 the deletion would dominate the stop by one
+to two orders of magnitude. The mask filter of section 6 has none of this
+cost on either card.
+
+Not done here: no hardware, and no emulation beyond section 7. The player's
+behaviour when a file fails to open at playback preparation, the exact LED
+indices of the signal indicators, and the feed of the recorder's input rings
+from the lanes were not traced.

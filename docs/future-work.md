@@ -102,8 +102,9 @@ list the open questions for the requester.
       stock's Master Only mode is the precedent. The automatic design
       (keep tracks that ever exceed -60 dB, from the stock per-lane peak
       hold, delete the rest inside RecStop before postprocess) is feasible
-      as a second step. Either needs the admission hook to accept a take
-      with fewer than seven streams.
+      as a second step, but the stock unlink costs seconds per long file on
+      a FAT32 card (next to nothing on exFAT). Either needs the admission
+      hook to accept a take with fewer than seven streams.
 
 ## Browser configurator
 
