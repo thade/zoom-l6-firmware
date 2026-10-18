@@ -1,0 +1,307 @@
+Unused track files: leaving out or deleting a track a take did not use (stock v1.10, 18 October 2026)
+=====================================================================================================
+
+A user asked for takes that keep only the tracks that were used. Two designs
+would satisfy them: (a) automatic, where the firmware watches each track's
+level during the take, keeps the tracks that ever exceed about -60 dB and
+deletes the rest after the stop, so the surviving files still start together;
+(b) manual, where the user marks the channels to leave out when starting a
+take, for example by holding REC and pressing MUTE on the unused channels.
+A third rule was floated: leave out a channel that is muted with no sends.
+
+Static reading of the stock image (analysis/main_linear_disassembly.txt and
+analysis/ram_audio_disassembly.txt) and the existing notes. Nothing here was
+emulated or tried on the mixer. Sections 1-5 answer the five questions;
+section 6 is the recommendation, the effort and the open questions.
+
+1. The seven track files and what tolerates a missing one
+---------------------------------------------------------
+Names. The name builder 0x80023258(stream, segment, out) gives streams 0 and 1
+TRACK01 and TRACK02; the head lane of each stereo pair (2, 4, 6, 8) TRACK03_ST
+to TRACK06_ST; stream 10 MASTER; the right lane of a pair and stream 11 no
+name. When MONO x2 is on for channel 3/4 or 5/6 (0x80006c40 reads the lanes'
+input mode), that channel's two lanes get TRACK0n_L and TRACK0n_R instead.
+A segment above 1 (a take split at about 2 GiB) adds _01 and so on (0x800230e8).
+
+Creation. The record request 0x80034f40 (its three callers are the REC key
+0x80008a28 and the pad handler, all on Main) runs the prepare 0x80002df8: it
+names the folder, catalogues it, copies the path to 0x8060ff80, then chooses
+the stream mask with 0x80008990(target) and passes it to 0x8000b540 at
+0x80002e9a. 0x80008990 returns 0xfff, or 0xc00 (master only) when the
+Recorder Mode byte CONFIG+0x31d is set or the target is a pad. 0x8000b540 ->
+0x80004738 sets a has-file flag per stream (0x80022d98) from the mask bits and
+skips the right lane of a stereo pair. The record-start callback on RecPlayCtl
+(0x8000b168 -> 0x8000b090) then, for each stream, creates the Work file when
+the flag is set (0x80004060 -> 0x800042e0: open 0x102/0x180 at 0x800043a2,
+WAV header) and registers it with the producer (0x80037ca0); a stream without
+a flag is skipped at both steps. The first created file's folder is written
+to A:\ZOOM_L6.SYS (0x8000bf48 -> 0x8000bbe8: "ZOOM SYSTEM FILE", a copyright
+line, "L6", the folder path; no file names). Our admission hook 0x8000b158
+runs after the last registration.
+
+Stop. RecStop's callback calls the stop cursor setter (our hook), then
+0x8000b698: drain, finalize and close each stream that has a handle
+(0x80037e98), reset, then postprocess 0x800032b0 at 0x8000b978. Postprocess
+is per stream and skips streams without a file (0x80022c78): the per-file
+pass 0x80004868, then the rename loop at 0x80003514 (0x80022938: Work\ name
+to final name). For an ordinary target it removes Work (0x80022958) and falls
+into the take loader 0x800035d0 (at 0x800035cc), which opens each selected
+stream's final file read-only, reads the header, closes it and records the
+format, channel count and length; a file that does not open leaves that
+stream recorded as absent (code 3 at 0x80003604) and the scan goes on. Back
+in 0x8000b698 at 0x8000b97c the mask is applied again, playback is prepared
+(0x8000ae48 hands StreamPreLoad 0x8000aec0, which sets every stream without
+a record off in the player: 0x80037c38(s, 0, 0, 0x10) and
+0x800384b8(s, 0, -1, 0)) and the length is set. The player opens the files
+itself when playback is prepared; what it does if one of them fails to open
+at that point was not traced.
+
+Stock precedent. Zoom's Recorder Mode setting in ZOOM L6 Editor ("Selecting
+the type of files recorded" in the manual: Multi Track, or Master Only, which
+"saves only the stereo mix of all channels") is CONFIG+0x31d (getter
+0x80006190, setter 0x80006938 from 0x8000a050). With it set, every ordinary
+take has only MASTER.WAV, and pad-record takes use the same 0xc00 mask
+(direct_pad_recording_findings.txt). So the stock creation, stop, loader,
+player and postprocess all handle a take with missing track files, because
+they are written per stream. Nothing in stock lists the files inside a take
+folder: the take scan lists directories and the stream matcher accepts only
+its own names (master_reference_findings.txt, section 8). ZOOM_L6.SYS holds
+the folder. The take chain reads only MASTER.WAV; HISTORY.TXT names folders.
+The Editor's identifiers (analysis/editor_inventory.json) include
+RecorderModeService and recorderMode and nothing that lists take files; a
+Master Only take has no tracks for it to depend on.
+
+So a track left out at start, or deleted afterwards, upsets none of these
+consumers. Two cautions. First, the precedent covers the masks 0xfff and
+0xc00; a mask with some input bits is new and must be emulated through the
+start, stop, loader and player paths, with both lanes of a channel always
+together (0x80040ae8 maps channels 1-6 to lanes 0, 1, 2, 4, 6, 8; a stereo
+channel is its lane and the next; with MONO x2 the two lanes are separate
+files but still one channel). Second, deletion has a timing problem
+(section 5): once RecStop has run the loader and prepared playback, the
+stock player expects the files it found.
+
+2. Levels, mute and sends during a take
+---------------------------------------
+Per-lane peaks exist in stock. In the audio block before the channel
+processing (0x20223898 onward, run every 64 frames) the copied DSP code takes
+each input lane (B+0x10+lane*0x100, B = 0x20010a48, ten lanes) and computes
+the block's maximum and minimum (0x2022d4a0, 0x2022d388), takes the larger
+magnitude, and stores it at B+0x575c+4*lane if it is larger than the value
+there: a peak hold. The master pair gets the same at B+0x6304 and B+0x6308
+(0x20228d42). The values are in the internal scale where 2^31 is full scale:
+the LED thresholds in 0x80027208 (0x7c5e4e01 ... 0x008273a6, that is -0.25 dB
+down to -48 dB) match the manual's -48 dB to 0 dB master meter. -60 dB is
+2^31/1000, about 2,147,484.
+
+The LevelMeterLed task (0x8002b140, a 32 ms loop) reads the ten lane values
+and clears them (0x80002420 -> 0x8000c598, under the audio lock 0x8001aaa0)
+on every second loop, so every 64 ms, while the meter flag at 0x801f8e74 is
+set; the flag is set at start-up (0x80007210 -> 0x800271e8) and cleared only
+on the power-off path (0x80008048). The master pair goes the same way
+(0x80002428 -> 0x8000c5f8). The task drives the master meter and, from the
+lane values, the channel signal indicators (inferred from the thresholds; the
+LED indices were not traced).
+
+So the cheapest level source for design (a) is a hook on that read
+(0x8000c598, or its only caller's veneer 0x80002420): after the copy it sees
+every lane's exact 64 ms peak at no audio-side cost, and no sample is missed,
+because the audio code's own maximum covers every block. Lane equals stream
+for 0-9. The hook runs on LevelMeterLed, a 4 KiB task like the MIDI task
+(task_stack_findings.txt), 16 times a second; it would OR "lane peak above
+the threshold" into a per-take used mask that admission clears and the stop
+setter freezes. If the meter flag is ever clear during a take the values
+accumulate instead of being cleared, so the stop setter should also read them
+once. The lanes are measured before EQ and the compressor, and before mute
+and the fader, which stock applies in the mix loops; the recorder takes the
+channel inputs, so a channel that is silent at the lanes is silent in its
+file, and EQ cannot make a used channel look silent.
+
+The alternative, scanning the recorder's own blocks, is affordable but not
+needed: the producer 0x80038e60 reads each stream's 64-frame block into its
+staging buffer at 0x800390b8 (the registered reader 0x80002830); a hook after
+that call sees the file's float32 samples, about 5,000 calls a second for
+seven streams on StreamUpdateRecStream (4 KiB stack), each a scan of 64 or
+128 floats.
+
+Mute and sends are bytes in the live mixer struct, 0x15 bytes per lane from
+CONFIG (0x80440dc8): byte 0 the channel mute (getter 0x80005f50(lane)), +0x9
+the EFX send level (0x80005f60(lane, 0)) and +0xa its mute (0x80005f78),
++0xc+aux the AUX send level (0x80005f10(lane, aux), signed) and +0xe+aux the
+AUX send mute (0x80005f28). The MUTE key handler 0x8003e778 writes both lanes
+of a stereo channel; the AUX and EFX send mutes are written by 0x8003d790 and
+0x8003df88 when the AUX1, AUX2 or EFX view key is held (held byte
+CONFIG+0x2311, getter 0x80005e80). MIDI, the Editor and scene recall change
+the same bytes. The send point (pre or post fader, aux_switch_findings.txt
+section 6) matters too: a post-fader send with the fader down is silent. All
+of it is readable on Main at the moment the mask is chosen, so the third rule
+needs no level detection and no deletion: it is a mask filter, like design (b).
+
+3. A panel combination to mark channels
+---------------------------------------
+Stock. MUTE 1-6 (keys 0-5) act on press: the dispatcher case 0x8002ca60 calls
+0x8003ed28(channel, 0, 0, pressed), which toggles the channel mute, or the
+AUX1, AUX2 or EFX send mute when that view key is held. REC (key 31,
+0x80008a28) does nothing on press and starts or stops the take on release
+(0x80034f40(-1) unless a pad recording runs); it has no long press. The only
+stock reader of REC's live state is the pad handler (0x800409a6 reads
+0x80008478(31)): REC held plus a pad records to that pad. So "hold REC, press
+MUTE" collides with stock in one way: the MUTE press toggles the channel
+mute, audibly, before REC's release starts the take.
+
+A hook can take the press over. In the MUTE handler (0x8003ed28, on Main), or
+in the dispatcher case, when 0x80008478(31) reads 1 and nothing is recording:
+flip the channel's mark, show it on the channel's MUTE LED (0x80007a40 writes
+the level byte in the table 0x8062939c; the mode byte blinks; the next view
+press or mute change redraws it, as panel.c relies on) and return without the
+stock toggle. The take then starts on REC's release with the marks applied
+(section 4). Without a new site, Main's receive hook already sees every panel
+event as {0, press or release, key} and could rewrite a MUTE event into a
+code the dispatcher ignores (above 0x35 it takes the default branch at
+0x8002ce28); whether that branch is silent was not checked.
+
+Reliability on the panel. REC is bank 3 bit 5; MUTE 1-6 are bank 1 bits 1-6
+(panel_keys_findings.txt, section 6). Experiment 37 found that while a key is
+held, a press at the same bit of another bank is often not reported (PAN and
+LEVEL, both bit 7, lost in 6 of 10 attempts), and the emulation models
+exactly that. MUTE 5 shares bit 5 with REC, so REC + MUTE 5 is at risk; the
+other five are cross-bank at different bits and untested. The experiment 37
+build can measure all six in one session. The same-bank alternative is LEVEL
+(bank 1 bit 7) held plus MUTE: stock toggles the channel mute with LEVEL held
+(the held byte matters only for AUX1, AUX2 and EFX), so a hook that acts when
+the held byte reads 8 takes "LEVEL + MUTE" over exactly as stock takes
+"AUX + MUTE"; no live key read, and the view ends on LEVEL, which changes
+nothing. REC + MUTE reads better; LEVEL + MUTE is the fallback.
+
+Storage for the marks, if they persist: the spare global bytes CONFIG+0x311
+to 0x31c (0x30d-0x310 hold the AUX and chain modes; 0x31d is Recorder Mode,
+so the spare run ends at 0x31c). A six-bit mask fits in one byte.
+
+4. What the existing hook sites give, and what is new
+-----------------------------------------------------
+Admission 0x8000b158 (RecPlayCtl). Runs after the files exist, so it cannot
+leave one out, but it is the place to clear the used mask and note which
+streams the take has (0x80022c78 per stream). One change is needed for any
+design: mr_admit's normal_recording() requires all seven handles
+(0x8077e87c + stream*4) and the active-mask bits 0x557; a take with fewer
+streams would be refused as not ordinary, with no chain and no history. The
+test should become "the master's handle exists and the record target is
+negative" (0x80034da9, or the pair at 0x801f8c48+0x10), which still excludes
+pad recordings.
+
+Stop setter 0x80006918 (RecStop's call, before finalize). Freezes the used
+mask next to the take path; a last read of the lane peaks fits here.
+
+Worker. File calls while the recorder is idle, as for HISTORY.TXT. It can
+unlink, but after RecStop that is too late (section 5).
+
+Main's receive. Sees the panel events (and could rewrite them, section 3) and
+is where the LED show machinery lives.
+
+New sites. For (b) and the third rule: the mask. Patch the call of
+0x80008990 at 0x80002e96 in the prepare (with the mov at 0x80002e94 it is
+6 bytes), not the selector itself, because the project load 0x80002d30 calls
+the same selector with target -1 at 0x80002d5e and must keep stock's answer.
+The replacement calls the stock selector, then clears both lanes of every
+marked channel (and, for the third rule, of every channel whose mute byte is
+set and whose three sends are at zero or muted), never bits 10 and 11. The
+prepare runs on Main for all three callers. For (a): the LevelMeterLed read
+(section 2) and a deletion site inside the stop (section 5).
+
+5. Risks
+--------
+The recordings. With the mask filter nothing changes on the audio path and no
+file is ever deleted: the excluded files are never created, exactly as in
+Master Only mode. The risk is the user's: a channel marked by mistake is not
+recorded, and there is no way back, so the marks need clear LED feedback and
+a decision on whether they persist. With design (a) every file is written in
+full and the decision is made at the end, so the full write cost and card
+wear stay, and a wrong threshold deletes a performance; at -60 dB that needs a
+channel whose whole take stayed 60 dB under full scale, which an open
+microphone channel on the L6 (dual A/D, no gain knob) does not do, while a
+quiet DI noise floor does. The opposite error, hum or bleed keeping a file,
+costs nothing.
+
+Where to delete. Not on the worker after RecStop: by then the stock loader
+has recorded the files and StreamPreLoad has prepared playback of the new
+take (0x8000b986), so the player may already hold the files open; stock
+RMDIR refuses a folder with an open file (master_reference_findings.txt,
+section 8) and unlink presumably does the same, and a later PLAY would open
+a file that is gone. The right place is inside RecStop's callback, on
+RecPlayCtl, before postprocess at 0x8000b978: for each unused stream unlink
+its Work file (0x80022bb8(stream) builds the name into the recorder's
+scratch 0x8060fd80, which RecPlayCtl owns then; the unlink is 0x80061f79,
+which the worker already uses for temp files) and clear its has-file flag
+(0x80022d98(stream, 0)). Postprocess then skips the stream, the loader finds
+it absent and the player sets it off, all by stock code. A split take has
+one file per segment (0x80022bd0 gives the count) and every segment must go.
+The stop callback already finalizes, renames and removes Work for seven
+files; a few unlinks add directory and FAT writes, tens of milliseconds on a
+long take (a 10-minute 32-bit float stereo file is about 7,000 clusters),
+inside a callback that is synchronous anyway. HISTORY.TXT stays on the
+worker as it is.
+
+Card and power loss. A stock rename can leave the directory half changed
+when the final barrier fails (native_rename_findings.txt); an unlink cut by
+power loss leaves a lost cluster chain, which a card check repairs. The
+stock Work\ files and renames carry the same exposure.
+
+The stock rename and finalize path. The mask filter leaves it untouched. The
+RecStop deletion runs before it with the stock per-stream flags, so the path
+itself does not change; the emulator must show postprocess, the loader and
+playback with the mixed stream sets, as the stock suites do for all seven
+(stem_completion_findings.txt, recorder_stop_integration_findings.txt).
+
+The chain and the history. Unaffected by which tracks exist, once mr_admit
+accepts a subset. The pad folders and anchors are not involved.
+
+6. Recommendation, effort and open questions
+--------------------------------------------
+Build design (b) first, as a mask filter: the user marks channels with the
+panel, the prepare leaves their lanes out of the mask, and nothing is ever
+deleted. It needs one new patch site, a small panel hook and the admission
+change, and it rests on a stock precedent (Master Only). The third rule is
+the same filter reading the mixer struct, cheap to add behind a switch, but
+it changes stock behaviour without a mark, so it should be the requester's
+choice. Design (a) is feasible and the level detection is nearly free thanks
+to the stock peak hold, but its deletion step is the only part of either
+design that touches the card after the recording and the stop path, and it
+keeps the full write cost; add it later if marking proves tedious.
+
+Effort, design (b) with the optional third rule:
+- Emulator: one suite for the prepare with marks and the start backend with
+  subset masks (streams 0-1 only, one stereo pair out, MONO x2 lanes), run
+  through the original stop, postprocess, loader and preload, with
+  in-memory files as the recorder suites do; one group in the panel suite
+  for the marking through the stock parser and the LED show, including the
+  same-bit drop; the admission change and the chain and history regressions
+  in the release suites (verify_master_everyday and friends). About three
+  suites or groups, plus the release suite rebuild.
+- Hardware: one panel diagnostic (the experiment 37 build) for REC + MUTE
+  1-6, half a day; one experiment for the feature (takes with marks, PLAY on
+  the mixer, the Editor's view of the card, the chain and HISTORY.TXT, a
+  Master Only take for comparison), a day. Two experiments.
+Design (a) adds: a suite for the LevelMeterLed hook against the original
+0x8002b140 loop and the original peak window 0x20223898 on synthetic blocks
+with a -60 dB edge; a suite for the deletion inside the original 0x8000b698
+with the postprocess and loader; and one experiment with real signals
+around -60 dB, measuring the stop's extra time. Two suites and one
+experiment more.
+
+Open questions for the requester:
+1. Should the marks persist across takes, shown on the MUTE LEDs while REC is
+   held, or clear after every take?
+2. REC + MUTE, or LEVEL + MUTE if the panel loses REC + MUTE 5 (section 3)?
+3. For (a): is -60 dB at the input, before EQ, compressor, mute and fader,
+   the right measure, and is one 64-sample block above it enough to keep the
+   file?
+4. For the third rule: should a channel that is muted with no sends be left
+   out even when it is not marked (for example one muted in the room but
+   wanted later), and should the rule be switchable?
+5. MASTER.WAV is always kept, because the chain plays it; is that right for
+   them?
+
+Not done here: no emulation, no hardware; the player's behaviour when a file
+fails to open at playback preparation, the exact LED indices of the signal
+indicators, and the feed of the recorder's input rings from the lanes were
+not traced.

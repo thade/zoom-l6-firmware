@@ -88,6 +88,23 @@ The original design record is in [archive/history-design.md](archive/history-des
       the heard mix or both. Timing (backing started midway, looped, stopped
       early) is not recorded and would need its own extension.
 
+## Unused track files
+
+A user asked for takes that keep only the tracks that were used. The
+[unused track files findings](research/unused_track_files_findings.txt)
+(18 October 2026) answer the feasibility questions from the stock code and
+list the open questions for the requester.
+
+- [ ] Leave unused channels out of a take. Recommended first: a mask filter
+      at record start, with the channels marked on the panel (hold REC and
+      press MUTE, or LEVEL + MUTE if the panel loses REC + MUTE 5) and
+      optionally the rule "muted with no sends"; nothing is deleted, and
+      stock's Master Only mode is the precedent. The automatic design
+      (keep tracks that ever exceed -60 dB, from the stock per-lane peak
+      hold, delete the rest inside RecStop before postprocess) is feasible
+      as a second step. Either needs the admission hook to accept a take
+      with fewer than seven streams.
+
 ## Browser configurator
 
 **Confirmed requirement:** a web-based configurator to replace Zoom's editor.
