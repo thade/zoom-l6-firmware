@@ -21,7 +21,10 @@ stream, after the MASTER knob, the compressor and the master limiter, and
 sends it to one D/A converter. That converter's output goes to the MASTER
 jacks directly and to the MONITOR jack through the MONITOR knob, which is
 an analogue control the firmware never reads. No firmware change can give
-the MONITOR jack a different signal from the MASTER jacks.
+the MONITOR jack a different level or mix from the MASTER jacks. The one
+thing the firmware does drive on the output side is two mute lines,
+DAC_MUTE and AMUTE (section 2); which outputs they cut is unknown, and
+they are on or off, never a level.
 
 The only other analogue outputs are the AUX jacks, which have their own
 stream and their own D/A. A firmware could put the mix as it is before the
@@ -31,6 +34,12 @@ for headphones through an external amplifier (section 3). It is one
 mode handling; section 4 gives the effort. Without any change, the stereo
 AUX send of 0.3.0 already gives a MASTER-independent stereo mix of the six
 inputs on those jacks, without the pads, the effects and playback.
+
+Reviewed on 18 October 2026 by a second reading of the same sources, which
+confirmed the result and corrected the knob path (the knobs are sampled by
+the main chip's own ADC, not reported by the panel), the SAI frame format
+evidence, the SPI and I2C device identities, and added the AUX output
+gains and the mute lines below.
 
 1. The master path, block by block
 ----------------------------------
@@ -49,10 +58,19 @@ master blocks pass through these steps in this order.
      destination, count). The three gains are set from MAIN at
      0x8000d376-0x8000d42c. This is the PLAY/STOP switch of the block
      diagram.
-  b. MASTER (0x202269f8-0x20227134). Both blocks are multiplied in place
+  b. MASTER (0x202269f8-0x20226ce2). Both blocks are multiplied in place
      by B+0x6214, per sample from a ramp when B+0x6220 points at one
      (cursor B+0x6224, loop 0x20226a18), otherwise by the scalar (loop
      0x20226b3c). Section 2 says where the value comes from.
+  b2. The AUX output gains (0x20226ce4-0x20227134). The AUX 1 block is
+     multiplied by B+0x6218 (ramp B+0x622c, cursor B+0x6230) and the AUX 2
+     block by B+0x621c (ramp B+0x6238, cursor B+0x623c). They are set at
+     0x8000c9a2 and 0x8000d99e as C+0x1e8 times C+0x1f4 times C+0x1dc
+     (AUX 2: C+0x1ec, C+0x1f8, C+0x1e0). The initialiser 0x80012334 sets
+     C+0x1dc and C+0x1e0 to -1.0 (sl is 0xbf800000 from 0x80011eb2 and
+     0x80011edc) and no later writer was found, so the stock AUX outputs
+     leave the DSP inverted in polarity relative to the master. The
+     level is unaffected.
   c. COMP (0x20227136). The master compressor, state near B+0x63f0, set up
      by 0x8000d4a0 (tap_processing_findings.txt).
   d. The master limiter (0x202278d8, enable B+0x62c0): the louder of L and
@@ -69,9 +87,11 @@ master blocks pass through these steps in this order.
      first two of the twelve channels that 0x20229538 interleaves for the
      computer ("PC IN MASTER").
   i. A soft mute (0x2022853e): a multiply by B+0x62f4 (ramp B+0x62f8,
-     cursor B+0x62fc). 0x8000d290 sets it to 0 or 1 over 16 ms; it is
-     called from 0x80006bd0, 0x8003c0a6, 0x8003f4c8 and 0x80048910, whose
-     purposes were not traced.
+     cursor B+0x62fc). 0x8000d290 sets it to 0 or 1 over 16 ms, through
+     the veneer 0x800029d0. Callers: the power-down sequence 0x80006bc8
+     (mute, then the AMUTE and DAC_MUTE lines, section 2), the unmute at
+     0x8003c0a6 after the knob resync 0x8003c060, and 0x8003f4c8,
+     0x80048910 and 0x8004897e, whose purposes were not traced.
   j. The meters (0x20228d08): the peak of each block held in B+0x6304 and
      B+0x6308 ("LEVEL METER").
   k. Conversion (0x20228df8-0x2022919e): each master block to saturated
@@ -82,18 +102,29 @@ After the callback returns (0x8001078e), the audio task's block function
 0x80010698 interleaves the integers frame by frame (0x800107a0-0x80010870):
 0x20010648 and 0x20010748 into the buffer 0x80033510(0), 0x20010848 and
 0x20010948 into 0x80033510(2). 0x80033510 returns 0x2000d4e0 for selector 0
-and 0x2000d8e0 for selector 2, plus 0x200 for the second half (the byte at
-0x801f9155). The DMA setup (0x8003318a-0x800331b0 and 0x8003323a-0x80033266,
-transfer descriptions built by 0x8001ea40) moves 0x2000d4e0 to SAI1's
-transmit data register (0x40384020) and 0x2000d8e0 to SAI3's (0x4038c020),
-eight bytes per request (one frame of two 32-bit words) and 0x400 bytes per
-transfer (two halves of 64 frames). SAI1's transmitter is set up for two
-channels (0x80033150). These are the only two transmit streams the firmware
+and 0x2000d8e0 for any other selector, plus 0x200 for the second half (the
+byte at 0x801f9155); its only callers are the two in this function. The
+transfer descriptions are built by 0x8001ea40, which is called four times
+in the whole image: 0x2000d4e0 to SAI1's transmit data register
+(0x40384020) and 0x2000d8e0 to SAI3's (0x4038c020), each eight bytes per
+request (one frame of two 32-bit words) and 0x400 bytes per transfer (two
+halves of 64 frames); and SAI1's and SAI3's receive registers into
+0x2000dce0 (0x1000 bytes) and 0x2000ece0 (0x800 bytes). SAI2 is never set
+up. The frame formats come from transceiver structures in the compressed
+RW data (scatter entry 0x800a68dc, source 0x800a6980, destination
+0x801f5400; tools/firmware/scatter_codec expands it): SAI1's transmitter
+(0x801f5470, applied at 0x80033112) has two words per frame, an empty
+mask register, data line 0 only, and runs as a slave synchronous to its
+receiver. 0x80035dd8 and 0x80035488, called with 2 and 4 at
+0x80033138-0x80033186, set bit-clock dividers, not channel counts. So the
+master stream is two words per frame on one line, with no spare slot for
+a monitor pair, and these are the only two transmit streams the firmware
 sets up. There is no third stream and no monitor buffer.
 
 The block diagram agrees. In its OUTPUT box the master line runs through
-PLAY/STOP, MASTER VOLUME, COMP and LIMITER, then the taps for REC DATA
-MASTER, PC IN MASTER and LEVEL METER, then one D/A. The D/A's output goes
+PLAY/STOP, MASTER VOLUME, then COMP and LIMITER inside one bypass switch
+(the COMP button bypasses both), then the taps for REC DATA MASTER, PC IN
+MASTER and LEVEL METER, then one D/A. The D/A's output goes
 to MASTER L and MASTER R and, through MONITOR VOLUME, to MONITOR. A second
 D/A serves AUX 1 and AUX 2 after their limiters. The specifications give
 MONITOR as one stereo output on a TRS jack, 50 mW + 50 mW into 63 ohms
@@ -110,35 +141,67 @@ containing "monitor" or "phones", and no field in the audio state that a
 monitor level could occupy, because every gain applied to the master
 blocks is listed in section 1.
 
+The knobs. The main chip's own ADC samples them. ADC1 (0x400c4000) is set
+up by 0x80032938 for five channels (5, 4, 7, 6 and 3, from the table
+0x80079f9c); the CpuAdc task 0x8001de40 filters each as a median of three
+into a table at 0x80570d34, read through the accessors 0x8001a9c0 and
+0x8001a9e8. The scanner 0x80020f90 walks indices 0 to 4: it scales indices
+0, 1 and 3 to 0..127 through the calibration table 0x800a0f40 and
+0x800a13f8 and posts them as events 0x29, 0x2b and 0x2a through 0x80020ca0,
+which the dispatcher logs as EV_VR_SAMPLEPLAYER, EV_VR_MASTER and
+EV_VR_EFX. The getter 0x800085e8 maps knob 0, 1, 2 to ADC index 0, 3, 1.
+Index 2 is skipped by the scanner; 0x8001c002, 0x8001c042 and 0x8001c07c
+keep its top three bits and combine them with GPIO bits from 0x80033ee0
+into 0x801f8fdc, which looks like a board revision code. Index 4 is
+smoothed and handed to 0x8004c0b0 (power, probably; not checked).
+0x8003005e reads indices 0, 3 and 1 for a test report and 0x8001f800 dumps
+all five. So all five channels are accounted for and none is MONITOR.
+
 MASTER. Two dispatcher cases, both logging EV_VR_MASTER, handle the knob.
 0x80040470 clamps the value to 0..127 (0x8000bf10) and calls the level
 setter through the veneer 0x80002a88 with r1 = 0, which stores the gain at
 once; 0x8003ecd0 does the same with r1 = 1, which ramps it over 16 ms
-through 0x80010398. The setter 0x8000d5c0 maps the value through the
-128-entry float table 0x8008b288 (index 127 minus the value): 0 at values
-0 and 1, 1.0 at 87 (the 0 dB mark; start-up at 0x80006f86 and the reset
-path 0x8002fa7c set 87), 10.0 (+20 dB) at 126 and 127. That matches the
-manual's range of minus infinity to +20 dB. It stores the factor at
-C+0x1f0, multiplies by C+0x1e4 and C+0x1d8 (both 1.0 after the bulk
-recompute 0x8000d978) and writes B+0x6214. So MASTER is a digital gain in
-the DSP, applied before the compressor, the limiter, the recorder, USB and
-the D/A, which is why it moves everything downstream, the monitor
-included.
+through 0x80010398. The veneer also sets r2 = 1, the setter's write gate
+(with r2 other than 1 it stores only the factor). The setter 0x8000d5c0
+maps the value through the 128-entry float table 0x8008b288 (index 127
+minus the value): 0 at values 0 and 1, 1.0 at 87 (the 0 dB mark; start-up
+at 0x80006f86 and the reset path 0x8002fa7c set 87), 10.0 (+20 dB) at 126
+and 127. That matches the manual's range of minus infinity to +20 dB. It
+stores the factor at C+0x1f0, multiplies by C+0x1e4 and C+0x1d8 (1.0 from
+the initialiser 0x80012334; the bulk recompute 0x8000d978 sets C+0x1e4 and
+C+0x1f0 back to 1.0) and writes B+0x6214. The resync 0x8003c060 reads all
+three knobs through 0x800085e8, sets them, and unmutes. So MASTER is a
+digital gain in the DSP, applied before the compressor, the limiter, the
+recorder, USB and the D/A, which is why it moves everything downstream,
+the monitor included.
 
-MONITOR. The firmware never learns its position. The knobs it does know
-arrive as panel events. The main chip's own ADC (ADC1 at 0x400c4000, set up
-by 0x80032938 for five channels, 5, 4, 7, 6 and 3, from the table
-0x80079f9c, and filtered by the CpuAdc task 0x8001de40 as a median of
-three into a table at 0x80570d34) is read by 0x8001c002, 0x8003005e,
-0x80021052 and a diagnostic dump at 0x8001f800. None of these writes the
-audio state; what they measure was not identified (battery or USB power,
-by the neighbouring event names). The converters are configured over SPI
-(the audio device init 0x80032c20 calls the LPSPI init 0x80028858). The
-I2C bus (wrappers 0x80032b40 and 0x80032bb0) reads one device's registers
-2, 8, 0x41, 0x46, 0x4b, 0x6b, 0x74 and 0x75 at start-up and from
-0x80048480; nothing on either bus takes a knob value. The MONITOR knob
-therefore acts after the D/A, in the analogue headphone path, as the block
-diagram draws it.
+MONITOR. The firmware never learns its position: it is not among the five
+ADC channels, there is no event for it and no field for it. Nothing on the
+serial buses carries a level either. The only SPI device is a 4 MB flash
+(device 8; the bound check at 0x8001aae2), so no converter is configured
+over SPI. The I2C wrappers 0x80032bb0 (write) and 0x80032b40 (read) talk to
+one device at address 0x4c on LPI2C3 (0x403f8000; the address is in the RW
+data at 0x801f5c9c), only from Audio Init (0x8000270c, 0x8001a828,
+0x80001a20): register 2 is written 0x81, 8 and 0x6b 0, 0x74 0xf0, 0x75
+0x60, and 0x3c, 0x41, 0x46 and 0x4b get 4 (8 with another argument);
+register 2 is read once. 0x80048460, which writes the last four, is called
+only from that init, so there is no I2C traffic at run time. The register
+map resembles TI's TLV320ADCx140 family (a four-channel A/D at default
+address 0x4c), from the reviewer's memory and not checked against a data
+sheet; either way it is an input device and takes no knob value. The
+MONITOR knob therefore acts after the D/A, in the analogue headphone path,
+as the block diagram draws it.
+
+The mute lines. Audio Init logs ADC_PDN, DAC_MUTE and AMUTE (strings at
+0x800027d4 to 0x800027ec) as it sets GPIO ids 6, 0xb and 0xd through
+0x80008608 to 1, 0 and 0. DAC_MUTE (0xb) is 0x80033fc8, GPIO port index 2
+pin 4, active low; AMUTE (0xd) is 0x80033f88, port index 2 pin 8. At run
+time the power-down sequence 0x80006bc8 soft-mutes the stream, raises
+AMUTE, waits 10 ms and raises DAC_MUTE; and 0x80006e80 sets AMUTE from a
+bit of a command in the dispatcher 0x80006d00, which looks like a factory
+or test command. Which outputs the two lines cut is unknown. If AMUTE is
+the headphone amplifier's mute, a firmware could silence the MONITOR jack
+alone; it could not set its level.
 
 So the dependence is wired. The master D/A's output is one signal. The
 MASTER jacks get it as it is and the MONITOR jack gets it through the knob.
@@ -222,6 +285,10 @@ Interactions.
     pair, so the two cannot be had at once.
   - Limiters: the master limiter is not in the monitor feed, because it
     sits after MASTER; the AUX limiters are, at the same threshold.
+  - The AUX output gains (section 1, b2) multiply the copied blocks too,
+    so the monitor feed leaves the DSP inverted in polarity like the stock
+    sends, at the same level. Harmless for headphones; the routine could
+    copy with a sign change if the pair is ever to be summed with MASTER.
   - COMP: pre-MASTER is also pre-COMP, because the stock order is MASTER
     then COMP. A compressed but MASTER-free monitor is not available from
     the stock order.
@@ -276,8 +343,13 @@ hooks-suite groups on top of that.
 5. What was not checked
 -----------------------
 Nothing was emulated or measured for this note. Not identified: the
-converter chips, the SAI frame format beyond two words per frame, the I2C
-device, what the main chip's ADC channels measure, the four soft-mute
-callers' purposes, and the alternate callbacks' modes. The block diagram is
-Zoom's drawing, not a schematic; the conclusion rests on it agreeing with
-the code, which has one master stream and no monitor control anywhere.
+converter chips (the I2C device's identity is a register-map resemblance,
+not a data sheet check), which outputs AMUTE and DAC_MUTE cut (a bench
+check: watch MONITOR against MASTER at power-down, or send the AMUTE test
+command), what ADC index 4 measures, whether the -1.0 in C+0x1dc and
+C+0x1e0 survives every path (no other writer was found, 0.3.0's stereo
+code included), whether the master limiter's enable B+0x62c0 follows the
+COMP switch as the diagram suggests, three of the soft-mute callers'
+purposes, and the alternate callbacks' modes. The block diagram is Zoom's
+drawing, not a schematic; the conclusion rests on it agreeing with the
+code, which has one master stream and no monitor control anywhere.
