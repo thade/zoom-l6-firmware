@@ -83,6 +83,11 @@ Build: `python tools/firmware/build_release.py` (the `release` mode of
   registers included; the recipe carries the edits and rebuilds the image.
 - `tests/emulation/verify_patcher.py`: the browser patcher's JavaScript
   rebuilds a recipe with the two edits.
+- `tests/emulation/verify_output_stage.py` (added 19 October): the original
+  mixer and output stage end to end on synthetic tones, stock, with the
+  stock limiters and with this build: the right side is exactly a quarter of
+  the left's output when fed a quarter of its input, sample for sample, and
+  the master path is byte-identical to stock.
 - `tools/firmware/verify_release.py`: the exact image (the 15 MAIN sites and
   the two DSP sites, boot, every earlier installed image rebuilt, 0.1.0 and
   0.2.0 from their tags, the committed recipe), then the take chain, history

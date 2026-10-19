@@ -200,3 +200,33 @@ standard stereo tones are identical on both. The left jack sits at the
 interface's full scale once limiting, so its own reduction is read from the
 right side's dip. Table and details: experiments/41-linked-limiters/README.md;
 evidence in deployment/41_linked/.
+
+7. The audio path end to end in the emulator (19 October 2026)
+--------------------------------------------------------------
+tests/emulation/verify_output_stage.py runs the original mixer (0x20224b90)
+and the original output stage (0x202263e0: the PLAY/STOP and MASTER gains,
+the compressor, the master and AUX limiters, the recorder and USB copies,
+the clip, the meters and the conversion to the converters' integers, up to
+the USB interleave) block by block on synthetic input lanes, stock, the
+release code with the stock DSP (0.3.0's stereo send with the limiters
+independent) and the release code with its two DSP patches, with the AUX
+gains set through the stock channel send setters so the stereo filter is
+in the loop. The emulator's Cortex-M has no double-precision arithmetic;
+the stage's 56 double instructions (the compressor's gain arithmetic and
+the clip's compares) are emulated one by one from hooks at their own
+addresses, decoded from the code. Found on the way: the mixer scales a
+lane by a fixed factor on the way to the buses (0.0207 for a 1 kHz tone;
+a constant is cut by the channel's low cut), the AUX blocks are inverted
+before the limiters, and the conversion is a saturating truncation followed
+by a saturating add of -1.
+
+Four groups: the setters give the rows the filter computes (left lane to
+AUX 1 only, right lane to AUX 2 only, in stereo); quiet tones reach the
+converters with the right side, fed half the left, at exactly half, sample
+for sample, delayed 48 samples, the master converters silent; a left tone
+1.6 times over full scale limits, and with the stock limiters the right
+side (a quarter of the left) keeps its level while with the release in
+stereo it is exactly a quarter of the left's output, sample for sample,
+11 dB down in this run, and in mono every byte is as stock; and with a
+master mix of the pair the master converter outputs and the recorder copy
+are byte-identical between stock and the release, mono and stereo.
