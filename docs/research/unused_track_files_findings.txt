@@ -496,6 +496,25 @@ Verification (tests/emulation/verify_track_mask.py, 7 groups, all passed
   key reporting, one toggle per hold in both orders with the second key 0,
   150 or 400 ms late; the other two holds stay quiet.
 - The LEDs: a take start, with or without channels dropped, writes no LED.
+- The record callers: the REC key handler on release tail-calls the stock
+  record request 0x80034f40(-1), whose own checks (File Transfer Mode, the
+  recorder state, a nonzero selector answer) come before the prepare; the
+  patched prepare gives the filtered mask, a press does nothing, a running
+  pad recording stops the key, and the pad handler's request with a pad
+  target keeps 0xc00. The dispatcher's REC case calls the handler
+  (0x8002cd40). The Editor's and MIDI's record commands were not traced.
+- The setters: the MUTE key's handler 0x8003ed28 (0x8003e778 stores both
+  lanes with 0x80006658), and the Editor's AUX send level, send mute and
+  send point setters (0x80006618, 0x80006630, 0x80006600) write the bytes
+  the rule reads; with AUX 1 held, MUTE mutes that send instead and the
+  channel stays in.
+- A power cycle: the stock save 0x80006ab8 puts the pair in the flash image
+  at P+0xf29 and the live mixer in the current scene; the stock boot load
+  0x800062a0 (flash read modeled) brings both back, and the next take is
+  masked by the saved mutes.
+- 400 random mixer states (mutes per lane, AUX levels, send mutes and send
+  points, the AUX mode, EFX sends) give the mask a Python model of the rule
+  predicts.
 - The release suites (tools/firmware/verify_release.py) pass unchanged; the
   stereo suite's pair guard now covers the third pair.
 

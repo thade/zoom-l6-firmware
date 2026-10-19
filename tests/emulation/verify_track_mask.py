@@ -12,7 +12,7 @@ AUX 2 + EFX hold through the stock key parser, the LEDs left alone, and the
 build. Original code executes; the card, the producer registration, the
 player, the folder naming and the kernel are models. No device access.
 """
-import fnmatch,hashlib,json,struct,sys
+import fnmatch,hashlib,json,random,struct,sys
 from unicorn import UC_HOOK_CODE
 from unicorn.arm_const import UC_ARM_REG_R0,UC_ARM_REG_R1,UC_ARM_REG_R2,UC_ARM_REG_R3,UC_ARM_REG_PC,UC_ARM_REG_LR
 from verify_pad_protocol import ROOT,IMAGE,BIAS
@@ -448,6 +448,102 @@ def main():
             got=[x[1] for x in posts if x[0]==3];holds[f'{order}/{stagger}']=got.count(TM_MAGIC)
             assert got==[TM_MAGIC]*3,(order,stagger,got)
     passed('holding_aux2_and_efx_for_1_5_s_toggles_the_setting_with_save_and_leds_refused_while_recording',holds=holds)
+
+    # ---- The real record callers: the REC key through the stock record request ----
+    # The dispatcher's REC case calls the key handler 0x80008a28; on release the
+    # handler tail-calls the record request 0x80034f40(-1), which checks the
+    # card and recorder state, calls the selector itself (nonzero check only,
+    # unpatched), takes the recorder lock and runs the prepare, where the
+    # patched selector call lives. The pad handler calls the request with a
+    # pad target (0x8004092c, 0x800409ba). Only the request's checks and the
+    # REC LED call are modeled.
+    assert bytes(IMAGE[0x8002cd40-BIAS:0x8002cd40-BIAS+4])==struct.pack('<HH',0xf7db,0xfe72)   # bl 0x80008a28 in the dispatcher
+    def request_ready(r):
+        for fn,v in ((0x80002478,12345),(0x80006290,0),(0x8000ac80,1),(0x8000ac70,0),(0x8000ac90,0),(0x80006b48,3),
+                     (0x80034db8,0),(0x80007c20,0),(0x80034da8,0xffffffff)):
+            r.m.hooks[fn]=lambda a,v=v:v
+        r.m.hooks.pop(0x80002df8,None);r.m.hooks.pop(0x80008990,None)
+        put32(r.m,0x807344ac,0);r.m.invoke(0x800043f8,[])
+    callers={}
+    r=TakeRig();r.setting(1);r.mute(0);r.mute(2);request_ready(r)
+    assert r.m.invoke(0x80008a28,[1])==1 and get32(r.m,REC+0x1c)==0 and get32(r.m,N['tm_takes'])==0   # a press does nothing
+    r.m.invoke(0x80008a28,[0])                                                                    # the release starts the take
+    assert get32(r.m,REC+0x1c)==ALL&~0xd and get32(r.m,N['tm_takes'])==1 and get32(r.m,N['tm_last'])==0b101
+    callers['rec_key_release']=hex(get32(r.m,REC+0x1c))
+    r.m.hooks[0x80034da8]=lambda a:2                                                              # a pad recording runs: REC does nothing
+    r.m.uc.mem_write(REC+0x1c,bytes(4));r.m.invoke(0x80008a28,[0]);assert get32(r.m,REC+0x1c)==0 and get32(r.m,N['tm_takes'])==1
+    r=TakeRig();r.setting(1);all_muted(r);request_ready(r)
+    for target in (0,3):                                                                           # the pad handler's request: a pad target
+        r.m.uc.mem_write(REC+0x1c,bytes(4));r.m.invoke(0x80034f40,[target]);assert get32(r.m,REC+0x1c)==MASTER_ONLY
+    assert get32(r.m,N['tm_takes'])==0;callers['pad_target']=hex(MASTER_ONLY)
+    r.m.uc.mem_write(REC+0x1c,bytes(4));r.m.invoke(0x80034f40,[0xffffffff]);assert get32(r.m,REC+0x1c)==MASTER_ONLY and get32(r.m,N['tm_takes'])==1
+    callers['request_all_muted']=hex(MASTER_ONLY)
+    for fn,v in ((0x80006290,1),(0x8000ac80,0),(0x8000ac70,1),(0x8000ac90,1)):                   # the request's own refusals come first
+        q=TakeRig();q.setting(1);q.mute(0);request_ready(q);q.m.hooks[fn]=lambda a,v=v:v
+        q.m.invoke(0x80034f40,[0xffffffff]);assert get32(q.m,REC+0x1c)==0 and get32(q.m,N['tm_takes'])==0,hex(fn)   # no prepare ran
+    passed('the_rec_key_release_and_the_pad_handler_reach_the_patched_prepare_through_the_stock_record_request',callers=callers)
+
+    # ---- The rule reads what the stock setters write ----
+    # The MUTE key's dispatcher handler 0x8003ed28(channel, 0, 0, pressed)
+    # toggles the channel mute (0x8003e778: both lanes, stored with 0x80006658
+    # and applied with 0x80002928). The Editor's and MIDI's AUX commands store
+    # the send level, send mute and send point with 0x80006618, 0x80006630 and
+    # 0x80006600 (lane, aux, value), then apply them. The gain ramp request,
+    # the Editor notification and the LED writer are modeled.
+    def setters(r):
+        for fn in (0x80010398,0x800083f0,0x80007a40,0x8001aaa0,0x8001aab8):r.m.hooks[fn]=lambda a:0
+    r=TakeRig();r.setting(1);setters(r)
+    r.m.invoke(0x8003ed28,[2,0,0,1])                                          # MUTE 3/4 pressed: both lanes muted
+    assert [bytes(r.m.uc.mem_read(lane(l,0),1)) for l in (2,3)]==[b'\x01']*2 and r.prepare()[0]==ALL&~0xc
+    r.m.invoke(0x80006618,[2,0,60]);r.m.invoke(0x80006600,[2,0,0])           # its AUX 1 send up and pre-fader (the Editor's commands): kept
+    assert bytes(r.m.uc.mem_read(lane(2,0xc),1))==bytes([60]) and bytes(r.m.uc.mem_read(lane(2,0x13),1))==b'\0' and r.prepare()[0]==ALL
+    r.m.invoke(0x80006630,[2,0,1]);assert r.prepare()[0]==ALL&~0xc          # that send muted: left out
+    r.m.invoke(0x80006630,[2,0,0]);r.m.invoke(0x80006600,[2,0,1]);assert r.prepare()[0]==ALL&~0xc   # post-fader: left out
+    r.m.invoke(0x80006600,[2,0,0]);r.m.invoke(0x80006618,[2,0,0]);assert r.prepare()[0]==ALL&~0xc  # pre-fader at zero: left out
+    r.m.invoke(0x8003ed28,[2,0,0,1])                                          # MUTE 3/4 pressed again: unmuted, kept
+    assert [bytes(r.m.uc.mem_read(lane(l,0),1)) for l in (2,3)]==[b'\0']*2 and r.prepare()[0]==ALL
+    r.m.uc.mem_write(CONFIG+0x2311,b'\x04');r.m.invoke(0x8003ed28,[2,0,0,1])  # with AUX 1 held, MUTE mutes that send instead
+    assert bytes(r.m.uc.mem_read(lane(2,0),1))==b'\0' and bytes(r.m.uc.mem_read(lane(2,0xe),1))==b'\x01' and r.prepare()[0]==ALL
+    passed('the_stock_mute_handler_and_the_editors_send_setters_write_the_bytes_the_rule_reads')
+
+    # ---- Across a power cycle: the stock save and the stock boot load ----
+    # The save request 0x80006ab8 copies the global block (our pair included)
+    # into the flash image; at boot 0x800062a0 reads the flash (modeled: the
+    # image stays), copies the globals back to CONFIG+0x308 and the current
+    # mixer struct back to the live one. The setting and the mutes it reads
+    # come through both.
+    r=TakeRig();r.setting(1);r.mute(0);r.m.hooks[0x800763d8]=lambda a:1;r.m.hooks.pop(0x80006ab8)   # the stock save itself
+    r.m.uc.mem_write(0x804439a0+0xf29,bytes(2));r.m.invoke(0x80006ab8,[])
+    assert bytes(r.m.uc.mem_read(0x804439a0+0xf29,2))==bytes([0x96,0x69])
+    r.m.uc.mem_write(CONFIG,bytes(0x798))                                   # power off: the live settings gone
+    assert r.prepare()[0]==ALL
+    r.m.hooks[0x8002bbd0]=lambda a:0                                         # the flash read: the image as saved
+    for fn in (0x80006410,0x80074440):r.m.hooks[fn]=lambda a:0               # the loader's tail: an init and a kernel timer call
+    r.m.invoke(0x800062a0,[])
+    assert bytes(r.m.uc.mem_read(SKIP,2))==bytes([0x96,0x69]) and bytes(r.m.uc.mem_read(RECORDER_MODE,1))==b'\0'
+    survived=bytes(r.m.uc.mem_read(lane(0,0),1))==b'\x01'
+    assert r.prepare()[0]==(ALL&~1 if survived else ALL)
+    passed('the_setting_survives_the_stock_save_and_boot_load_of_the_settings',mutes_in_the_saved_current_scene=survived)
+
+    # ---- Random mixer states against a model of the rule ----
+    def model(state):
+        mask=ALL
+        for ch in range(6):
+            lanes=LANES(ch);auxes=1 if state['stereo'] else 2
+            if all(state['mute'][l] for l in lanes) and all(not (state['level'][l][a] and not state['amute'][l][a] and not state['post'][l][a]) for l in lanes for a in range(auxes)):
+                mask&=~sum(1<<l for l in lanes)
+        return mask
+    rnd=random.Random(43);r=TakeRig();r.setting(1);agreed=0
+    for n in range(400):
+        state=dict(stereo=rnd.random()<0.3,mute=[int(rnd.random()<0.5) for l in range(10)],
+                   level=[[rnd.choice([0,0,rnd.randint(-100,127)]) for a in range(2)] for l in range(10)],
+                   amute=[[int(rnd.random()<0.3) for a in range(2)] for l in range(10)],post=[[int(rnd.random()<0.6) for a in range(2)] for l in range(10)])
+        r.stereo(state['stereo'])
+        for l in range(10):
+            r.m.uc.mem_write(lane(l,0),bytes([state['mute'][l]]));r.efx(l,rnd.randint(0,100),rnd.randint(0,1))
+            for a in range(2):r.aux(l,a,state['level'][l][a],state['amute'][l][a],state['post'][l][a])
+        got=r.prepare()[0];want=model(state);assert got==want,(n,hex(got),hex(want),state);agreed+=1
+    passed('four_hundred_random_mixer_states_give_the_mask_a_model_of_the_rule_predicts',states=agreed)
 
     result=dict(passed=True,groups=len(cases),results=cases,firmware_sha256=hashlib.sha256(IMAGE).hexdigest(),
         elf_sha256=PLAN['elf_sha256'],trial_sha256=manifest['trial_sha256'],limitations=[

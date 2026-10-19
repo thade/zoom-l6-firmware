@@ -64,7 +64,7 @@ Build: `python tools/firmware/build_master_trial.py skip_muted` (output in
 
 ## Checks
 
-- `tests/emulation/verify_track_mask.py` (7 groups): the build and the
+- `tests/emulation/verify_track_mask.py` (11 groups): the build and the
   0.3.0 rebuild; the original prepare over 24 mixer states, with the
   setting off and on, pad targets, Master Only and the project loader; the
   original record start, RecStop (finalize, postprocess, the take loader,
@@ -72,7 +72,12 @@ Build: `python tools/firmware/build_master_trial.py skip_muted` (output in
   the admission hook running through its adapter; subset takes joining the
   chain and getting their history; the hold through the stock key parser
   with the panel's measured key reporting; the LEDs left alone at the
-  take start.
+  take start; the REC key's release and the pad handler's request reaching
+  the patched prepare through the stock record request, with its own
+  refusals first; the stock MUTE handler and the Editor's send setters
+  writing the bytes the rule reads; the setting and the mutes surviving
+  the stock save and the stock boot load of the settings; 400 random
+  mixer states against a model of the rule.
 - `tools/firmware/verify_release.py`: the release suites, unchanged.
 - One thing seen in stock on the way: the take loader accepts only a stereo
   file for streams 3-6, so a MONO x2 take's `TRACK03_L.WAV` and
