@@ -1,6 +1,7 @@
 /* Panel switches for stock L6 v1.10: two-button holds polled by the worker,
  * confirmed on two select LEDs for 2 s. AUX 1 + AUX 2 toggles the stereo AUX
- * mode (stereo builds), EFX + PAN turns the take chain on or off. All four
+ * mode (stereo builds), EFX + PAN turns the take chain on or off, and in
+ * builds with TRACK_MASK AUX 2 + EFX turns the track mask on or off. All four
  * are view buttons in the same panel key group (bits 4-7 of one word): stock
  * only changes the view for them and has no long press or combination of its
  * own, and the panel reports such pairs reliably (PAN + LEVEL, across two
@@ -10,6 +11,7 @@
 #include "master_ref.h"
 #include "stock.h"
 #include "stereo_aux.h"
+#include "track_mask.h"
 
 #define KEY ((uint32_t (*)(uint32_t))0x80008479u)         /* live key state: 1 pressed */
 #define HOLD_TICKS 1500u
@@ -32,12 +34,22 @@
 /* The holds (constant, with the code) and their state (zeroed globals: the
  * layout carries no initialised data). */
 typedef struct {uint8_t a,b;uint32_t magic;} Pair;
-static const Pair PAIRS[]={{16,17,SA_TOGGLE_MAGIC},{18,19,MR_CHAIN_MAGIC}};   /* AUX1+AUX2, EFX+PAN */
+static const Pair PAIRS[]={{16,17,SA_TOGGLE_MAGIC},{18,19,MR_CHAIN_MAGIC}   /* AUX1+AUX2, EFX+PAN */
+#ifdef TRACK_MASK
+    ,{17,18,TM_TOGGLE_MAGIC}   /* AUX2+EFX: the two send buttons next to each other, both free of the other holds */
+#endif
+};
 #define HOLDS (sizeof(PAIRS)/sizeof(PAIRS[0]))
 typedef struct {uint32_t held_since,seen,holding,fired,up;} Hold;
 static Hold holds[HOLDS];
 static uint32_t restore_posted;
 static volatile uint32_t showing,shown_at;   /* set by Main (show), cleared by Main (redraw) */
+#ifdef TRACK_MASK
+static volatile uint32_t mute_shown;         /* channels whose MUTE LEDs blink (track_mask.c), cleared by the redraw */
+#define MUTE_LED ((void (*)(uint32_t,uint32_t))0x80007a41u)   /* stock MUTE LED writer: channel 0-5, lit */
+#define MUTE_HEAD(ch) ((ch)<2u?(ch):2u*(ch)-2u)              /* channel to its head lane: 0 1 2 4 6 8 */
+#define CHANNEL_MUTE ((int32_t (*)(uint32_t))0x80005f51u)
+#endif
 
 /* The LED show has lasted SHOW_TICKS. Signed: a show Main started after the
  * caller read the time is not yet due. */
@@ -130,6 +142,21 @@ KEEP void panel_show(uint32_t sel_a,uint32_t sel_b,uint32_t blink) {
     led(sel_a,0x10,(uint8_t)!!blink);led(sel_b,0x10,(uint8_t)!!blink);
     shown_at=TICKS;showing=1;
 }
+#ifdef TRACK_MASK
+/* Main, at a take start (track_mask.c): the MUTE LEDs of the channels left
+ * out blink for SHOW_TICKS (table index = channel). The lock is only tried:
+ * the record start never waits for the LED task. */
+KEEP void panel_show_mutes(uint32_t channels) {
+    if(!LOCK(LED_LOCK,0))return;
+    for(uint32_t ch=0;ch<6u;ch++) {
+        if(!(channels>>ch&1u))continue;
+        volatile uint8_t *led=(volatile uint8_t *)(0x8062939cu+2u*ch);
+        led[0]=0x10;led[1]=1;
+    }
+    UNLOCK(LED_LOCK,0,0,0);
+    mute_shown|=channels;shown_at=TICKS;showing=1;
+}
+#endif
 /* Main, for every received event (the worker's request wakes it): once the
  * show is due, clear it and redraw the select LEDs from the view as stock
  * does, so the show ends even if the worker is starved or a request is lost. */
@@ -138,4 +165,10 @@ KEEP void panel_restore(void) {
     showing=0;
     uint32_t view=VIEW;
     for(uint32_t sel=0;sel<SELECT_LEDS;sel++)SELECT_LED(sel,view==sel);
+#ifdef TRACK_MASK
+    /* The MUTE LEDs that blinked: steady again, from each channel's mute, as
+     * the stock scene recall draws them. */
+    uint32_t mutes=mute_shown;mute_shown=0;
+    for(uint32_t ch=0;ch<6u;ch++)if(mutes>>ch&1u)MUTE_LED(ch,CHANNEL_MUTE(MUTE_HEAD(ch))?1u:0u);
+#endif
 }

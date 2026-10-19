@@ -15,11 +15,13 @@
 #define REC_STATE B8(0x80578ebcu)     /* recorder: 1 recording (any target), 2 playing, else 0 */
 #define RECORDER_BUSY W(0x80578ec0u)  /* RecPlayCtl is running a callback (RecStop includes finalize) */
 
-/* Global settings, saved to internal flash. Two byte pairs stock code never
- * uses, checks or puts in scenes hold our switches: on only for the exact
- * pair, so a mixer that never switched (zero) behaves as stock. */
+/* Global settings, saved to internal flash. Byte pairs in the spare run
+ * CONFIG+0x30d..0x31c, which stock code never uses, checks or puts in
+ * scenes, hold our switches: on only for the exact pair, so a mixer that
+ * never switched (zero) behaves as stock. */
 #define CONFIG 0x80440dc8u
 #define AUX_MODE ((volatile uint8_t *)(CONFIG+0x30du))     /* A5 5A: stereo AUX */
 #define CHAIN_MODE ((volatile uint8_t *)(CONFIG+0x30fu))   /* C3 3C: take chain on */
+#define SKIP_MODE ((volatile uint8_t *)(CONFIG+0x311u))    /* 96 69: no track files for muted channels with no sends (track_mask.c) */
 #define CONFIG_PATH(p) ((const volatile uint16_t *)(CONFIG+0x798u+(p)*0x20au))   /* saved pad paths */
 #endif

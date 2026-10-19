@@ -413,8 +413,11 @@ def switch():
 # often never reported; the model always loses it (the worst case).
 PANEL=0x808c7528
 KEY_GROUP={k:struct.unpack_from('<II',IMAGE,0x800a153c+8*k-BIAS)[::-1] for k in range(32)}   # key -> (group, bit)
-SOURCE_PAIRS=[tuple(map(int,m)) for m in re.findall(r'\{(\d+),(\d+),[A-Z_]+_MAGIC\}',
+SOURCE_PAIRS=[(int(a),int(b),magic) for a,b,magic in re.findall(r'\{(\d+),(\d+),([A-Z_]+_MAGIC)\}',
               (ROOT/'src/capture/master/panel.c').read_text())]
+# The AUX 2 + EFX pair is compiled only with TRACK_MASK (experiment 43):
+# verify_track_mask.py holds it on that build.
+BUILT_PAIRS=[(a,b) for a,b,magic in SOURCE_PAIRS if magic!='TM_TOGGLE_MAGIC']
 
 class Panel:
     def __init__(self,p,lossy=True):
@@ -434,9 +437,10 @@ class Panel:
 
 def panel():
     """Switch pairs survive the panel's measured key reporting."""
-    for a,b in SOURCE_PAIRS:   # static guard: both keys of a pair in one panel key group
+    for a,b,_ in SOURCE_PAIRS:   # static guard: both keys of a pair in one panel key group
         assert KEY_GROUP[a][0]==KEY_GROUP[b][0] and KEY_GROUP[a][1]!=KEY_GROUP[b][1],(a,b,KEY_GROUP[a],KEY_GROUP[b])
-    assert SOURCE_PAIRS==[(16,17),(18,19)] and KEY_GROUP[19][1]==KEY_GROUP[20][1] and KEY_GROUP[19][0]!=KEY_GROUP[20][0]
+    assert [p[:2] for p in SOURCE_PAIRS]==[(16,17),(18,19),(17,18)] and BUILT_PAIRS==[(16,17),(18,19)]
+    assert KEY_GROUP[19][1]==KEY_GROUP[20][1] and KEY_GROUP[19][0]!=KEY_GROUP[20][0]
     def holds(pair,order,stagger,lossy=True):
         """Press the pair (first key, then the second after stagger ms), hold
         2 s, release; polls every 25 ms through the real key read. Toggles posted."""
@@ -455,7 +459,7 @@ def panel():
             for ms in range(start+stagger+2000,start+4000,25):at(ms)
         return [q for q in posts if q[1]==magic]
     results={}
-    for pair in SOURCE_PAIRS:
+    for pair in BUILT_PAIRS:
         for order in (0,1):
             for stagger in (0,150,400):
                 got=len(holds(pair,order,stagger));results[f'{pair}/{order}/{stagger}']=got
@@ -467,7 +471,7 @@ def panel():
         p=Probe(True);stub(p,0x80020ca0);stub(p,0x8001fb80);panel=Panel(p,lossy)
         panel.press(20);panel.press(19);reads[lossy]=(p.run(0x80008478,[19]),p.run(0x80008478,[20]))
     assert reads=={True:(0,1),False:(1,1)},reads
-    return dict(pairs=[list(x) for x in SOURCE_PAIRS],holds=results,pan_with_level_held_reads=reads[True])
+    return dict(pairs=[list(x) for x in BUILT_PAIRS],holds=results,pan_with_level_held_reads=reads[True])
 
 def master_unchanged():
     """The same control sequence leaves the master rows identical to stock."""
