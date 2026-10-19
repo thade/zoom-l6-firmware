@@ -368,11 +368,14 @@ the emulator and not installed. Release 0.3.0 still rebuilds byte for byte
 from the same tree.
 
 The rule. A channel 1-6 is left out when its channel mute is on and nothing
-reaches its sends. A send carries nothing when its level is zero, or it is
-muted, or its send point is post-fader (a post-fader send follows the
-channel mute). In mono AUX mode the sends that matter are EFX, AUX 1 and
-AUX 2; in stereo AUX mode (mode bytes A5 5A and the worker published) EFX
-and AUX 1, because the AUX 2 knob does nothing there. Both lanes of a
+reaches its AUX sends. An AUX send carries nothing when its level is zero,
+or it is muted, or its send point is post-fader (a post-fader send follows
+the channel mute). In mono AUX mode both AUX sends matter; in stereo AUX
+mode (mode bytes A5 5A and the worker published) only AUX 1, because the
+AUX 2 knob does nothing there. The EFX send is not looked at: the owner
+muted a channel with its EFX send up on the mixer (19 October 2026) and
+nothing reached the effect, so a muted channel's EFX send carries nothing
+whatever its level, as a post-fader send does. Both lanes of a
 channel go together, so a stereo channel is left out only when both lanes
 meet the rule, and MONO x2 lanes stay one channel. Streams 10 and 11
 (MASTER.WAV) are never left out. Pad-record takes keep stock's mask.
@@ -392,10 +395,10 @@ The bytes, checked against the disassembly:
 - The EFX send has no send point: the send point setter accepts AUX 1 and 2
   only, the Editor's command range is six channels by two AUX buses, and
   the per-lane bytes +0xb, +0x10 and +0x11 are read by AUX-indexed getters
-  (0x80006100, 0x800060e8), not by an EFX one. The rule treats EFX as
-  mattering whenever its level is nonzero and it is not muted, the
-  conservative reading: a channel whose EFX send is up is kept even if the
-  effect return is down.
+  (0x80006100, 0x800060e8), not by an EFX one. A first build kept a muted
+  channel whose EFX send was up, as a precaution; the test on the mixer
+  above showed the send follows the mute, and the condition was dropped
+  the same day.
 - 0x80040ae8 takes a channel index 0-6 and gives lanes 0, 1, 2, 4, 6, 8, 10
   (the table at 0x80040afc is indexed by channel - 1, and index 0 falls to
   lane 0); channels 3-6 own the next lane too (the MUTE handler 0x8003e778
@@ -448,17 +451,18 @@ Verification (tests/emulation/verify_track_mask.py, 7 groups, all passed
 19 October 2026; also in tools/firmware/verify_redesign.py):
 - The build: 16 MAIN sites (the 15 of the release plus 0x80002e96) and the
   two DSP sites; the tree still builds 0.3.0 (34df789b...); image
-  f1348067e0f7d18c4e1ff442be44fc351807ba35077e179db3349a995370204d, 11,780
+  06ad3a26d18c481d4931158323804c619994345fdeca754fd9eee8ee42fa8d20, 11,752
   code bytes (0.3.0: 11,140), 384 globals bytes.
 - The original prepare, patched, over 24 mixer states: nothing muted 0xfff;
   channel 1 0xffe; channel 2 0xffd; 3/4 0xff3; 5/6 0xfcf; USB 0xf3f; the pad
   channel 0xcff; all six 0xc00 (the Master Only mask); MONO x2 on 3/4 with
   the channel muted 0xff3 (both lanes, now separate streams); one lane of a
-  pair muted keeps the pair; each send escape (EFX up; AUX 1 or AUX 2
-  pre-fader and unmuted, a negative AUX level included) keeps the channel,
-  and the same send muted, at zero or post-fader does not; in stereo AUX
-  mode an AUX 2 pre-fader send does not keep it and an AUX 1 one does; a
-  pair with one lane sending is kept. The selected bytes and has-file flags
+  pair muted keeps the pair; each send escape (AUX 1 or AUX 2 pre-fader
+  and unmuted, a negative AUX level included) keeps the channel, and the
+  same send muted, at zero or post-fader does not; an EFX send up, muted or
+  not, in mono or stereo, does not keep it; in stereo AUX mode an AUX 2
+  pre-fader send does not keep it and an AUX 1 one does; a pair with one
+  lane sending is kept. The selected bytes and has-file flags
   that 0x8000b540 derives match each mask. With the setting off, or with
   the site unpatched, every state gives 0xfff. Pad targets 0-3 give 0xc00
   with everything muted; Recorder Mode Master Only gives 0xc00 untouched;
@@ -505,5 +509,4 @@ Verification (tests/emulation/verify_track_mask.py, 7 groups, all passed
 Not done: nothing on the mixer (experiments/43-skip-muted-tracks/README.md
 has the procedure). The player's full path after a seek, the Editor's view
 of a take folder with fewer files, and a split take (one file per segment)
-with the mask were not run. The EFX send is treated conservatively, as
-above.
+with the mask were not run.

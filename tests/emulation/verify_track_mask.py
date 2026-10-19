@@ -251,8 +251,10 @@ def main():
             ('all_muted',all_muted,MASTER_ONLY),
             ('mono_x2_3_4_muted',lambda r:(r.mono_x2(2),r.mute(2)),ALL&~0xc),
             ('one_lane_of_a_pair_muted',lambda r:r.m.uc.mem_write(lane(2,0),b'\x01'),ALL),
-            # The send escapes: a send that carries something keeps the channel.
-            ('muted_efx_send_up',lambda r:(r.mute(0),r.efx(0,40)),ALL),
+            # The send escapes: an AUX send that carries something keeps the
+            # channel; the EFX send is not looked at (a muted channel does not
+            # reach the effect, found on the mixer).
+            ('muted_efx_send_up',lambda r:(r.mute(0),r.efx(0,40)),ALL&~1),
             ('muted_efx_send_up_but_muted',lambda r:(r.mute(0),r.efx(0,40,muted=1)),ALL&~1),
             ('muted_aux1_pre',lambda r:(r.mute(0),r.aux(0,0,30,post=0)),ALL),
             ('muted_aux1_post',lambda r:(r.mute(0),r.aux(0,0,30,post=1)),ALL&~1),
@@ -262,7 +264,7 @@ def main():
             ('muted_aux2_pre_negative_level',lambda r:(r.mute(0),r.aux(0,1,-10,post=0)),ALL),
             ('muted_aux2_pre_in_stereo',lambda r:(r.stereo(1),r.mute(0),r.aux(0,1,30,post=0)),ALL&~1),
             ('muted_aux1_pre_in_stereo',lambda r:(r.stereo(1),r.mute(0),r.aux(0,0,30,post=0)),ALL),
-            ('muted_efx_up_in_stereo',lambda r:(r.stereo(1),r.mute(0),r.efx(0,5)),ALL),
+            ('muted_efx_up_in_stereo',lambda r:(r.stereo(1),r.mute(0),r.efx(0,5)),ALL&~1),
             ('stereo_pair_one_lane_sends',lambda r:(r.mute(3),r.aux(5,0,30,post=0)),ALL),
             ('stereo_pair_both_lanes_silent',lambda r:(r.mute(3),r.aux(5,0,30,post=0),r.aux(5,0,30,muted=1,post=0)),ALL&~0x30),
             ('several_channels',lambda r:(r.mute(0),r.mute(2),r.mute(4),r.aux(7,1,20,post=0)),ALL&~0xd)):

@@ -22,11 +22,13 @@ with fewer files.
 ## The rule
 
 A channel 1-6 is left out of a take when its MUTE is on and nothing reaches
-its sends. A send counts as carrying nothing when its level is zero, when
-it is muted, or when its send point is post-fader, because a post-fader
-send follows the channel mute. In mono AUX mode the sends that matter are
-EFX, AUX 1 and AUX 2. In stereo AUX mode they are EFX and AUX 1, because the
-AUX 2 knob does nothing there. A stereo channel is left out only when both
+its AUX sends. An AUX send counts as carrying nothing when its level is
+zero, when it is muted, or when its send point is post-fader, because a
+post-fader send follows the channel mute. In mono AUX mode both AUX sends
+matter. In stereo AUX mode only AUX 1 does, because the AUX 2 knob does
+nothing there. The EFX send is not looked at, because a muted channel does
+not reach the effect (tested on the mixer on 19 October 2026). A stereo
+channel is left out only when both
 of its sides meet the rule, and a MONO x2 channel is still one channel.
 `MASTER.WAV` is always written. Recordings onto a pad are not changed.
 
@@ -48,14 +50,14 @@ of its sides meet the rule, and a MONO x2 channel is still one channel.
   on and light steadily when it is off. Refused while recording.
 - When a take starts with channels left out, their MUTE LEDs blink for
   2 seconds and then show the mutes again.
-- 640 more bytes of code and 128 of globals. Everything is behind the
+- 612 more bytes of code and 128 of globals. Everything is behind the
   `TRACK_MASK` build flag, and 0.3.0 still rebuilds byte for byte.
 
 | | 0.3.0 (experiment 41) | 43 |
 |---|---|---|
 | Patch sites | 15, plus 2 in the DSP code | 16, plus 2 in the DSP code |
-| Code | 11,140 bytes | 11,780 bytes |
-| Image SHA256 | `34df789b…` | `f1348067e0f7d18c4e1ff442be44fc351807ba35077e179db3349a995370204d` |
+| Code | 11,140 bytes | 11,752 bytes |
+| Image SHA256 | `34df789b…` | `06ad3a26d18c481d4931158323804c619994345fdeca754fd9eee8ee42fa8d20` |
 
 Build: `python tools/firmware/build_master_trial.py skip_muted` (output in
 `deployment/43_skip_muted/`; the image is not pinned until it is installed).
@@ -95,7 +97,8 @@ Only take for comparison. Note the results below.
 3. **A send keeps a channel.** Mute channel 1 again, turn its AUX 1 send
    up with the send point at Pre Fader (ZOOM L6 Editor, AUX Send Point),
    record. MUTE 1 does not blink and `TRACK01.WAV` is written. Set the
-   send point back to Post Fader and record: it is left out again.
+   send point back to Post Fader and record: it is left out again. With
+   the EFX send up instead, it is left out too.
 4. **Stereo AUX.** Switch the AUX send to stereo (AUX 1 + AUX 2 hold), mute
    channel 2 with only its AUX 2 send up, pre-fader, record: channel 2 is
    left out. Switch back to mono.
@@ -129,10 +132,11 @@ For "Using it":
 together for 1.5 seconds. If both lights blink for 2 seconds, the setting
 is now on. If both light steadily, it is off. While it is on, a channel
 whose MUTE is lit when you press REC gets no track file, as long as none
-of its sends carries it. A send carries nothing when it is down, when it is
-muted, or when its send point is Post Fader in ZOOM L6 Editor. In stereo
-AUX mode only the EFX and AUX 1 sends count, because AUX 2 does nothing
-then. When the take starts, the MUTE lights of the channels left out blink
+of its AUX sends carries it. An AUX send carries nothing when it is down,
+when it is muted, or when its send point is Post Fader in ZOOM L6 Editor.
+In stereo AUX mode only AUX 1 counts, because AUX 2 does nothing then. The
+EFX send does not matter, because a muted channel does not reach the
+effect. When the take starts, the MUTE lights of the channels left out blink
 for 2 seconds. `MASTER.WAV` is always written, the take still goes onto the
 pads and still gets its `HISTORY.TXT`, and recordings onto a pad are not
 affected. A fresh install starts with this off. Only the mutes at the moment

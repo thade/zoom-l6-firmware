@@ -1,16 +1,17 @@
 /* No track files for muted channels with no sends, for stock L6 v1.10
  * (experiment 43). Opt-in: holding AUX 2 + EFX for 1.5 s switches it on or
  * off (the hold is in panel.c). While it is on, an ordinary take leaves out
- * every channel 1-6 whose channel mute is on and whose sends carry nothing:
- * for each send that matters, the level is zero, or the send is muted, or
- * the send point is post-fader (a post-fader send follows the channel
- * mute). In mono AUX mode the sends that matter are EFX, AUX 1 and AUX 2;
- * in stereo AUX mode EFX and AUX 1, because the AUX 2 knob does nothing
- * there. The EFX send has no send point in stock (the send point setter
- * 0x8000cb28 takes AUX 1 and 2 only), so it matters whenever its level is
- * nonzero and it is not muted. Both lanes of a channel go together, MONO x2
- * included; MASTER.WAV (streams 10 and 11) is never left out; pad-record
- * takes and the project loader keep stock's answer.
+ * every channel 1-6 whose channel mute is on and whose AUX sends carry
+ * nothing: for each AUX send that matters, the level is zero, or the send
+ * is muted, or the send point is post-fader (a post-fader send follows the
+ * channel mute). In mono AUX mode both AUX sends matter; in stereo AUX mode
+ * only AUX 1, because the AUX 2 knob does nothing there. The EFX send is
+ * not looked at: it has no send point in stock (the setter 0x8000cb28
+ * takes AUX 1 and 2 only) and the owner found on the mixer that a muted
+ * channel does not reach the effect (19 October 2026). Both lanes of a
+ * channel go together, MONO x2 included; MASTER.WAV (streams 10 and 11) is
+ * never left out; pad-record takes and the project loader keep stock's
+ * answer.
  *
  * The one patch site: the record prepare 0x80002df8 calls the stock stream
  * mask selector 0x80008990(target) at 0x80002e96 and hands the mask to
@@ -27,8 +28,6 @@
 #define SELECT ((uint32_t (*)(int32_t))0x80008991u)   /* stock: 0xfff, or 0xc00 for Master Only or a pad target */
 /* Per-lane mixer state, 0x15 bytes per lane from CONFIG, through the stock getters. */
 #define CHANNEL_MUTE ((int32_t (*)(uint32_t))0x80005f51u)                 /* byte 0 */
-#define EFX_LEVEL ((int32_t (*)(uint32_t,uint32_t))0x80005f61u)           /* +0x9 (index 0) */
-#define EFX_MUTE ((int32_t (*)(uint32_t,uint32_t))0x80005f79u)            /* +0xa */
 #define AUX_LEVEL ((int32_t (*)(uint32_t,uint32_t))0x80005f11u)           /* +0xc+aux, signed */
 #define AUX_MUTE ((int32_t (*)(uint32_t,uint32_t))0x80005f29u)            /* +0xe+aux */
 #define AUX_POST ((uint32_t (*)(uint32_t,uint32_t))0x80005ef9u)           /* +0x13+aux: 1 post-fader (the Editor's AUX Send Point) */
@@ -54,9 +53,8 @@ static int on(void) {
     return SKIP_MODE[0]==SKIP_A && SKIP_MODE[1]==SKIP_B && __atomic_load_n(&mr_state,__ATOMIC_RELAXED);
 }
 static int stereo(void) {return AUX_MODE[0]==STEREO_A && AUX_MODE[1]==STEREO_B;}
-/* Nothing reaches this lane's sends. */
+/* Nothing reaches this lane's AUX sends. */
 static int silent(uint32_t lane,uint32_t auxes) {
-    if(EFX_LEVEL(lane,0) && !EFX_MUTE(lane,0))return 0;
     for(uint32_t aux=0;aux<auxes;aux++)
         if(AUX_LEVEL(lane,aux) && !AUX_MUTE(lane,aux) && !AUX_POST(lane,aux))return 0;
     return 1;
