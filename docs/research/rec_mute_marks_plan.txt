@@ -1,0 +1,153 @@
+Marking channels to leave out of a take: hold REC, tap MUTE (plan, 19 October 2026)
+=================================================================================
+
+A plan, not a result. Nothing here has been built, emulated or tried on the
+mixer. It builds on docs/research/unused_track_files_findings.txt (the
+stock recorder's file creation, section 1; the panel, section 3) and on
+experiment 43 (the "muted with no sends" rule as a setting, on the branch
+of pull request 2, not merged).
+
+The workflow
+------------
+Hold REC. While it is held, tap the MUTE button of each channel to leave
+out of the take; its MUTE light blinks slowly. Tap again to put it back.
+Release REC: the take starts, the marked channels get no track file, and
+their MUTE lights keep blinking until the take stops. A take started
+without marks records everything. MASTER.WAV is always written. Nothing
+carries over to the next take.
+
+What this changes against experiment 43: the decision is made per take,
+by hand, and shown while it matters, instead of a standing rule read from
+the mutes. The rule and its AUX 2 + EFX setting can go, or stay as a second
+option; the plan below assumes they go, which keeps one patch site.
+
+Stock facts the plan rests on
+-----------------------------
+- REC (key 31) does nothing on press; its release runs the key handler
+  0x80008a28, which starts or stops the take through the record request
+  0x80034f40(-1). The only stock reader of REC's live state is the pad
+  handler (0x800409a6 reads 0x80008478(31)): REC held plus a pad records
+  onto that pad.
+- MUTE 1-6 (keys 0-5) act on press: the dispatcher case 0x8002ca60 calls
+  0x8003ed28(channel, 0, 0, pressed), which toggles the channel mute
+  (0x8003e778: both lanes, stored with 0x80006658, applied with 0x80002928,
+  the MUTE LED written with 0x80007a40) unless AUX 1, AUX 2 or EFX is held,
+  when it mutes that send instead (held byte CONFIG+0x2311).
+- The MUTE LEDs are the first six entries of the LED table 0x8062939c, two
+  bytes each (level, mode; mode 1 blinks at the LED task's rate), written
+  under the LED lock 0x80446840.
+- The record prepare 0x80002df8 chooses the stream mask by calling
+  0x80008990(target) at 0x80002e96; experiment 43 replaces that call with
+  tm_select, which filters the mask. The stock start, stop, postprocess,
+  loader and player handle a take with missing files as they handle Master
+  Only (findings, section 1).
+- Our stop setter hook (mr_stop, on RecStop's call of 0x80006918) runs at
+  the end of every ordinary take; our admission hook (mr_admit) at its
+  start. Experiment 43's admission test accepts a subset of streams.
+- The panel reports keys in banks: REC is bank 3 bit 5; MUTE 1-6 are bank 1
+  bits 1-6. Experiment 37 found that while a key is held, a press at the
+  same bit of another bank is often not reported (PAN with LEVEL held, both
+  bit 7, lost in 6 of 10 attempts), and the emulation's panel model
+  reproduces that. REC and MUTE 5 share bit 5.
+
+Design
+------
+State (zeroed globals, like panel.c's): marks, a six-bit mask of channels
+marked for the next take; armed, set while REC is held and no take runs;
+taken, the marks applied to the running take, for the blink and the stop.
+
+1. The mark. A hook on 0x8003ed28's entry (an adapter in master_hooks.S,
+   as the stock sites have; the displaced instructions are its prologue).
+   When REC's live state reads 1, no recording runs or finalizes
+   (panel_recording()), the pressed argument is 1 and no send key is held:
+   flip the channel's bit in marks, write its MUTE LED (blink on, or back
+   to the channel's mute with 0x80007a40), and return without the stock
+   toggle. In every other case fall through to stock. A MUTE release is
+   ignored by stock and by us.
+   Alternative without a new site: Main's receive hook already sees every
+   panel event as {0, press or release, key} and could turn a MUTE press
+   with REC held into a code the dispatcher ignores; whether the default
+   branch at 0x8002ce28 is silent was not checked. The adapter is cleaner.
+2. The take. tm_select (the existing replaced call) clears both lane bits
+   of every marked channel for an ordinary target, copies marks into taken
+   and clears marks. For a pad target (REC held plus a pad) it returns
+   stock's mask and clears marks.
+3. The blink. While marks or taken is nonzero the marked channels' MUTE
+   LEDs blink. Slow blink: the LED task's own blink is fixed and fast, so
+   the worker toggles the level byte of each marked LED every 500 ms under
+   the LED lock, from its 25 ms poll (panel_poll already runs there). The
+   stock mode byte stays 0, so a stock redraw (a scene recall, a view
+   press) shows the mute steady and our next toggle blinks it again.
+4. The end. In mr_stop (RecStop), clear taken; the worker's next poll
+   redraws the MUTE LEDs from the channel mutes with 0x80007a40. Marks made
+   and never used (REC released onto a pad, or power off) are cleared at
+   the pad target and at start-up (zeroed globals).
+5. Edges. REC held while a take runs: the release will stop it, so MUTE
+   stays stock (panel_recording() refuses the mark). A MUTE press with a
+   send key and REC both held: the send mute, as stock. The stop setter
+   hook is RecStop's only; PlayStop's call does not clear taken, and a
+   pad recording's stop does not reach it, so taken must also clear on
+   admission of the next take (mr_admit).
+6. The setting. Removed with the rule, together with the AUX 2 + EFX pair
+   in panel.c and the CONFIG+0x311 bytes; the build flag TRACK_MASK stays
+   for the mask filter and the marks.
+
+Code: about 60 lines in track_mask.c, a hook adapter, 20 lines in the
+worker's poll, the mr_stop and mr_admit clears. One patch site more than
+experiment 43 (16 in MAIN, plus the two DSP sites).
+
+The panel question, first
+-------------------------
+If the panel drops MUTE 5 while REC is held, channel 5 cannot be marked and
+the workflow is broken for one channel in six. Measure before building:
+
+1. Install the experiment 37 build (build_master_trial.py panel_diag): it
+   logs every key change the panel reports and the status query reads the
+   log back (tools/device/l6_padref_probe.py schema 6, pd_ring).
+2. Hold REC; tap MUTE 1 to 6 three times each, slowly; release REC. Repeat
+   with MUTE 5 pressed before REC. Read the log: every tap must appear as a
+   press and a release while key 31 is down.
+3. Reinstall 0.3.0.
+
+If REC + MUTE 5 is lost: the fallback is a modifier in the MUTE buttons'
+own bank. LEVEL (bank 1 bit 7) held plus MUTE, which the stock parser
+already treats as a combination for the AUX and EFX keys (held byte 8):
+the mark hook acts when the held byte reads LEVEL, no live key read, and
+the view ends on LEVEL, which changes nothing. Then REC alone starts the
+take. The workflow reads worse but every channel is reachable.
+
+Emulator suites
+---------------
+Extend tests/emulation/verify_track_mask.py (the rigs exist):
+- The mark hook through the dispatcher's MUTE case with REC's live state
+  modeled: a tap marks and blinks, a second tap unmarks and redraws from
+  the mute, a tap without REC toggles the mute as stock, a tap with a send
+  key held mutes the send, a tap while recording toggles the mute.
+- The REC release through the stock key handler and record request (the
+  existing group) with marks: the mask drops the marked channels, taken
+  holds them, marks clear; a pad target keeps 0xc00 and clears the marks.
+- The take through the original start, stop, postprocess, loader and
+  preload (the existing group) with marked subsets; the admission and the
+  stop clear taken; the chain and the history unaffected.
+- The blink from the worker's poll: 500 ms on and off under the LED lock,
+  steady from the mute after the stop, a stock redraw in between handled.
+- The panel's measured key reporting (verify_stereo_aux_hooks.py's Panel):
+  REC held and each MUTE tapped, in both orders, with the same-bit loss
+  modeled, so the suite says what the diagnostic will say.
+- The random-state group becomes marks against the model.
+
+Hardware
+--------
+One experiment after the diagnostic: takes with marks on each channel,
+PLAY on the mixer, the Editor's view of the card, the chain and
+HISTORY.TXT, a take with no marks, a pad recording with REC held, power
+off with marks pending. About a day with the write-up.
+
+Open questions
+--------------
+1. Keep the "muted with no sends" rule as a second option, or drop it?
+2. Blink rate: the LED task's own rate (no worker work) or 500 ms?
+3. Should the marked channels' lights blink for the whole take, or only
+   while REC is held?
+4. If REC + MUTE 5 fails on the panel, LEVEL + MUTE, or REC + MUTE for
+   channels 1-4 and 6 with channel 5 marked some other way?
