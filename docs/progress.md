@@ -90,6 +90,7 @@ Open work: [future work](future-work.md). The detailed log up to 0.1.0 is in
 | 40 | [Release 0.2.0](../experiments/40-release/README.md) | Installed 17 October; passed; release 0.2.0 |
 | 41 | [Linked AUX limiters](../experiments/41-linked-limiters/README.md) | Installed 17 October; passed on the jacks; this is 0.3.0 |
 | 42 | [Task stack headroom](../experiments/42-stack-headroom/README.md) | Built 17 October; not installed |
+| 43 | [No track files for muted channels with no sends](../experiments/43-skip-muted-tracks/README.md) | Built 19 October; emulated; not installed |
 
 ## Checks
 
