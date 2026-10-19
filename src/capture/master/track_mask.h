@@ -8,6 +8,4 @@
 #define TM_TOGGLE_MAGIC 0x4c36544du   /* 'L6TM': Main category-3 event, toggle the setting */
 uint32_t tm_select(int32_t target);
 void tm_toggle(void);
-/* panel.c: the dropped channels' MUTE LEDs blink for the show time. */
-void panel_show_mutes(uint32_t channels);
 #endif

@@ -80,7 +80,6 @@ KEEP uint32_t tm_select(int32_t target) {
     }
     tm_takes++;tm_last=drop;
     for(uint32_t gone=kept&~mask;gone;gone&=gone-1u)tm_dropped++;
-    if(drop)panel_show_mutes(drop);
     return mask;
 }
 /* Main, from the receive hook (the AUX 2 + EFX hold, panel.c). Refused while

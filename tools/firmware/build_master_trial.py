@@ -211,7 +211,7 @@ def trial(mode='reference'):
             (['The chain switch moved to EFX + PAN (one panel key group); the switches arm 1 s after Main is ready'] if m['experiment']>=38 else [])+
             (['The firmware writes each missing SOUND_PAD/PADn/MASTER.WAV while the chain is on (at start-up, when switched on, after each settled storage change)'] if m.get('anchors') else [])+
             (['First hardware run of the linked AUX limiters: two call sites in the DSP code, the detectors read the louder side in stereo'] if m.get('link') else [])+
-            (['First hardware run of the track mask (AUX 2 + EFX hold): the record prepare\'s selector call is replaced, takes may have fewer than seven files, the dropped channels\' MUTE LEDs blink for 2 s'] if m.get('skip') else [])+
+            (['First hardware run of the track mask (AUX 2 + EFX hold): the record prepare\'s selector call is replaced, takes may have fewer than seven files'] if m.get('skip') else [])+
             (['First hardware run of the stereo AUX pair: jack order, separation, level, delay and the per-bus limiters are unmeasured',
               'Startup restore relies on the stock bulk recompute after the direct unity reset'] if mode=='stereo' else [])+
             (['First hardware run of the pad-start hook (0x80018316) and of writing HISTORY.TXT into take folders'] if mode=='history' else [])+

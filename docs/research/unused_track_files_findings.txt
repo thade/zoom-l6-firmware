@@ -436,16 +436,12 @@ steadily (off) for 2 s, as the other switches show. Refused while a
 recording runs or finalizes. Saved with SAVE() like the other switches; off
 by default; off without the worker, as the stereo mode is.
 
-Feedback. The LED table index of a MUTE LED is its channel (0x80007a40
-writes it), so when a take starts with channels dropped tm_select has
-panel.c blink those channels' MUTE LEDs (level 0x10, mode 1) under the LED
-lock, tried without waiting: if the lock is busy the show is skipped and the
-take starts regardless. The existing show machinery ends it: 2 s later Main
-redraws the shown MUTE LEDs from the channel mutes with the stock writer, as
-the stock scene recall draws them. Stock's own redraw was not relied on
-(the MUTE key handler notifies the Editor through 0x800083f0 rather than
-writing the table; only the scene recall 0x8003f0c8 was seen to call
-0x80007a40).
+Feedback. None at the take start: the owner wants the MUTE LEDs left as
+stock drives them (19 October 2026). A first build blinked the dropped
+channels' MUTE LEDs for 2 s (the LED table index of a MUTE LED is its
+channel, 0x80007a40 writes it, and only the scene recall 0x8003f0c8 was
+seen to call it); that was removed the same day, and the take folder's
+file list is the record of what was left out.
 
 Verification (tests/emulation/verify_track_mask.py, 7 groups, all passed
 19 October 2026; also in tools/firmware/verify_redesign.py):
@@ -499,10 +495,7 @@ Verification (tests/emulation/verify_track_mask.py, 7 groups, all passed
   category-3 magics; through the stock key parser with the panel's measured
   key reporting, one toggle per hold in both orders with the second key 0,
   150 or 400 ms late; the other two holds stay quiet.
-- The LED show: the dropped channels' MUTE LEDs blink, the rest are
-  untouched; 2 s later they are steady from the mutes as they are then; a
-  take with nothing dropped leaves the LEDs alone; with the LED lock busy
-  the take is prepared without the show.
+- The LEDs: a take start, with or without channels dropped, writes no LED.
 - The release suites (tools/firmware/verify_release.py) pass unchanged; the
   stereo suite's pair guard now covers the third pair.
 

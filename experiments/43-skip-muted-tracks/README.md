@@ -48,9 +48,9 @@ of its sides meet the rule, and a MONO x2 channel is still one channel.
   and chain switches, saved with the other settings. Off by default. The
   AUX 2 + EFX hold toggles it; both LEDs blink for 2 seconds when it is now
   on and light steadily when it is off. Refused while recording.
-- When a take starts with channels left out, their MUTE LEDs blink for
-  2 seconds and then show the mutes again.
-- 612 more bytes of code and 128 of globals. Everything is behind the
+- The MUTE LEDs stay stock: nothing shows at the take start which channels
+  were left out. The file list in the take folder is the record.
+- About 600 more bytes of code and 128 of globals. Everything is behind the
   `TRACK_MASK` build flag, and 0.3.0 still rebuilds byte for byte.
 
 | | 0.3.0 (experiment 41) | 43 |
@@ -71,7 +71,8 @@ Build: `python tools/firmware/build_master_trial.py skip_muted` (output in
   the playback preparation) on an in-memory card for seven subsets, with
   the admission hook running through its adapter; subset takes joining the
   chain and getting their history; the hold through the stock key parser
-  with the panel's measured key reporting; the MUTE LED show.
+  with the panel's measured key reporting; the LEDs left alone at the
+  take start.
 - `tools/firmware/verify_release.py`: the release suites, unchanged.
 - One thing seen in stock on the way: the take loader accepts only a stereo
   file for streams 3-6, so a MONO x2 take's `TRACK03_L.WAV` and
@@ -88,15 +89,15 @@ Only take for comparison. Note the results below.
    on. Switch the mixer off and on: the setting must survive (there is no
    indication at start-up; the next take shows it).
 2. **A take with muted channels.** Mute channels 1 and 3/4 with their sends
-   down, leave the others open, record a few seconds, stop. While the take
-   starts, MUTE 1 and MUTE 3/4 blink for 2 seconds. Then: PLAY on the
+   down, leave the others open, record a few seconds, stop. No LED changes
+   at the start of the take. Then: PLAY on the
    mixer plays the take; a few seconds after the stop, pad 1 plays it if
    the chain is on; the take's folder on the card holds `TRACK02.WAV`,
    `TRACK05_ST.WAV`, `TRACK06_ST.WAV`, `MASTER.WAV` and `HISTORY.TXT`, and
    no `TRACK01.WAV` or `TRACK03_ST.WAV`.
 3. **A send keeps a channel.** Mute channel 1 again, turn its AUX 1 send
    up with the send point at Pre Fader (ZOOM L6 Editor, AUX Send Point),
-   record. MUTE 1 does not blink and `TRACK01.WAV` is written. Set the
+   record. `TRACK01.WAV` is written. Set the
    send point back to Post Fader and record: it is left out again. With
    the EFX send up instead, it is left out too.
 4. **Stereo AUX.** Switch the AUX send to stereo (AUX 1 + AUX 2 hold), mute
@@ -136,8 +137,7 @@ of its AUX sends carries it. An AUX send carries nothing when it is down,
 when it is muted, or when its send point is Post Fader in ZOOM L6 Editor.
 In stereo AUX mode only AUX 1 counts, because AUX 2 does nothing then. The
 EFX send does not matter, because a muted channel does not reach the
-effect. When the take starts, the MUTE lights of the channels left out blink
-for 2 seconds. `MASTER.WAV` is always written, the take still goes onto the
+effect. `MASTER.WAV` is always written, the take still goes onto the
 pads and still gets its `HISTORY.TXT`, and recordings onto a pad are not
 affected. A fresh install starts with this off. Only the mutes at the moment
 you press REC decide, so a channel you mute during the take is still

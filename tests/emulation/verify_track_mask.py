@@ -8,7 +8,7 @@ mask through the original record-start callback (file creation per stream),
 RecStop's callback (the stop cursor setter hook, finalize, postprocess, the
 take loader and playback preparation) on an in-memory card, the admission
 change on takes with fewer streams feeding the chain and the history, the
-AUX 2 + EFX hold through the stock key parser, the MUTE LED show, and the
+AUX 2 + EFX hold through the stock key parser, the LEDs left alone, and the
 build. Original code executes; the card, the producer registration, the
 player, the folder naming and the kernel are models. No device access.
 """
@@ -362,19 +362,11 @@ def main():
         outcomes[label]=dict(mask=hex(r.mask),files=[work[s].rsplit('\\',1)[1] for s in kept],loaded=[final[s].rsplit('\\',1)[1] for s in loaded])
     passed('the_original_start_stop_postprocess_loader_and_preload_handle_each_subset_as_they_handle_master_only',outcomes=outcomes)
 
-    # ---- The MUTE LED show at the take start ----
-    r=take(lambda r:(r.mute(0),r.mute(2),r.mute(5)))
-    assert r.leds()==[[0x10,1],[0,0],[0x10,1],[0,0],[0,0],[0x10,1]]       # the dropped channels blink; others untouched
-    put32(r.m,TICK,get32(r.m,TICK)+1999);r.receive(0,0,0x10,0);assert r.leds()[0]==[0x10,1]
-    put32(r.m,TICK,get32(r.m,TICK)+1);r.receive(0,0,0x10,0)
-    assert r.leds()==[[0x10,0],[0,0],[0x10,0],[0,0],[0,0],[0x10,0]]       # 2 s later: steady, from the channel mutes (stock's writer)
-    r.mute(2,0);r.prepare();assert r.leds()[2]==[0x10,0]                  # unmuted now: kept, no show
-    assert r.leds()[0]==[0x10,1]
-    put32(r.m,TICK,get32(r.m,TICK)+2000);r.mute(0,0);r.receive(0,0,0x10,0);assert r.leds()[0]==[0,0]   # redrawn from the mute as it is then
-    r=take(nothing);assert r.leds()==[[0,0]]*6                              # nothing dropped: the LEDs are left alone
-    r=TakeRig();r.setting(1);r.mute(1);r.m.hooks[0x80076950]=lambda a:0     # the LED lock is busy: no show, the take still prepared
-    assert r.prepare()[0]==ALL&~2 and r.leds()==[[0,0]]*6
-    passed('dropped_channels_mute_leds_blink_for_2_s_and_are_redrawn_from_the_mutes_without_blocking_the_start')
+    # ---- The LEDs: a take start touches no LED (the MUTE LEDs stay stock) ----
+    for configure in (lambda r:(r.mute(0),r.mute(2),r.mute(5)),nothing):
+        r=take(configure);assert r.leds()==[[0,0]]*6
+        assert all(bytes(r.m.uc.mem_read(SELECT_LED(sel),2))==bytes(2) for sel in range(9))
+    passed('a_take_start_with_channels_left_out_touches_no_led')
 
     # ---- Admission: takes with fewer streams join the chain and get a history ----
     import verify_master_ref as V
