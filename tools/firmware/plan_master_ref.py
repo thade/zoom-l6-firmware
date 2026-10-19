@@ -2,7 +2,8 @@
 """Byte-checked patch plan for the master reference. JSON only, no image.
 
 Sites: the two startup sites, recorder admission and the stop cursor setter,
-the five Main receive calls and, in the trial, the Editor query parser. The
+the five Main receive calls, in the trial the Editor query parser and, in
+builds with TRACK_MASK, the record prepare's stream mask selector call. The
 stock ring size stays stock, and so does the DSP code except, in builds with
 AUX_LINK, the two AUX limiter detector call sites (LINK_SPECS); the DSP
 record is repacked so the code can reuse its consumed source span.
@@ -38,6 +39,14 @@ STEREO_SPECS=(
          replay='none: veneer replaced',purpose='stereo AUX: Editor mixer reset 1, then the bulk recompute'),
     dict(site=0x80002b90,original='46f66871',adapter='sa_reset2',resume=0x80002b94,
          replay='none: veneer replaced',purpose='stereo AUX: Editor mixer reset 2, then the bulk recompute'))
+# No track files for muted channels with no sends (builds with TRACK_MASK,
+# experiment 43): the record prepare 0x80002df8 calls the stock stream mask
+# selector 0x80008990(target) at 0x80002e96 and hands the mask to 0x8000b540;
+# that one BL becomes a BL to tm_select, which calls the selector and filters
+# its answer (receive_patch style: a plain call, no adapter frame). The
+# selector itself stays stock for the project loader's call at 0x80002d5e.
+MASK_SPEC=dict(site=0x80002e96,original='05f07bfd',original_callee=0x80008990,adapter='tm_select',
+               purpose='record prepare: the stream mask selector call, filtered by the muted-with-no-sends rule')
 PLAY_SPEC=dict(site=0x80018316,original='10b50446',adapter='mr_play_hook',resume=0x8001831a,
                replay='push {r4,lr}; mov r4,r0',purpose='stock pad start (every trigger, on Main): take history')
 # Linked AUX limiters (builds with AUX_LINK): the two AUX output limiters'
@@ -87,13 +96,16 @@ def plan(elf_path=None,trial=False):
     if 'sa_ramp' in names:patches+=[main_patch(stock,s,names[s['adapter']],**at) for s in STEREO_SPECS]
     patches+=[receive_patch(stock,site,old,names['mr_main_receive'],adapter='mr_main_receive',**at)
               for site,old in RECEIVERS]
+    if 'tm_select' in names:
+        patches.append(dict(receive_patch(stock,MASK_SPEC['site'],MASK_SPEC['original'],names['tm_select'],
+                            original_callee=MASK_SPEC['original_callee'],adapter='tm_select',**at),purpose=MASK_SPEC['purpose']))
     ordered=sorted(patches,key=lambda x:x['site'])
     for a,b in zip(ordered,ordered[1:]):
         if a['site']+len(bytes.fromhex(a['patch']))>b['site']:raise ValueError('MAIN patches overlap')
     # Replayed instructions are re-executed at a new address: none may read PC.
     md=Cs(CS_ARCH_ARM,CS_MODE_THUMB|CS_MODE_MCLASS);md.detail=True
     for q in patches:
-        if q['adapter'].startswith('startup_') or q['adapter']=='mr_main_receive':continue
+        if q['adapter'].startswith('startup_') or q['adapter'] in ('mr_main_receive','tm_select'):continue   # calls replaced, not replayed
         for i in md.disasm(bytes.fromhex(q['original']),q['site']):
             if 'pc' in i.op_str:raise ValueError(f"displaced PC-relative instruction at {q['site']:#x}")
     interiors=interior_branches(stock,patches+dsp_patches)

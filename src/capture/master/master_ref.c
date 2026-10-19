@@ -7,6 +7,7 @@
 #include "master_ref.h"
 #include "stock.h"
 #include "stereo_aux.h"
+#include "track_mask.h"
 #include "../retention.h"
 
 
@@ -134,12 +135,21 @@ KEEP void mr_play(uint32_t kind,uint32_t pad) {
 }
 
 /* ---- Recorder task ---- */
+#ifdef TRACK_MASK
+/* With the track mask (track_mask.c) an ordinary take may have fewer than
+ * seven streams: the master's stream (handle and active bit) and an
+ * ordinary record target make it a take. */
+static int normal_recording(void) {
+    return B8(0x801f5f00u)==255 && (W(0x8077ce70u)&0x400u) && W(0x8077e87cu+10u*4u);
+}
+#else
 static int normal_recording(void) {
     static const uint8_t channels[]={0,1,2,4,6,8,10};
     if(B8(0x801f5f00u)!=255 || (W(0x8077ce70u)&0x557u)!=0x557u)return 0;
     for(uint32_t i=0;i<7;i++)if(!W(0x8077e87cu+channels[i]*4u))return 0;
     return 1;
 }
+#endif
 /* Stock recorder start, after all seven streams are registered (0x8000b158).
  * Pad-record takes (a pad record target) are not ordinary takes. */
 KEEP void mr_admit(void) {
@@ -321,6 +331,9 @@ KEEP int32_t mr_main_receive(uint32_t *packet) {
     if(packet[0]==MR_HANDOFF_EVENT && packet[1]==MR_CHAIN_MAGIC)chain_toggle(g);
     if(packet[0]==MR_HANDOFF_EVENT && packet[1]==MR_ANCHOR_MAGIC)list_anchor(g,packet[2],packet[3]);
     if(packet[0]==MR_HANDOFF_EVENT && packet[1]==SA_TOGGLE_MAGIC && sa_toggle)sa_toggle();
+#ifdef TRACK_MASK
+    if(packet[0]==MR_HANDOFF_EVENT && packet[1]==TM_TOGGLE_MAGIC)tm_toggle();
+#endif
     panel_restore();   /* ends a due switch LED show on any event */
     uint32_t storage=(packet[0]==0 && packet[2]>=0x32 && packet[2]<=0x35) ||
         (packet[0]==1 && packet[1]==0 && packet[2]<=5) ||

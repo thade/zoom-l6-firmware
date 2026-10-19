@@ -1,6 +1,7 @@
 /* Panel switches for stock L6 v1.10: two-button holds polled by the worker,
  * confirmed on two select LEDs for 2 s. AUX 1 + AUX 2 toggles the stereo AUX
- * mode (stereo builds), EFX + PAN turns the take chain on or off. All four
+ * mode (stereo builds), EFX + PAN turns the take chain on or off, and in
+ * builds with TRACK_MASK AUX 2 + EFX turns the track mask on or off. All four
  * are view buttons in the same panel key group (bits 4-7 of one word): stock
  * only changes the view for them and has no long press or combination of its
  * own, and the panel reports such pairs reliably (PAN + LEVEL, across two
@@ -10,6 +11,7 @@
 #include "master_ref.h"
 #include "stock.h"
 #include "stereo_aux.h"
+#include "track_mask.h"
 
 #define KEY ((uint32_t (*)(uint32_t))0x80008479u)         /* live key state: 1 pressed */
 #define HOLD_TICKS 1500u
@@ -32,7 +34,11 @@
 /* The holds (constant, with the code) and their state (zeroed globals: the
  * layout carries no initialised data). */
 typedef struct {uint8_t a,b;uint32_t magic;} Pair;
-static const Pair PAIRS[]={{16,17,SA_TOGGLE_MAGIC},{18,19,MR_CHAIN_MAGIC}};   /* AUX1+AUX2, EFX+PAN */
+static const Pair PAIRS[]={{16,17,SA_TOGGLE_MAGIC},{18,19,MR_CHAIN_MAGIC}   /* AUX1+AUX2, EFX+PAN */
+#ifdef TRACK_MASK
+    ,{17,18,TM_TOGGLE_MAGIC}   /* AUX2+EFX: the two send buttons next to each other, both free of the other holds */
+#endif
+};
 #define HOLDS (sizeof(PAIRS)/sizeof(PAIRS[0]))
 typedef struct {uint32_t held_since,seen,holding,fired,up;} Hold;
 static Hold holds[HOLDS];

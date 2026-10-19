@@ -357,3 +357,168 @@ Not done here: no hardware, and no emulation beyond section 7. The player's
 behaviour when a file fails to open at playback preparation, the exact LED
 indices of the signal indicators, and the feed of the recorder's input rings
 from the lanes were not traced.
+
+8. Built: the "muted with no sends" rule as an opt-in setting (19 October 2026)
+------------------------------------------------------------------------------
+The project owner chose the third rule over per-take marking, as a setting
+that is off until switched on. It is built as experiment 43 (mode
+skip_muted in tools/firmware/build_master_trial.py, source
+src/capture/master/track_mask.c, compiled only with TRACK_MASK), proven in
+the emulator and not installed. Release 0.3.0 still rebuilds byte for byte
+from the same tree.
+
+The rule. A channel 1-6 is left out when its channel mute is on and nothing
+reaches its AUX sends. An AUX send carries nothing when its level is zero,
+or it is muted, or its send point is post-fader (a post-fader send follows
+the channel mute). In mono AUX mode both AUX sends matter; in stereo AUX
+mode (mode bytes A5 5A and the worker published) only AUX 1, because the
+AUX 2 knob does nothing there. The EFX send is not looked at: the owner
+muted a channel with its EFX send up on the mixer (19 October 2026) and
+nothing reached the effect, so a muted channel's EFX send carries nothing
+whatever its level, as a post-fader send does. Both lanes of a
+channel go together, so a stereo channel is left out only when both lanes
+meet the rule, and MONO x2 lanes stay one channel. Streams 10 and 11
+(MASTER.WAV) are never left out. Pad-record takes keep stock's mask.
+
+The bytes, checked against the disassembly:
+- Per lane, 0x15 bytes from CONFIG 0x80440dc8: byte 0 channel mute
+  (0x80005f50), +0x9 EFX send level and +0xa EFX send mute (0x80005f60,
+  0x80005f78, index 0), +0xc+aux AUX send level (0x80005f10, signed) and
+  +0xe+aux AUX send mute (0x80005f28), +0x12 MONO x2 (0x800066d8 stores it
+  from the two-byte table at 0x80079d38; 0x80006c40 reads it when the lane's
+  input mode byte CONFIG+0x25ad+lane is -1, the value the setter 0x80006740
+  forces outside lanes 2-5), +0x13+aux the AUX send point (0x80005ef8 reads
+  it, 0x80006600 writes it from the Editor's AUX Send Point command
+  0x8003d9d8, which writes the same value to the runtime copy at
+  C+0x114+0x50*aux+8*lane through 0x8000cb28; 1 is post-fader, the value the
+  coefficient updater multiplies by the fader and mute).
+- The EFX send has no send point: the send point setter accepts AUX 1 and 2
+  only, the Editor's command range is six channels by two AUX buses, and
+  the per-lane bytes +0xb, +0x10 and +0x11 are read by AUX-indexed getters
+  (0x80006100, 0x800060e8), not by an EFX one. A first build kept a muted
+  channel whose EFX send was up, as a precaution; the test on the mixer
+  above showed the send follows the mute, and the condition was dropped
+  the same day.
+- 0x80040ae8 takes a channel index 0-6 and gives lanes 0, 1, 2, 4, 6, 8, 10
+  (the table at 0x80040afc is indexed by channel - 1, and index 0 falls to
+  lane 0); channels 3-6 own the next lane too (the MUTE handler 0x8003e778
+  writes both). The code uses its own table {0,1,2,4,6,8}.
+- The spare settings run: CONFIG+0x311/0x312 hold the pair 96 69 (on); the
+  stock save 0x80006ab8 copies them into the flash image at P+0xf29 with the
+  AUX and chain pairs.
+
+The patch site. The prepare 0x80002df8 chooses the mask with
+`mov r0,r4; bl 0x80008990` at 0x80002e94 and passes it to 0x8000b540 at
+0x80002e9a. The BL at 0x80002e96 (bytes 05 f0 7b fd) becomes a BL to
+tm_select, encoded by receive_patch as the five Main receive calls are: a
+plain call, no adapter frame, and r4 (the target, returned by the prepare)
+is callee-saved. tm_select calls the stock selector through its absolute
+address, returns its answer for a pad target or with the setting off, and
+otherwise clears both lane bits of each channel that meets the rule, counts
+the lanes dropped (tm_takes, tm_dropped, tm_last) and asks for the LED show.
+The selector is not patched, so the project loader's call at 0x80002d5e
+keeps stock's answer; the suite checks the plan leaves those bytes alone and
+that the loader still gets 0xfff with every channel muted.
+
+Admission. normal_recording() in master_ref.c, with TRACK_MASK, requires
+the master's handle (0x8077e87c+40), the master's active bit (0x8077ce70
+bit 10) and an ordinary record target (0x801f5f00 = 255) instead of all
+seven handles and the bits 0x557. The stop setter and the history code read
+only the take folder and the master, so nothing else depended on seven
+files.
+
+The toggle. Hold AUX 2 + EFX (keys 17 and 18) for 1.5 s: the two send
+buttons sit next to each other and belong to the same panel key group as
+the two existing holds (AUX 1 + AUX 2, EFX + PAN), so the panel reports the
+pair reliably and no cross-group diagnostic is needed; the pair is also the
+natural one for a rule about sends. Both select LEDs blink (on) or light
+steadily (off) for 2 s, as the other switches show. Refused while a
+recording runs or finalizes. Saved with SAVE() like the other switches; off
+by default; off without the worker, as the stereo mode is.
+
+Feedback. None at the take start: the owner wants the MUTE LEDs left as
+stock drives them (19 October 2026). A first build blinked the dropped
+channels' MUTE LEDs for 2 s (the LED table index of a MUTE LED is its
+channel, 0x80007a40 writes it, and only the scene recall 0x8003f0c8 was
+seen to call it); that was removed the same day, and the take folder's
+file list is the record of what was left out.
+
+Verification (tests/emulation/verify_track_mask.py, 7 groups, all passed
+19 October 2026; also in tools/firmware/verify_redesign.py):
+- The build: 16 MAIN sites (the 15 of the release plus 0x80002e96) and the
+  two DSP sites; the tree still builds 0.3.0 (34df789b...); image
+  06ad3a26d18c481d4931158323804c619994345fdeca754fd9eee8ee42fa8d20, 11,752
+  code bytes (0.3.0: 11,140), 384 globals bytes.
+- The original prepare, patched, over 24 mixer states: nothing muted 0xfff;
+  channel 1 0xffe; channel 2 0xffd; 3/4 0xff3; 5/6 0xfcf; USB 0xf3f; the pad
+  channel 0xcff; all six 0xc00 (the Master Only mask); MONO x2 on 3/4 with
+  the channel muted 0xff3 (both lanes, now separate streams); one lane of a
+  pair muted keeps the pair; each send escape (AUX 1 or AUX 2 pre-fader
+  and unmuted, a negative AUX level included) keeps the channel, and the
+  same send muted, at zero or post-fader does not; an EFX send up, muted or
+  not, in mono or stereo, does not keep it; in stereo AUX mode an AUX 2
+  pre-fader send does not keep it and an AUX 1 one does; a pair with one
+  lane sending is kept. The selected bytes and has-file flags
+  that 0x8000b540 derives match each mask. With the setting off, or with
+  the site unpatched, every state gives 0xfff. Pad targets 0-3 give 0xc00
+  with everything muted; Recorder Mode Master Only gives 0xc00 untouched;
+  the project loader gets 0xfff; without the worker the setting is off.
+- For seven masks (all seven files, a mono channel out, a stereo pair out,
+  a MONO x2 pair out and kept, several out, master only) the original
+  record-start callback 0x8000b168 -> 0x8000b090 created a Work file for
+  each kept stream only, named as stock names them (TRACK03_L/_R under
+  MONO x2), wrote ZOOM_L6.SYS for the first, registered the kept streams,
+  and our admission hook through its adapter at 0x8000b158 admitted every
+  subset. RecStop's callback 0x8004ba40 then ran the stop setter hook (the
+  take noted with its master path), the original 0x8000b698 (finalize and
+  close of the kept handles only, header sizes right), postprocess (the
+  per-file pass and the rename for the kept streams, Work removed), the
+  original take loader (each kept file opened, parsed and recorded with
+  its index; every other stream recorded absent) and the original
+  StreamPreLoad: positioned at the take's end, as RecStop leaves it, it sets
+  every stream off and opens nothing; positioned at the start, the player
+  opens each loaded file and gives the master pair its file with the
+  dropped streams off. The card, the producer registration, the deep
+  per-file pass and the player's own calls are models.
+- Stock as it is, seen on the way: the take loader accepts a mono file for
+  streams 0-1 and a stereo file for streams 2-9 only, so a MONO x2 lane's
+  mono TRACK0n_L/_R is opened and then recorded with status 3 (refused),
+  with the setting off or on. Whether stock plays those files back some
+  other way was not traced; the feature does not change it.
+- Admission in the chain rig: takes with streams {0,1,10}, {10},
+  {1,2,3,4,10} and all seven are admitted, join the chain and get their
+  HISTORY.TXT; a pad target, a missing master bit or a missing master
+  handle are still refused.
+- The hold: AUX 2 + EFX for 1.5 s posts once per hold and toggles through
+  Main's receive hook (bytes 96 69, one save, AUX 2 and EFX blinking on and
+  steady off), refused while recording or finalizing, ignores the other
+  category-3 magics; through the stock key parser with the panel's measured
+  key reporting, one toggle per hold in both orders with the second key 0,
+  150 or 400 ms late; the other two holds stay quiet.
+- The LEDs: a take start, with or without channels dropped, writes no LED.
+- The record callers: the REC key handler on release tail-calls the stock
+  record request 0x80034f40(-1), whose own checks (File Transfer Mode, the
+  recorder state, a nonzero selector answer) come before the prepare; the
+  patched prepare gives the filtered mask, a press does nothing, a running
+  pad recording stops the key, and the pad handler's request with a pad
+  target keeps 0xc00. The dispatcher's REC case calls the handler
+  (0x8002cd40). The Editor's and MIDI's record commands were not traced.
+- The setters: the MUTE key's handler 0x8003ed28 (0x8003e778 stores both
+  lanes with 0x80006658), and the Editor's AUX send level, send mute and
+  send point setters (0x80006618, 0x80006630, 0x80006600) write the bytes
+  the rule reads; with AUX 1 held, MUTE mutes that send instead and the
+  channel stays in.
+- A power cycle: the stock save 0x80006ab8 puts the pair in the flash image
+  at P+0xf29 and the live mixer in the current scene; the stock boot load
+  0x800062a0 (flash read modeled) brings both back, and the next take is
+  masked by the saved mutes.
+- 400 random mixer states (mutes per lane, AUX levels, send mutes and send
+  points, the AUX mode, EFX sends) give the mask a Python model of the rule
+  predicts.
+- The release suites (tools/firmware/verify_release.py) pass unchanged; the
+  stereo suite's pair guard now covers the third pair.
+
+Not done: nothing on the mixer (experiments/43-skip-muted-tracks/README.md
+has the procedure). The player's full path after a seek, the Editor's view
+of a take folder with fewer files, and a split take (one file per segment)
+with the mask were not run.

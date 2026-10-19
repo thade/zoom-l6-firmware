@@ -27,6 +27,7 @@ flash_diag   (39) diagnostic: firmware-written anchors, the status query and fla
 release_0_2_0 (40) version 0.2.0: 38 with the anchors written by the firmware
 release      (41) version 0.3.0: 40 with the two AUX output limiters linked in stereo (two DSP call sites) (default)
 stack_diag   (42) diagnostic: 41 with the status query and the task stack headroom (schema 8)
+skip_muted   (43) 41 plus the opt-in track mask: no track file for a channel that is muted and feeds no send (AUX 2 + EFX hold)
 
 Writes the trial image and the anchor file: a short silent 48 kHz stereo
 32-bit float WAV with the same 512-byte header layout as the extra files the
@@ -118,14 +119,21 @@ MODES=dict(
     # and the least stack each hook found free. Built from the current
     # sources; pinned once installed.
     stack_diag=dict(experiment=42,out=ROOT/D/'42_stack_diag',image='stack_diag',pads=4,minimum=True,history=True,
-                    stereo=True,switch=True,chain_switch=True,anchors=True,link=True,stack=True))
+                    stereo=True,switch=True,chain_switch=True,anchors=True,link=True,stack=True),
+    # Experiment 43: the release plus the opt-in track mask. While it is on
+    # (hold AUX 2 + EFX for 1.5 s), an ordinary take creates no track file
+    # for a channel that is muted and feeds no send; one more patched site,
+    # the record prepare's selector call. Everyday build from the current
+    # sources; pinned once installed.
+    skip_muted=dict(experiment=43,out=ROOT/D/'43_skip_muted',image='skip_muted',pads=4,trial=False,minimum=True,history=True,
+                    stereo=True,switch=True,chain_switch=True,anchors=True,link=True,skip=True))
 
 @contextlib.contextmanager
 def trial_elf(m):
     """The ELF: current sources, or the pinned commit's in a temporary tree.
     A mode with tree_fallback builds the working tree when the pin cannot be
     read (no git history); its hash check then decides."""
-    def current():return build(trial=m.get('trial',True),stereo=m.get('stereo',False),diag=m.get('diag',False),flash=m.get('flash',False),link=m.get('link',False),stack=m.get('stack',False))
+    def current():return build(trial=m.get('trial',True),stereo=m.get('stereo',False),diag=m.get('diag',False),flash=m.get('flash',False),link=m.get('link',False),stack=m.get('stack',False),skip=m.get('skip',False))
     if 'pin' not in m:yield current();return
     try:archive=subprocess.run(['git','archive',m['pin'],*PINNED_SOURCES],cwd=ROOT,capture_output=True,check=True).stdout
     except (OSError,subprocess.CalledProcessError):
@@ -135,7 +143,7 @@ def trial_elf(m):
         yield current();return
     with tempfile.TemporaryDirectory(prefix='l6-pinned-') as tree:
         tarfile.open(fileobj=io.BytesIO(archive)).extractall(tree,filter='data')
-        yield build(trial=m.get('trial',True),root=Path(tree),stereo=m.get('stereo',False),diag=m.get('diag',False),flash=m.get('flash',False),link=m.get('link',False),stack=m.get('stack',False))
+        yield build(trial=m.get('trial',True),root=Path(tree),stereo=m.get('stereo',False),diag=m.get('diag',False),flash=m.get('flash',False),link=m.get('link',False),stack=m.get('stack',False),skip=m.get('skip',False))
 
 def anchor():
     h=bytearray(512);payload=ANCHOR_FRAMES*8
@@ -154,7 +162,8 @@ def trial(mode='reference'):
     data=assemble(stock,t);names=p['names'];wav=anchor()
     # The features the mode promises are the hooks the plan patched.
     adapters={q['adapter'] for q in t['patches']}
-    for hook,wanted in (('health_parser',diagnostic),('mr_play_hook',m.get('history',False)),('sa_ramp',m.get('stereo',False))):
+    for hook,wanted in (('health_parser',diagnostic),('mr_play_hook',m.get('history',False)),('sa_ramp',m.get('stereo',False)),
+                        ('tm_select',m.get('skip',False))):
         require((hook in adapters)==wanted,f'{mode}: {hook} patched: {hook in adapters}, expected {wanted}')
     dsp_adapters={q['adapter'] for q in t['DSP_patches']}
     require(dsp_adapters==({'sa_limit_a','sa_limit_b'} if m.get('link') else set()),f'{mode}: DSP patches {sorted(dsp_adapters)}')
@@ -163,7 +172,8 @@ def trial(mode='reference'):
     report=dict(experiment=m['experiment'],mode='master' if mode=='reference' else mode,version=m.get('version'),
         minimum_take_seconds=2 if m.get('minimum') else None,
         take_history=m.get('history',False),stereo_aux=m.get('stereo',False),
-        aux_switch=m.get('switch',False),chain_switch=m.get('chain_switch',False),anchors_written=m.get('anchors',False),linked_aux_limiters=m.get('link',False),status='built',expected_sha256=m.get('sha'),trial_sha256=digest(data),
+        aux_switch=m.get('switch',False),chain_switch=m.get('chain_switch',False),anchors_written=m.get('anchors',False),linked_aux_limiters=m.get('link',False),
+        skip_muted_tracks=m.get('skip',False),status='built',expected_sha256=m.get('sha'),trial_sha256=digest(data),
         stock_sha256=STOCK_SHA,elf_sha256=elf_sha,patches=t['patches'],DSP_patches=t['DSP_patches'],
         metadata_edits=p['edits'],code_bytes=len(p['code']),globals_bytes=t['globals_bytes'],
         spare_bytes=t['packing']['spare_bytes'],
@@ -182,7 +192,8 @@ def trial(mode='reference'):
                   else '6F/6E kind7 schema4; as schema 3 plus the AUX1 and AUX2 gain rows' if mode=='stereo'
                   else '6F/6E kind7 schema3; as schema 2 plus history written/failed/status/entries and pad files played' if mode=='history'
                   else '6F/6E kind7 schema2; recorder/worker/handoff/heap words, chain mask and each pad\'s saved take'),
-        unchanged=['Stock DSP code except the two AUX limiter detector call sites, ring size, recorder, SD driver and recording files' if m.get('link') else
+        unchanged=['Stock DSP code except the two AUX limiter detector call sites, ring size, recorder and SD driver; a take has the track files its mask keeps' if m.get('skip') else
+                   'Stock DSP code except the two AUX limiter detector call sites, ring size, recorder, SD driver and recording files' if m.get('link') else
                    'Stock DSP code, ring size, recorder, SD driver and recording files',
                    'MAIN length, container descriptors, PANEL and AUDIOGUIDE regions'],
         limitations=(['First hardware run of pad 1 playing a stock master in place from A:\\RECORDER',
@@ -200,6 +211,7 @@ def trial(mode='reference'):
             (['The chain switch moved to EFX + PAN (one panel key group); the switches arm 1 s after Main is ready'] if m['experiment']>=38 else [])+
             (['The firmware writes each missing SOUND_PAD/PADn/MASTER.WAV while the chain is on (at start-up, when switched on, after each settled storage change)'] if m.get('anchors') else [])+
             (['First hardware run of the linked AUX limiters: two call sites in the DSP code, the detectors read the louder side in stereo'] if m.get('link') else [])+
+            (['First hardware run of the track mask (AUX 2 + EFX hold): the record prepare\'s selector call is replaced, takes may have fewer than seven files'] if m.get('skip') else [])+
             (['First hardware run of the stereo AUX pair: jack order, separation, level, delay and the per-bus limiters are unmeasured',
               'Startup restore relies on the stock bulk recompute after the direct unity reset'] if mode=='stereo' else [])+
             (['First hardware run of the pad-start hook (0x80018316) and of writing HISTORY.TXT into take folders'] if mode=='history' else [])+
