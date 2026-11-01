@@ -13,7 +13,8 @@
 # (default: the take's name), and runs import_take.py, which copies the take
 # and everything it contains to <folder>/<name>/ and writes <name>.RPP there.
 # When the script put the mixer into File Transfer Mode, it ejects the card
-# and leaves that mode afterwards. See import_take.py for what the project holds.
+# and leaves that mode afterwards, also when it is interrupted or fails.
+# See import_take.py for what the project holds.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
@@ -25,6 +26,16 @@ eject=${L6_EJECT:-diskutil eject}
 dest=${1:-.}
 card=${2:-}
 entered=
+
+leave() {   # runs on every exit once the script has put the mixer into File Transfer Mode
+  [ -n "$entered" ] || return 0
+  entered=
+  echo "Ejecting the card and leaving File Transfer Mode..."
+  $eject "$card" || echo "Could not eject the card: eject it yourself, then leave File Transfer Mode from ZOOM L6 Editor" >&2
+  "$python" "$transfer" exit >/dev/null || echo "Could not leave File Transfer Mode: leave it from ZOOM L6 Editor, or switch the mixer off and on" >&2
+}
+trap leave EXIT
+trap 'exit 130' INT TERM
 
 mounted_cards() {
   found=()
@@ -77,11 +88,4 @@ case $name in
   */*) echo "A project name cannot contain /" >&2; exit 1 ;;
 esac
 echo
-if "$python" "$here/import_take.py" "$card" "$take" --out "$dest/$name" --name "$name"; then status=0; else status=$?; fi
-
-if [ -n "$entered" ]; then
-  echo "Ejecting the card and leaving File Transfer Mode..."
-  $eject "$card"
-  "$python" "$transfer" exit >/dev/null || echo "Could not leave File Transfer Mode: leave it from ZOOM L6 Editor, or switch the mixer off and on" >&2
-fi
-exit $status
+"$python" "$here/import_take.py" "$card" "$take" --out "$dest/$name" --name "$name"
