@@ -55,7 +55,9 @@ version 1 file are taken last first, so the new file stays newest first
 Read the take's `HISTORY.TXT`. For a complete set, also read the history of
 every `RECORDER/<take>` it lists and add what they list, repeating until
 nothing new appears. That recovers entries an `OMITTED` file left out, and it
-works across version 1 and 2 files.
+works across version 1 and 2 files. `tools/reaper/import_take.py` does this,
+copies the files and makes a REAPER project
+([README](../README.md#using-it)).
 
 ## How it is written
 

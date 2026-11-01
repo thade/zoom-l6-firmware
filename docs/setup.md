@@ -92,6 +92,17 @@ development tool, not part of the release checks. The live device helpers in
 `tools/device/` use macOS frameworks (CoreMIDI, `/Volumes`); the emulator
 checks need no mixer.
 
+## The REAPER importer
+
+`tools/reaper/import.sh` and `import_take.py` ([README](../README.md#using-it))
+need only the Python environment of step 2. Its check builds a card of made-up takes
+with known offsets and, when the 2 October 2026 recordings are present
+locally, finds the three offsets measured then:
+
+```sh
+python tests/tools/verify_import_take.py
+```
+
 ## Local files
 
 - `Reference/`: Zoom's firmware download and manuals.

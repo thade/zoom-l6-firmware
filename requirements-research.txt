@@ -4,3 +4,5 @@ pyelftools==0.32
 ziglang==0.13.0
 # Optional alternative-loader planning and emulation only; no device build uses it.
 lz4==4.4.5
+# The REAPER importer (tools/reaper/) and the recording analyses (tools/device/).
+numpy==2.5.3

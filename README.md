@@ -134,6 +134,29 @@ contains, newest first, up to 100 of them. If older ones were left out, the
 file says `OMITTED`, and they are listed in the history files of the takes
 it names. Details: [history file format](docs/history-format.md).
 
+**Opening a take in REAPER.** Connect the mixer by USB, or put the card in
+a card reader, and run
+
+```sh
+tools/reaper/import.sh ~/Music
+```
+
+If no card is mounted, the script puts the mixer into File Transfer Mode
+itself (quit ZOOM L6 Editor first), and when it is done it ejects the card
+and leaves that mode. It lists the last five takes on the card, asks which
+one and what to call the project, and makes a folder of that name in the
+folder you gave (the current folder if you gave none). The folder holds a copy of the take's
+files, of the earlier takes they contain and of every pad sound that was
+played, and a REAPER project that puts each one where it sounded in the
+final take. `tools/reaper/import_take.py` does the work and has the options
+(`--help`). The take's master is on top, muted, then one folder per take
+with its track files. Where each earlier take goes is measured, because a pad
+starts some time after REC and the mixer does not record when. The track
+files are the dry inputs, so the levels you heard are not recovered. A take
+recorded with Zoom's firmware has no history, so what it played is unknown;
+the project's notes say so. The script needs Python 3.12 and NumPy
+([Build from source](docs/setup.md), step 2).
+
 **Stereo AUX.** Hold **AUX 1** and **AUX 2** together for 1.5 seconds. If both
 AUX lights blink for 2 seconds, the send is now stereo. If both light steadily,
 it is back to two mono sends. Afterwards the mixer shows the AUX 2 view, as a

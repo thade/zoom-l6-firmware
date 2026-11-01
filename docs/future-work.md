@@ -82,11 +82,20 @@ Done: `HISTORY.TXT` in every take folder
 ([format](history-format.md), [experiment 28](../experiments/28-take-history/README.md)).
 The original design record is in [archive/history-design.md](archive/history-design.md).
 
-- [ ] A stem-collecting script: walk the histories back from a take and
-      gather every recording folder, reporting missing ones.
-- [ ] DAW export: choose the first DAW, and whether it gets aligned stems,
-      the heard mix or both. Timing (backing started midway, looped, stopped
-      early) is not recorded and would need its own extension.
+- [x] A stem-collecting script: `tools/reaper/import_take.py` (1 November
+      2026) walks the histories back from a take, copies every recording
+      folder and pad sound, and reports the missing ones; `import.sh` asks
+      which take and what to call the project.
+- [x] DAW export: REAPER, by the same script, with the heard mix on top and
+      each take's files placed where they sounded. The firmware does not
+      record when a pad was started, so the script measures it: each earlier
+      take's master is looked for in the master of the take that played it
+      (cross-correlation, then a vote of half-second segments; the three
+      offsets measured in the 2 October 2026 recordings are found to the
+      sample). A pad played twice, looped or restarted is placed once, at
+      its first start, and the levels heard are not recovered. Checked by
+      `tests/tools/verify_import_take.py`; not yet tried on a card written
+      by this firmware.
 
 ## Unused track files
 
