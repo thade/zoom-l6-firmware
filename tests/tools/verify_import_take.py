@@ -122,6 +122,35 @@ def check_made_up(tmp):
     run(card,'261001_120000','--out',tmp/'named','--name','My song','--force','--bpm','93.5');assert '  TEMPO 93.5 4 4\n' in (tmp/'named/My song.RPP').read_text()
     assert 'between 1 and 960' in run(card,'261001_120000','--out',tmp/'named','--force','--bpm','0',ok=False)
     print('made-up card: 3 generations placed to the sample, split root, 44.1 kHz pad, version 1 history, missing folder and history, copy/link/no-align/force, list, name')
+    # A second card for what must be reported rather than guessed: a played take whose master is silent, a take
+    # without MASTER.WAV holding another, damaged and empty files, a short fmt chunk, an unknown history version.
+    card2=tmp/'card2';rec2=card2/'RECORDER';rng=np.random.default_rng(2);noise=lambda n:rng.standard_normal((n,2)).astype(np.float32)*0.1
+    for n in range(1,5):(card2/'SOUND_PAD'/f'PAD{n}').mkdir(parents=True)
+    p0=noise(6*RATE);wav(rec2/'261002_100000/MASTER.WAV',p0);wav(rec2/'261002_100000/TRACK01.WAV',p0[:,:1])
+    wav(rec2/'261002_090000/TRACK01.WAV',noise(6*RATE)[:,:1])   # no MASTER.WAV; played P
+    (rec2/'261002_090000/HISTORY.TXT').write_text('L6 HISTORY 1\nRECORDER/261002_100000\nEND 1\n')
+    wav(rec2/'261002_110000/MASTER.WAV',np.zeros((6*RATE,2),np.float32));wav(rec2/'261002_110000/TRACK01.WAV',noise(6*RATE)[:,:1])   # silent master
+    (rec2/'261002_110000/HISTORY.TXT').write_text('L6 HISTORY 3\nEND 0\n')
+    r2=mix(noise(8*RATE),p0,9000,0.5);wav(rec2/'261002_120000/MASTER.WAV',r2)
+    (rec2/'261002_120000/TRACK01.WAV').write_bytes(b'RIFF\x00\x00\x00')   # damaged first segment
+    wav(rec2/'261002_120000/TRACK01_01.WAV',r2[:,:1])
+    (rec2/'261002_120000/TRACK02.WAV').write_bytes((rec2/'261002_100000/TRACK01.WAV').read_bytes()[:44])   # header only: no audio
+    fmt14=struct.pack('<HHIIH',1,1,RATE,RATE*2,2);(rec2/'261002_120000/TRACK03_ST.WAV').write_bytes(b'RIFF'+struct.pack('<I',4+8+14+8)+b'WAVE'+b'fmt '+struct.pack('<I',14)+fmt14+b'data'+struct.pack('<I',0))
+    (rec2/'261002_120000/HISTORY.TXT').write_text('L6 HISTORY 2\nRECORDER/261002_110000\nRECORDER/261002_090000\nRECORDER/261002_100000\nEND 3\n')
+    text=run(card2,'261002_120000','--out',tmp/'song2')
+    assert '261002_110000: placed at 0 in 261002_120000 (no clear match: 0 of 0 segments agree' in text,text   # silence is no evidence
+    assert '261002_090000: no MASTER.WAV, so what sounded in it cannot be placed' in text,text
+    assert '261002_100000: placed at 0 in 261002_090000 (261002_090000 has no MASTER.WAV to measure against)' in text,text
+    assert '261002_110000: HISTORY.TXT version 3 is unknown, so it was read as version 1' in text,text
+    assert '261002_120000/TRACK01.WAV: left out (not a WAV file)' in text and '261002_120000/TRACK02.WAV: left out (no audio in the file)' in text,text
+    assert '261002_120000/TRACK03_ST.WAV: left out (bad fmt chunk)' in text and 'Traceback' not in text,text
+    tracks2=parse(tmp/'song2/261002_120000.RPP');assert [t['name'] for t in tracks2[1:6]]==['261002_120000','TRACK01','TRACK02','TRACK03_ST','MASTER'],[t['name'] for t in tracks2]
+    assert [i['name'] for i in tracks2[2]['items']]==['TRACK01_01.WAV'] and tracks2[3]['items']==[] and tracks2[4]['items']==[],tracks2[2:5]
+    notes2=[l.strip()[1:] for l in (tmp/'song2/261002_120000.RPP').read_text().splitlines() if l.strip().startswith('|')]
+    assert any('TRACK01.WAV: left out' in n for n in notes2) and any('no MASTER.WAV to measure' in n for n in notes2),notes2
+    listed2=run(card2,'--list','5');assert listed2.startswith('261002_120000  2026-10-02 12:00    0:08  5 files  history: 3 entries\n'),listed2   # the bad files do not stop the listing
+    assert it.item(card/'RECORDER/261001_100000/MASTER.WAV','x',-10.0,RATE,'n',lambda _:None)==(None,-5.0)   # a segment ending before 0 still takes its time
+    print('second card: silent master, no master, damaged, empty and short-fmt files, unknown history version: all reported, none guessed')
     # import.sh: the folder and the card as arguments, the answers on stdin (a bad answer first, then take 2, a name).
     r=subprocess.run(['bash',str(TOOL.parent/'import.sh'),str(tmp/'projects'),str(card)],input='x\n2\nTake two\nabc\n88\n',capture_output=True,text=True)
     assert r.returncode==0,(r.stdout,r.stderr)
@@ -134,13 +163,25 @@ def check_made_up(tmp):
     print('import.sh: lists the takes, takes the answers, names the project, sets the tempo')
     # No card mounted: the script enters File Transfer Mode through the helper (a stand-in here, which
     # "mounts" the card), imports, ejects and leaves the mode, in that order. A helper that finds no mixer stops it.
-    volumes=tmp/'volumes';volumes.mkdir();log=tmp/'transfer.log';helper=tmp/'transfer.py';eject=tmp/'eject.sh'
-    helper.write_text(f'''import os,sys;log=open({str(log)!r},'a')
-if sys.argv[1]=='enter':os.symlink({str(card)!r},{str(volumes/'L6_SD')!r});log.write('enter\\n');print('{{"mode": "enter", "card_mounted": true}}')
-else:log.write('exit\\n');print('{{"mode": "exit"}}')
+    # The disk query is a stand-in too: in_mode names the card's disk as the mixer does.
+    volumes=tmp/'volumes';volumes.mkdir();log=tmp/'transfer.log';helper=tmp/'transfer.py';eject=tmp/'eject.sh';diskinfo=tmp/'diskinfo.sh'
+    helper.write_text(f'''import os,sys;log=open({str(log)!r},'a');log.write(sys.argv[1]+'\\n')
+if sys.argv[1]=='enter':
+    if os.path.exists({str(tmp/'no_answer')!r}):print('{{"mode": "enter", "session": false, "card_mounted": false}}');sys.exit(1)
+    os.symlink({str(card)!r},{str(volumes/'L6_SD')!r})
+    print('{{"mode": "enter", "already": true, "card_mounted": true}}' if os.path.exists({str(tmp/'enter_already')!r}) else '{{"mode": "enter", "session": true, "card_mounted": true}}')
+else:
+    print('{{"mode": "exit", "transfer_mode": %s}}'%('null' if os.path.exists({str(tmp/'exit_fails')!r}) else '0'))
+    if os.path.exists({str(tmp/'exit_fails')!r}):sys.exit(1)
 ''')
-    eject.write_text(f'#!/bin/sh\necho "eject $1" >> {log}\nrm {volumes/"L6_SD"}\n');eject.chmod(0o755)
-    env=dict(os.environ,L6_VOLUMES=str(volumes),L6_TRANSFER_MODE=str(helper),L6_EJECT=str(eject))
+    eject.write_text(f'#!/bin/sh\necho "eject $1" >> {log}\nrm "{volumes/"L6_SD"}"\n');eject.chmod(0o755)
+    diskinfo.write_text(f'''#!/bin/sh
+case "$1" in
+  disk9) if [ -e "{tmp/'in_mode'}" ]; then echo "   Device / Media Name:       L6 SD R&W"; else echo "   Device / Media Name:       Card Reader"; fi ;;
+  *) echo "   Part of Whole:             disk9" ;;
+esac
+''');diskinfo.chmod(0o755)
+    env=dict(os.environ,L6_VOLUMES=str(volumes),L6_TRANSFER_MODE=str(helper),L6_EJECT=str(eject),L6_DISKINFO=str(diskinfo))
     r=subprocess.run(['bash',str(TOOL.parent/'import.sh'),str(tmp/'projects')],input='3\n\n\n',capture_output=True,text=True,env=env)
     assert r.returncode==0 and 'Putting the mixer into File Transfer Mode' in r.stdout and 'Ejecting the card' in r.stdout,(r.stdout,r.stderr)
     assert (tmp/'projects/261001_100000/261001_100000.RPP').exists()
@@ -149,10 +190,41 @@ else:log.write('exit\\n');print('{{"mode": "exit"}}')
     log.write_text('');(volumes/'L6_SD').unlink(missing_ok=True)
     r=subprocess.run(['bash',str(TOOL.parent/'import.sh'),str(tmp/'projects')],input='',capture_output=True,text=True,env=env)
     assert r.returncode!=0 and 'Ejecting the card' in r.stdout and log.read_text()==f'enter\neject {volumes}/L6_SD\nexit\n',(r.stdout,r.stderr,log.read_text())
+    # The card already mounted from the mixer (its disk named as the mixer names it): the script offers to eject the
+    # card and leave the mode when done. Declined, or stopped at the question: left as found. A card in a reader, or
+    # the mixer reporting it was in the mode before the script entered it: the same question, or none for the reader.
+    told='so this card is mounted from it'   # the question itself is a read prompt, which bash prints only on a terminal
+    def mounted(answers,dest,in_mode=True,mount=True,flags=()):
+        log.write_text('');(volumes/'L6_SD').unlink(missing_ok=True)
+        if mount:os.symlink(card,volumes/'L6_SD')
+        for f in ('in_mode','enter_already','exit_fails','no_answer'):(tmp/f).unlink(missing_ok=True)
+        for f in (('in_mode',) if in_mode else ())+tuple(flags):(tmp/f).touch()
+        return subprocess.run(['bash',str(TOOL.parent/'import.sh'),str(tmp/dest)],input=answers,capture_output=True,text=True,env=env)
+    r=mounted('\n3\n\n\n','p_yes')
+    assert r.returncode==0 and told in r.stdout and 'Ejecting the card' in r.stdout and not r.stderr,(r.stdout,r.stderr)
+    assert (tmp/'p_yes/261001_100000/261001_100000.RPP').exists() and log.read_text()==f'eject {volumes}/L6_SD\nexit\n',log.read_text()
+    r=mounted('n\n3\n\n\n','p_no')
+    assert r.returncode==0 and 'The card stays mounted' in r.stdout and 'Ejecting the card' not in r.stdout and (tmp/'p_no/261001_100000/261001_100000.RPP').exists(),(r.stdout,r.stderr)
+    assert log.read_text()=='' and (volumes/'L6_SD').exists(),log.read_text()
+    r=mounted('','p_eof')
+    assert r.returncode!=0 and told in r.stdout and 'Ejecting the card' not in r.stdout and log.read_text()=='',(r.stdout,r.stderr)
+    r=mounted('3\n\n\n','p_reader',in_mode=False)
+    assert r.returncode==0 and told not in r.stdout and log.read_text()=='' and (tmp/'p_reader/261001_100000/261001_100000.RPP').exists(),(r.stdout,r.stderr)
+    r=mounted('\n3\n\n\n','p_already',mount=False,flags=('enter_already',))   # entered from the Editor just before: not the script's to leave unasked
+    assert r.returncode==0 and 'Putting the mixer' in r.stdout and told in r.stdout and log.read_text()==f'enter\neject {volumes}/L6_SD\nexit\n',(r.stdout,r.stderr,log.read_text())
+    r=mounted('n\n3\n\n\n','p_already_no',mount=False,flags=('enter_already',))
+    assert r.returncode==0 and 'The card stays mounted' in r.stdout and log.read_text()=='enter\n',(r.stdout,r.stderr,log.read_text())
+    r=mounted('\n3\n\n\n','p_exit_fails',flags=('exit_fails',))   # the mixer never confirmed leaving the mode: said so
+    assert r.returncode==0 and 'Could not leave File Transfer Mode' in r.stderr and log.read_text()==f'eject {volumes}/L6_SD\nexit\n',(r.stdout,r.stderr)
+    r=mounted('','p_no_answer',mount=False,flags=('no_answer',))   # the mixer on USB but silent (the Editor open)
+    assert r.returncode==1 and 'The mixer did not answer. Quit ZOOM L6 Editor' in r.stderr and log.read_text()=='enter\n',(r.stdout,r.stderr)
     helper.write_text("import sys;sys.exit('Cannot identify the unique L6 Editor port')")
-    r=subprocess.run(['bash',str(TOOL.parent/'import.sh'),str(tmp/'projects')],input='',capture_output=True,text=True,env=env)
+    r=mounted('','p_no_mixer',mount=False)
     assert r.returncode==1 and 'No mixer found: Cannot identify the unique L6 Editor port' in r.stderr,(r.stdout,r.stderr)
-    print('import.sh: enters File Transfer Mode when no card is mounted, ejects and leaves it after; stops without a mixer')
+    # A project name starting with a dash reaches the tool as a name.
+    r=subprocess.run(['bash',str(TOOL.parent/'import.sh'),str(tmp/'dashed'),str(card)],input='1\n-mix\n\n',capture_output=True,text=True)
+    assert r.returncode==0 and (tmp/'dashed/-mix/-mix.RPP').exists(),(r.stdout,r.stderr)
+    print('import.sh: enters File Transfer Mode when no card is mounted, ejects and leaves it after; asks when the mixer was in it already; reports a mixer that stays in it; stops without a mixer')
 
 def check_history(tmp):
     def h(text):p=tmp/'H.TXT';p.write_text(text);return it.History(p)

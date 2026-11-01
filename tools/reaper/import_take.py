@@ -29,6 +29,8 @@ so what it played is unknown. A take folder that was deleted cannot be
 imported. Both are reported. The levels you heard are not recovered: the
 track files are the dry inputs, and the mixer does not record fader, knob or
 pad levels. A take that was played twice at different times is placed once.
+Only the first file of a take long enough to be split is searched, so what
+sounded later in such a take is reported as not found.
 """
 import argparse,math,re,shutil,struct,sys,time
 from pathlib import Path
@@ -58,6 +60,8 @@ class History:
         if not lines or not lines[0].startswith('L6 HISTORY '):self.problems.append('HISTORY.TXT is not a history file');return
         try:self.version=int(lines[0][11:])
         except ValueError:self.problems.append('HISTORY.TXT has an unknown version line')
+        else:
+            if self.version not in (1,2):self.problems.append(f'HISTORY.TXT version {self.version} is unknown, so it was read as version 1')
         count=None
         for line in lines[1:]:
             if line=='OMITTED':self.omitted=True
@@ -84,6 +88,7 @@ class Take:
             if m:self.files.setdefault(m.group(1).upper(),[]).append(p)
             elif p.suffix.upper()=='.WAV':self.problems.append(f'{p.name} is not a recorder file and was left out')
         if not self.files:self.problems.append('no recorder files in the folder')
+        elif 'MASTER' not in self.files:self.problems.append('no MASTER.WAV, so what sounded in it cannot be placed')
     @property
     def master(self):return self.files.get('MASTER',[None])[0]
     @property
@@ -138,7 +143,9 @@ class Info:
                 if len(h)<8:break
                 cid,n=h[:4],struct.unpack('<I',h[4:])[0]
                 if cid==b'fmt ':
-                    v=f.read(min(n,40));tag,ch,rate,_,align,bits=struct.unpack_from('<HHIIHH',v)
+                    v=f.read(min(n,40))
+                    if len(v)<16:raise ValueError('bad fmt chunk')
+                    tag,ch,rate,_,align,bits=struct.unpack_from('<HHIIHH',v)
                     if tag==0xFFFE and len(v)>=26:tag=struct.unpack_from('<H',v,24)[0]
                     fmt=(tag,ch,rate,align,bits)
                 elif cid==b'data':
@@ -213,12 +220,14 @@ def find_lag(parent,child):
     P=parent.window(cs+d0-span,m+2*span);C=child.window(cs,m)
     if len(P)<m+2*span or len(C)<m:return d0,score,0,0
     C2=C.reshape(-1,seg);C2=C2-C2.mean(axis=1,keepdims=True);cc=(C2*C2).sum(axis=1)
-    loud=cc>=cc.max()*QUIET   # a near-silent segment of the child says nothing
+    loud=(cc>0)&(cc>=cc.max()*QUIET)   # a near-silent segment of the child says nothing; a silent one is no vote
     if not loud.any():return d0,score,0,0
     F=np.zeros((int(loud.sum()),2*span+1),np.float32);C2=C2[loud];cc=cc[loud]
     for k in range(2*span+1):
         Pk=P[k:k+m].reshape(-1,seg)[loud];Pk=Pk-Pk.mean(axis=1,keepdims=True);pp=(Pk*Pk).sum(axis=1);pc=(Pk*C2).sum(axis=1)
         ok=pp>0;F[:,k]=np.where(ok,pc*np.abs(pc)/np.where(ok,pp*cc,1),0.0)   # signed r-squared: a phase-inverted copy counts against
+    F=F[F.max(axis=1)>0]   # a segment that fits nowhere (the parent silent there) is no vote either
+    if not len(F):return d0,score,0,0
     best=F.argmax(axis=1);votes=np.bincount(best,minlength=F.shape[1]).astype(np.float64)
     votes+=np.array([F[best==k,k].sum() for k in range(F.shape[1])])/(len(F)+1)   # ties: the better fits
     k=int(np.argmax(votes))
@@ -228,40 +237,43 @@ def find_lag(parent,child):
 
 def q(s):return '"'+s.replace('"',"'")+'"'
 
-def item(path,ref,pos,rate,name):
-    """An RPP item for one file at pos (seconds, may be negative). Returns (text, seconds it ends at)."""
+def item(path,ref,pos,rate,name,say=print):
+    """An RPP item for one file at pos (seconds, may be negative). Returns (text, seconds it ends at).
+    A file that does not open, or is empty, is left out and reported, and takes no time."""
     try:length=Info(path).seconds
-    except (OSError,ValueError):length=0.0
-    soffs=0.0
-    if pos<0:soffs=-pos;length+=pos;pos=0.0
-    if length<=0:return None,pos
+    except (OSError,ValueError) as e:say(f'{name}: left out ({e})');return None,pos
+    if length<=0:say(f'{name}: left out (no audio in the file)');return None,pos
+    end=pos+length;soffs=0.0
+    if pos<0:soffs=-pos;length=end;pos=0.0
+    if length<=0:return None,end   # ends before the project starts
     text=f'    <ITEM\n      POSITION {pos:.9f}\n      LENGTH {length:.9f}\n      SOFFS {soffs:.9f}\n      NAME {q(name)}\n      <SOURCE WAVE\n        FILE {q(ref)}\n      >\n    >\n'
-    return text,pos+length
+    return text,end
 
-def stream_items(take,stream,pos,rate,ref_of):
+def stream_items(take,stream,pos,rate,ref_of,say=print):
     """The segments of one stream, end to end from pos."""
     items=[]
     for seg in take.files[stream]:
-        t,pos=item(seg,ref_of(seg),pos,rate,seg.name)
+        t,pos=item(seg,ref_of(seg),pos,rate,seg.name,lambda line:say(f'{take.name}/{line}'))
         if t:items.append(t)
     return items
 
 def track(name,items,isbus='0 0',mute=False):
     return f'  <TRACK\n    NAME {q(name)}\n    MUTESOLO {int(mute)} 0 0\n    ISBUS {isbus}\n'+''.join(items)+'  >\n'
 
-def write_project(out,root,project,takes,order,sounds,parent,offsets,rate,notes,ref_of,bpm):
+def write_project(out,root,project,takes,order,sounds,parent,offsets,rate,notes,ref_of,bpm,say=print):
+    """Writes <out>/<project>.RPP; say() takes each note about a file left out (also added to notes)."""
     tracks=[];rt=takes[root]
-    if rt.master:tracks.append(track(f'{root} MASTER: the mix as heard',stream_items(rt,'MASTER',0.0,rate,ref_of),mute=True))
+    if rt.master:tracks.append(track(f'{root} MASTER: the mix as heard',stream_items(rt,'MASTER',0.0,rate,ref_of,say),mute=True))
     played={}
     for key,p in parent.items():
         if key[0]=='sound':played.setdefault(p,[]).append(key[1])
     for name in order:
         take=takes[name];children=[]
-        for stream in take.streams:children.append((stream,stream_items(take,stream,offsets.get(('take',name),0)/rate,rate,ref_of),stream=='MASTER'))
+        for stream in take.streams:children.append((stream,stream_items(take,stream,offsets.get(('take',name),0)/rate,rate,ref_of,say),stream=='MASTER'))
         for rel in played.get(name,[]):
             s=sounds[rel]
             if not s.path:continue
-            t,_=item(s.path,ref_of(s.path),offsets.get(('sound',rel),0)/rate,rate,Path(rel).name)
+            t,_=item(s.path,ref_of(s.path),offsets.get(('sound',rel),0)/rate,rate,Path(rel).name,say)
             children.append((Path(rel).name,[t] if t else [],False))
         if not children:tracks.append(track(f'{name} ({"; ".join(take.problems) or "nothing to show"})',[]));continue
         tracks.append(track(name,[],isbus='1 1'))
@@ -337,7 +349,8 @@ def main():
         visiting.add(key);p=parent[key];base=place(('take',p));lag=0;kind,ref=key
         child=takes[ref].master if kind=='take' else sounds[ref].path
         pm=takes[p].master;label=ref if kind=='take' else Path(ref).name
-        if child is None or pm is None:pass
+        if child is None:pass
+        elif pm is None:say(f'{label}: placed at 0 in {p} ({p} has no MASTER.WAV to measure against)')
         elif a.no_align:pass
         elif np is None:say(f'{label}: placed at 0 in {p} (NumPy is not installed, so nothing was measured)')
         else:
@@ -363,7 +376,7 @@ def main():
     for name in order:
         take=takes[name]
         if take.history:ref_of(take.folder/'HISTORY.TXT')
-    write_project(out,root,project,takes,order,sounds,parent,offsets,rate,notes,ref_of,a.bpm)
+    write_project(out,root,project,takes,order,sounds,parent,offsets,rate,notes,ref_of,a.bpm,say)
     present=[n for n in order if takes[n].folder];print(f'{len(present)} take(s), {sum(1 for s in sounds.values() if s.path)} pad sound(s)'+(f', {copied} file(s) copied ({size/1e6:.0f} MB)' if not a.link else ', played from the card'))
     print(f'project: {out/(project+".RPP")}')
 

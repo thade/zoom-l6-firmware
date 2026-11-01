@@ -20,6 +20,10 @@ hardware), which confirms each change independently of the acknowledgement.
   enter    session, 31 09 01, wait for the card volume
   exit     card must be ejected; primed session, 31 09 00, then confirm mode 00
   session  open an editor session only, so status queries work without the Editor
+
+The result is printed as JSON. The exit status is 0 only when the mode did its
+job: enter has the card mounted, exit has the mixer confirm mode 00, session
+has the mixer answer. A missing port is a one-line message, status 1.
 """
 import argparse,ctypes as C,json,queue,subprocess,sys,time
 from pathlib import Path
@@ -107,7 +111,7 @@ class EditorLink:
 
 def mounted_cards():
     """Mounted volumes laid out as an L6 card (SOUND_PAD/PAD1..PAD4), whatever their name."""
-    return [v for v in Path('/Volumes').glob('*') if all((v/'SOUND_PAD'/f'PAD{n}').is_dir() for n in range(1,5))]
+    return [v for v in Path('/Volumes').glob('*') if all((v/'SOUND_PAD'/f'PAD{n}').is_dir() for n in range(1,5)) and (v/'RECORDER').is_dir()]
 def card_ready():
     """A card volume exists and disk arbitration can describe it (safe to inspect/eject)."""
     cards=mounted_cards()
@@ -168,7 +172,10 @@ def main():
     p.add_argument('--log',type=Path)
     a=p.parse_args();log=[]
     try:result=dict(enter=enter,exit=exit_,session=session)[a.mode](log)
+    except RuntimeError as e:sys.exit(str(e))
     finally:
         if a.log:a.log.write_text(json.dumps(log,indent=1)+'\n')
     print(json.dumps(dict(mode=a.mode,**result)))
+    done=dict(enter=result.get('card_mounted'),exit=result.get('transfer_mode')==0,session=result.get('session'))[a.mode]
+    sys.exit(0 if done else 1)
 if __name__=='__main__':main()

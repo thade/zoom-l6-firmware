@@ -143,7 +143,9 @@ tools/reaper/import.sh ~/Music
 
 If no card is mounted, the script puts the mixer into File Transfer Mode
 itself (quit ZOOM L6 Editor first), and when it is done it ejects the card
-and leaves that mode. It lists the last five takes on the card, asks which
+and leaves that mode. If the mixer was already in File Transfer Mode, the
+script asks whether to do the same when done; answer no to keep the card
+mounted. It lists the last five takes on the card, asks which
 one, what to call the project and its tempo, and makes a folder of that
 name in the folder you gave (the current folder if you gave none). The folder holds a copy of the take's
 files, of the earlier takes they contain and of every pad sound that was
