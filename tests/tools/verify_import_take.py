@@ -118,16 +118,20 @@ def check_made_up(tmp):
     run(card,'261001_120000','--out',tmp/'named','--name','My song')
     assert (tmp/'named/My song.RPP').exists() and parse(tmp/'named/My song.RPP')[0]['name']=='261001_120000 MASTER: the mix as heard'
     assert 'cannot be empty or contain /' in run(card,'261001_120000','--out',tmp/'named','--name','a/b',ok=False)
+    assert '  TEMPO 120 4 4\n' in (tmp/'named/My song.RPP').read_text()
+    run(card,'261001_120000','--out',tmp/'named','--name','My song','--force','--bpm','93.5');assert '  TEMPO 93.5 4 4\n' in (tmp/'named/My song.RPP').read_text()
+    assert 'between 1 and 960' in run(card,'261001_120000','--out',tmp/'named','--force','--bpm','0',ok=False)
     print('made-up card: 3 generations placed to the sample, split root, 44.1 kHz pad, version 1 history, missing folder and history, copy/link/no-align/force, list, name')
     # import.sh: the folder and the card as arguments, the answers on stdin (a bad answer first, then take 2, a name).
-    r=subprocess.run(['bash',str(TOOL.parent/'import.sh'),str(tmp/'projects'),str(card)],input='x\n2\nTake two\n',capture_output=True,text=True)
+    r=subprocess.run(['bash',str(TOOL.parent/'import.sh'),str(tmp/'projects'),str(card)],input='x\n2\nTake two\nabc\n88\n',capture_output=True,text=True)
     assert r.returncode==0,(r.stdout,r.stderr)
     assert '  1) 261001_120000 ' in r.stdout and '  2) 261001_110000 ' in r.stdout and '  3) 261001_100000 ' in r.stdout,r.stdout
     assert (tmp/'projects/Take two/Take two.RPP').exists() and (tmp/'projects/Take two/RECORDER/261001_110000/MASTER.WAV').exists()
     assert parse(tmp/'projects/Take two/Take two.RPP')[0]['name']=='261001_110000 MASTER: the mix as heard'
-    r=subprocess.run(['bash',str(TOOL.parent/'import.sh'),str(tmp/'projects'),str(card)],input='1\n\n',capture_output=True,text=True)   # the default name
-    assert r.returncode==0 and (tmp/'projects/261001_120000/261001_120000.RPP').exists(),(r.stdout,r.stderr)
-    print('import.sh: lists the takes, takes the answers, names the project')
+    assert '  TEMPO 88 4 4\n' in (tmp/'projects/Take two/Take two.RPP').read_text()
+    r=subprocess.run(['bash',str(TOOL.parent/'import.sh'),str(tmp/'projects'),str(card)],input='1\n\n\n',capture_output=True,text=True)   # the default name and tempo
+    assert r.returncode==0 and '  TEMPO 120 4 4\n' in (tmp/'projects/261001_120000/261001_120000.RPP').read_text(),(r.stdout,r.stderr)
+    print('import.sh: lists the takes, takes the answers, names the project, sets the tempo')
     # No card mounted: the script enters File Transfer Mode through the helper (a stand-in here, which
     # "mounts" the card), imports, ejects and leaves the mode, in that order. A helper that finds no mixer stops it.
     volumes=tmp/'volumes';volumes.mkdir();log=tmp/'transfer.log';helper=tmp/'transfer.py';eject=tmp/'eject.sh'
@@ -137,7 +141,7 @@ else:log.write('exit\\n');print('{{"mode": "exit"}}')
 ''')
     eject.write_text(f'#!/bin/sh\necho "eject $1" >> {log}\nrm {volumes/"L6_SD"}\n');eject.chmod(0o755)
     env=dict(os.environ,L6_VOLUMES=str(volumes),L6_TRANSFER_MODE=str(helper),L6_EJECT=str(eject))
-    r=subprocess.run(['bash',str(TOOL.parent/'import.sh'),str(tmp/'projects')],input='3\n\n',capture_output=True,text=True,env=env)
+    r=subprocess.run(['bash',str(TOOL.parent/'import.sh'),str(tmp/'projects')],input='3\n\n\n',capture_output=True,text=True,env=env)
     assert r.returncode==0 and 'Putting the mixer into File Transfer Mode' in r.stdout and 'Ejecting the card' in r.stdout,(r.stdout,r.stderr)
     assert (tmp/'projects/261001_100000/261001_100000.RPP').exists()
     assert log.read_text()==f'enter\neject {volumes}/L6_SD\nexit\n',log.read_text()

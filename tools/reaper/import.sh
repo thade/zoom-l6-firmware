@@ -10,7 +10,7 @@
 # With no card mounted, the mixer is put into File Transfer Mode over USB
 # (connect it by USB and quit ZOOM L6 Editor first). Then the script lists
 # the last five takes on the card, asks which one, asks for a project name
-# (default: the take's name), and runs import_take.py, which copies the take
+# (default: the take's name) and a tempo, and runs import_take.py, which copies the take
 # and everything it contains to <folder>/<name>/ and writes <name>.RPP there.
 # When the script put the mixer into File Transfer Mode, it ejects the card
 # and leaves that mode afterwards, also when it is interrupted or fails.
@@ -87,5 +87,10 @@ name=${name:-$take}
 case $name in
   */*) echo "A project name cannot contain /" >&2; exit 1 ;;
 esac
+while :; do
+  read -r -p "Project tempo in BPM [120]: " bpm
+  bpm=${bpm:-120}
+  [[ $bpm =~ ^[0-9]+([.][0-9]+)?$ ]] && break
+done
 echo
-"$python" "$here/import_take.py" "$card" "$take" --out "$dest/$name" --name "$name"
+"$python" "$here/import_take.py" "$card" "$take" --out "$dest/$name" --name "$name" --bpm "$bpm"

@@ -144,8 +144,8 @@ tools/reaper/import.sh ~/Music
 If no card is mounted, the script puts the mixer into File Transfer Mode
 itself (quit ZOOM L6 Editor first), and when it is done it ejects the card
 and leaves that mode. It lists the last five takes on the card, asks which
-one and what to call the project, and makes a folder of that name in the
-folder you gave (the current folder if you gave none). The folder holds a copy of the take's
+one, what to call the project and its tempo, and makes a folder of that
+name in the folder you gave (the current folder if you gave none). The folder holds a copy of the take's
 files, of the earlier takes they contain and of every pad sound that was
 played, and a REAPER project that puts each one where it sounded in the
 final take. `tools/reaper/import_take.py` does the work and has the options

@@ -249,7 +249,7 @@ def stream_items(take,stream,pos,rate,ref_of):
 def track(name,items,isbus='0 0',mute=False):
     return f'  <TRACK\n    NAME {q(name)}\n    MUTESOLO {int(mute)} 0 0\n    ISBUS {isbus}\n'+''.join(items)+'  >\n'
 
-def write_project(out,root,project,takes,order,sounds,parent,offsets,rate,notes,ref_of):
+def write_project(out,root,project,takes,order,sounds,parent,offsets,rate,notes,ref_of,bpm):
     tracks=[];rt=takes[root]
     if rt.master:tracks.append(track(f'{root} MASTER: the mix as heard',stream_items(rt,'MASTER',0.0,rate,ref_of),mute=True))
     played={}
@@ -267,7 +267,7 @@ def write_project(out,root,project,takes,order,sounds,parent,offsets,rate,notes,
         tracks.append(track(name,[],isbus='1 1'))
         for i,(label,items,mute) in enumerate(children):
             tracks.append(track(label,items,isbus='2 -1' if i==len(children)-1 else '0 0',mute=mute))
-    text=f'<REAPER_PROJECT 0.1 "7.0" {int(time.time())}\n  <NOTES 0 2\n'+''.join(f'    |{line}\n' for line in notes)+f'  >\n  RIPPLE 0\n  SAMPLERATE {rate} 0 0\n'+''.join(tracks)+'>\n'
+    text=f'<REAPER_PROJECT 0.1 "7.0" {int(time.time())}\n  <NOTES 0 2\n'+''.join(f'    |{line}\n' for line in notes)+f'  >\n  RIPPLE 0\n  SAMPLERATE {rate} 0 0\n  TEMPO {bpm:g} 4 4\n'+''.join(tracks)+'>\n'
     (out/f'{project}.RPP').write_text(text)
 
 # --- main -----------------------------------------------------------------------
@@ -296,6 +296,7 @@ def main():
     ap.add_argument('--no-align',action='store_true',help='place every file at 0 instead of measuring')
     ap.add_argument('--force',action='store_true',help='replace an existing project file')
     ap.add_argument('--name',help='the project file name (default: the take name)')
+    ap.add_argument('--bpm',type=float,default=120.0,help='the project tempo (default 120; the files are placed in seconds, so the tempo moves nothing)')
     ap.add_argument('--list',type=int,metavar='N',help='print the last N takes on the card (give the card alone) and stop')
     a=ap.parse_args()
     if a.list:
@@ -308,6 +309,7 @@ def main():
     if folder.parent.name.upper()!='RECORDER':fail(f'{folder} is not inside a RECORDER folder')
     out=(a.out or Path(root)).resolve();project=a.name or root
     if '/' in project or not project:fail('the project name cannot be empty or contain /')
+    if not 1<=a.bpm<=960:fail('the tempo must be between 1 and 960 BPM')
     if (out/f'{project}.RPP').exists() and not a.force:fail(f'{out/(project+".RPP")} exists; add --force to replace it')
     if a.link and out==card:fail('the project folder cannot be the card')
 
@@ -361,7 +363,7 @@ def main():
     for name in order:
         take=takes[name]
         if take.history:ref_of(take.folder/'HISTORY.TXT')
-    write_project(out,root,project,takes,order,sounds,parent,offsets,rate,notes,ref_of)
+    write_project(out,root,project,takes,order,sounds,parent,offsets,rate,notes,ref_of,a.bpm)
     present=[n for n in order if takes[n].folder];print(f'{len(present)} take(s), {sum(1 for s in sounds.values() if s.path)} pad sound(s)'+(f', {copied} file(s) copied ({size/1e6:.0f} MB)' if not a.link else ', played from the card'))
     print(f'project: {out/(project+".RPP")}')
 
