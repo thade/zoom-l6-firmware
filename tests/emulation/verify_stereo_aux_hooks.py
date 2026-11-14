@@ -354,6 +354,16 @@ def switch():
     hold(T+11200,T+11300,0,0);hold(T+11350,T+12000);poll(T+12050,0,1);poll(T+12500,1,1)   # a misread, a 450 ms stall
     hold(T+12550,T+12800);assert len(toggles_posted())==3;hold(T+12850,T+12850);assert len(toggles_posted())==4
     poll(T+12900,1,0);hold(T+12950,T+15000);assert len(toggles_posted())==4                   # a misread re-arms nothing
+    # Weeks of uptime: the 1 ms tick passes 2^31 past Main's first receive
+    # (24.9 days), then wraps (49.7 days). The holds stay armed.
+    hold(T+15050,T+15150,0,0)
+    D=35001+(1<<31)
+    hold(D,D+1450);assert len(toggles_posted())==4;hold(D+1500,D+1550);assert len(toggles_posted())==5
+    hold(D+1600,D+1700,0,0)
+    W=(1<<32)-700
+    for t in range(W,W+1650,50):poll(t&0xffffffff,1,1)            # held across the wrap
+    assert len(toggles_posted())==6
+    for t in range(W+1650,W+1800,50):poll(t&0xffffffff,0,0)
     # The LED show ends SHOW_TICKS after the toggle: the worker asks Main to
     # redraw and repeats every 250 ms until Main has done it.
     p.uc.mem_write(0x801f9050,struct.pack('<I',T+20000));posts.clear();p.run(NAMES['sa_toggle'])

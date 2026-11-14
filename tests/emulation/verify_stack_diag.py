@@ -2,8 +2,7 @@
 """Experiment 42's diagnostic build: status schema 8, the task stack headroom
 read from the stock A5 fill and the least stack each hook found free, executed
 with the build's own code over control blocks and stacks laid out as the stock
-task creator leaves them. The working tree still builds the 0.3.0 image byte
-for byte. No device access.
+task creator leaves them. No device access.
 """
 import json,struct,sys
 from verify_pad_protocol import ROOT,INPUT
@@ -41,12 +40,8 @@ def main():
     adapters=sorted(p['adapter'] for p in manifest['patches'])
     assert manifest['experiment']==42 and len(adapters)==16 and 'health_parser' in adapters and len(manifest['DSP_patches'])==2
     assert manifest['linked_aux_limiters'] and manifest['diagnostics'] and 'schema8' in manifest['protocol']
-    # The release sources are the same: the working tree still builds 0.3.0.
-    everyday=dict(MODES['release']);del everyday['pin']
-    with trial_elf(everyday) as release_elf:t=plan(release_elf,trial=False)
-    assert digest(assemble(SOURCE.read_bytes(),t))==MODES['release']['sha']
-    passed('the_diagnostic_build_patches_the_release_sites_plus_the_query_and_the_tree_still_builds_0_3_0',
-           trial_sha256=manifest['trial_sha256'],code_bytes=manifest['code_bytes'],release_sha256=MODES['release']['sha'])
+    passed('the_diagnostic_build_patches_the_release_sites_plus_the_query',
+           trial_sha256=manifest['trial_sha256'],code_bytes=manifest['code_bytes'])
 
     r=V.MasterRig();m=r.m;replies=[];V.put32(m,CURRENT,0)   # the rig's stock boot left a task current
     m.hooks[0x80031648]=lambda a:replies.append(bytes(m.uc.mem_read(a[0],a[1]))) or 0

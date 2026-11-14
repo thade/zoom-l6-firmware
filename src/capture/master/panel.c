@@ -36,7 +36,7 @@ static const Pair PAIRS[]={{16,17,SA_TOGGLE_MAGIC},{18,19,MR_CHAIN_MAGIC}};   /*
 #define HOLDS (sizeof(PAIRS)/sizeof(PAIRS[0]))
 typedef struct {uint32_t held_since,seen,holding,fired,up;} Hold;
 static Hold holds[HOLDS];
-static uint32_t restore_posted;
+static uint32_t restore_posted,armed;
 static volatile uint32_t showing,shown_at;   /* set by Main (show), cleared by Main (redraw) */
 
 /* The LED show has lasted SHOW_TICKS. Signed: a show Main started after the
@@ -91,7 +91,10 @@ KEEP void panel_poll(void) {
     uint32_t now=TICKS,main_ready=__atomic_load_n(&mr_main_ready,__ATOMIC_RELAXED);
     /* Armed ARM_TICKS after Main first received an event (it has started up,
      * settings loaded); about 4 s after power-on. */
-    int ready=main_ready && (int32_t)(now-main_ready)>=(int32_t)ARM_TICKS;   /* signed: Main may store after our tick read */
+    /* Latched: the signed difference (Main may store after our tick read)
+     * turns negative once the tick is 2^31 ms past main_ready, 24.9 days. */
+    if(!armed && main_ready && (int32_t)(now-main_ready)>=(int32_t)ARM_TICKS)armed=1;
+    int ready=(int)armed;
     if(due(now) && now-restore_posted>=RETRY_TICKS){restore_posted=now;POST(MR_HANDOFF_EVENT,PANEL_RESTORE_MAGIC,0,0,0);}
 #ifndef PANEL_DIAG
     for(uint32_t i=0;i<HOLDS;i++) {
