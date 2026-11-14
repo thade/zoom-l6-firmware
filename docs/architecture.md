@@ -1,4 +1,4 @@
-# Architecture (0.3.0)
+# Architecture (0.3.1)
 
 The release adds about 11 KB of code (11,140 bytes) to Zoom's v1.10 firmware,
 patches 15 stock instruction sites in MAIN and two call sites in the DSP

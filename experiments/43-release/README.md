@@ -3,9 +3,12 @@
 [Release 0.3.0](../41-linked-limiters/README.md) with one fix to the
 two-button holds. Everyday build.
 
-**Built 15 November 2026; not yet installed.** The image is built from the
-current sources and its hash can change until the release checks pin it
-(`tools/firmware/build_master_trial.py release`):
+**Installed 15 November 2026; the holds and a take passed after start-up.
+This is release 0.3.1.** The fix itself has only been checked in emulation,
+because the fault needs 24.9 days of power to appear.
+
+Build: `python tools/firmware/build_release.py` (the `release` mode of
+`build_master_trial.py`, pinned to the `v0.3.1` tag).
 
 ```text
 39273f1dc1b190fed18f29d7a0500906bd437161e331257f711b02d250a3fa4a  L6.BIN
@@ -49,14 +52,20 @@ Nothing else in the image's sources changed.
 All of this is emulation. The tick is a value the tests write, and nothing
 ran for days. Zoom's own use of the tick was not examined.
 
-## Procedure (release checks)
+## Results (15 November 2026)
 
-1. Install over 0.3.0 with `install_release.py --any-image`.
-2. After start-up, AUX 1 + AUX 2 and EFX + PAN each toggle after a 1.5 s
-   hold and show their LEDs for 2 s. The chain and stereo settings from 0.3.0
-   are kept.
-3. A take reaches pad 1 with the chain on.
-4. Leave the mixer on for 25 days or more, then repeat step 2.
+1. Installed over 0.3.0 with `install_release.py --any-image` through File
+   Transfer Mode, then the PLAY/STOP update. The card's previous `L6.BIN` was
+   the 0.3.0 image. The mixer started.
+2. AUX 1 + AUX 2 and EFX + PAN were each held twice and responded each time.
+3. A 9 s take was recorded with the chain on. Its folder `261115_093657` has
+   `MASTER.WAV`, six track files and a `HISTORY.TXT` with no entries, read
+   back from the card.
 
-Step 4 is the only check of the fix on a mixer. Steps 1 to 3 show that the
-new image behaves as 0.3.0 does.
+These show that 0.3.1 behaves as 0.3.0 does just after start-up.
+
+## Still to do
+
+Leave the mixer on for 25 days or more, then hold AUX 1 + AUX 2 and
+EFX + PAN again. That is the only check of the fix on a mixer. Counting from
+the restart on 15 November, the earliest date is 10 December 2026.

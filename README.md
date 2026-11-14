@@ -2,7 +2,7 @@
 
 Unofficial replacement firmware for the original **Zoom LiveTrak L6** (not
 the L6max). It lets you overdub using only the mixer, and adds a stereo AUX
-send you can switch on and off. Version **0.3.0**, made from Zoom's own
+send you can switch on and off. Version **0.3.1**, made from Zoom's own
 firmware **v1.10**.
 
 This is independent work, not affiliated with or endorsed by Zoom. Zoom's
@@ -41,8 +41,9 @@ new firmware file on your own computer. You can also
   responsibility. This project's MIT licence covers its own code only and
   comes with no warranty.
 - **Testing has been limited.** These features have been used every day on
-  one mixer since 12 October 2026; the 0.3.0 file itself was installed and
-  measured at the AUX jacks on 17 October. Some situations have only been
+  one mixer since 12 October 2026. The stereo send was measured at the AUX
+  jacks on 17 October with 0.3.0, and the 0.3.1 file was installed and its
+  switches and a take checked on 15 November. Some situations have only been
   tested in a software simulation of the mixer, not on a real one (see
   [Known limitations](#known-limitations)).
 
@@ -226,15 +227,15 @@ The test is written up in
   simulation of the mixer, not on a real one.
 - The stereo switch also works in the L6's settings and test modes; that has
   not been tried.
-- After 24.9 days of continuous power, the AUX 1 + AUX 2 and EFX + PAN holds
-  stop responding. Restart the mixer to get them back. Recording, the pads
-  and the current chain and stereo settings are not affected.
+- On 0.3.0 and earlier, the AUX 1 + AUX 2 and EFX + PAN holds stop
+  responding after 24.9 days of continuous power, until the mixer is
+  restarted. 0.3.1 fixes this. The fix was tested in a software simulation of
+  the mixer; a mixer has not yet been left on that long with 0.3.1.
 
 ## Building and developing
 
 - **[Build from source](docs/setup.md).** macOS or Linux, git and Python 3.12
-  or newer; the build produces `release/0.3.1/L6.BIN`, a fix for the holds
-  that has not been installed on a mixer yet.
+  or newer; the build produces `release/0.3.1/L6.BIN`.
 - **Installer script.** With the mixer's card mounted,
   `python tools/device/install_release.py --eject` copies the built `L6.BIN`
   to it (after backing up the card's existing `L6.BIN` and settings file) and

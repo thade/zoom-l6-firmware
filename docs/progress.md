@@ -2,7 +2,7 @@
 
 ## Status
 
-**0.3.0** is the experiment 41 image: 0.2.0 (the take chain on pads 1–4 with
+**0.3.0** was the experiment 41 image: 0.2.0 (the take chain on pads 1–4 with
 an EFX + PAN on/off switch, a `HISTORY.TXT` in every take folder, the stereo
 AUX send with the AUX 1 + AUX 2 switch, the pad folders' `MASTER.WAV`
 anchors written by the firmware, on Zoom's v1.10) with the two AUX output
@@ -12,10 +12,12 @@ installed with the browser patcher (which makes the image from Zoom's file
 and can send it to the mixer) and passed the same day; 0.1.0 (experiment 38)
 passed on 16 October. The features have run daily on one mixer since
 12 October.
-**0.3.1** ([experiment 43](../experiments/43-release/README.md)) is built
-and not yet installed. On 0.3.0 the two-button holds stop responding after
-24.9 days of continuous power, until the mixer is restarted; 0.3.1 fixes
-that. The build makes the 0.3.1 image, and the patcher still offers 0.3.0.
+**0.3.1** ([experiment 43](../experiments/43-release/README.md)) is 0.3.0
+with one fix. On 0.3.0 and earlier the two-button holds stop responding
+after 24.9 days of continuous power, until the mixer is restarted. 0.3.1 was
+installed on 15 November 2026, and the holds and a take passed after
+start-up. The fix itself has been checked in emulation only; the check on a
+mixer needs 25 days of power and is due from 10 December 2026.
 
 Recovery from an image that hangs at startup was shown on 16 October 2026
 ([experiment 18](../experiments/18-recovery-hang/README.md)): the bootloader
@@ -93,9 +95,9 @@ Open work: [future work](future-work.md). The detailed log up to 0.1.0 is in
 | 38 | [Release 0.1.0: EFX + PAN](../experiments/38-release/README.md) | Installed 16 Oct; passed |
 | 39 | [Firmware-written anchors, flash backup](../experiments/39-flash-diag/README.md) | Passed (toward 0.2.0) |
 | 40 | [Release 0.2.0](../experiments/40-release/README.md) | Installed 17 October; passed; release 0.2.0 |
-| 41 | [Linked AUX limiters](../experiments/41-linked-limiters/README.md) | Installed 17 October; passed on the jacks; this is 0.3.0 |
+| 41 | [Linked AUX limiters](../experiments/41-linked-limiters/README.md) | Installed 17 October; passed on the jacks; release 0.3.0 |
 | 42 | [Task stack headroom](../experiments/42-stack-headroom/README.md) | Built 17 October; not installed |
-| 43 | [Release 0.3.1: holds after weeks of power](../experiments/43-release/README.md) | Built 15 November; not installed |
+| 43 | [Release 0.3.1: holds after weeks of power](../experiments/43-release/README.md) | Installed 15 November; holds and a take passed; this is 0.3.1 |
 
 ## Checks
 

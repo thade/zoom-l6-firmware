@@ -1,6 +1,6 @@
 # Future work
 
-Open work after 0.3.0. Items are ideas or agreed requirements, not
+Open work after 0.3.1. Items are ideas or agreed requirements, not
 implemented features; check one off only with a linked implementation or
 hardware result. An emulator result does not complete a hardware item.
 

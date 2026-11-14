@@ -3,10 +3,10 @@
 experiment, byte for byte. No device access.
 
 Every installed mode must reproduce its image's hash exactly and is pinned
-to the commit or tag its image was built from (24-26, 28-30, 32-41 were
-installed, 37 and 39 being diagnostic builds; 27 and 31 were prepared and
-superseded before installation). `release` (0.3.1) builds the current
-sources until its image is installed and pinned.
+to the commit or tag its image was built from (24-26, 28-30, 32-41 and 43
+were installed, 37 and 39 being diagnostic builds; 27 and 31 were prepared
+and superseded before installation). `release` is pinned to v0.3.1; a new
+release builds the current sources until its image is installed and pinned.
 
 reference    (24) pad 1 plays the last take's master
 chain        (25) pads 1-4 play the last four takes, newest on pad 1
@@ -114,10 +114,13 @@ MODES=dict(
                        minimum=True,history=True,stereo=True,switch=True,chain_switch=True,anchors=True,link=True,version='0.3.0',
                        sha='34df789bc9eabf0b6060a12700cbd889d39ef4b8833f2c34db05b3bf72f3e90b'),
     # Release 0.3.1: 0.3.0 with the switch holds' arming latched, so the
-    # holds keep working past 24.9 days of uptime. Built from the current
-    # sources (so a ZIP download builds it too) until installed and pinned.
-    release=dict(experiment=43,out=ROOT/D/'43_release',image='release',pads=4,trial=False,
-                 minimum=True,history=True,stereo=True,switch=True,chain_switch=True,anchors=True,link=True,version='0.3.1'),
+    # holds keep working past 24.9 days of uptime; installed 15 November
+    # 2026, the holds and a take checked after start-up. Pinned to the v0.3.1
+    # tag; without git history (a ZIP download, a shallow clone) it builds
+    # from the working tree instead, held to the same published hash.
+    release=dict(experiment=43,out=ROOT/D/'43_release',image='release',pin='v0.3.1',tree_fallback=True,pads=4,trial=False,
+                 minimum=True,history=True,stereo=True,switch=True,chain_switch=True,anchors=True,link=True,version='0.3.1',
+                 sha='39273f1dc1b190fed18f29d7a0500906bd437161e331257f711b02d250a3fa4a'),
     # Diagnostic: the release with the status query, which reports the stack
     # headroom of the stock recorder, Main and MIDI tasks and of the worker,
     # and the least stack each hook found free. Built from the current
