@@ -60,10 +60,19 @@ image alone:
 python tools/firmware/build_release.py
 ```
 
-Both write `release/0.3.0/`: `L6.BIN`, `SHA256SUMS`, `manifest.json` and
-`recipe.json` (the same release for the browser patcher).
-The 0.3.0 image is reproducible: the build stops if the image differs from
-its published hash:
+Both write `release/0.3.1/`: `L6.BIN`, `SHA256SUMS`, `manifest.json` and
+`recipe.json` (the same release for the browser patcher). 0.3.1 has not been
+installed on a mixer yet
+([experiment 43](../experiments/43-release/README.md)), so its hash is not
+published.
+
+The 0.3.0 image is reproducible from its tag. This builds it into
+`deployment/41_linked/` and stops if the image differs from its published
+hash:
+
+```sh
+python tools/firmware/build_master_trial.py release_0_3_0
+```
 
 ```text
 34df789bc9eabf0b6060a12700cbd889d39ef4b8833f2c34db05b3bf72f3e90b  L6.BIN

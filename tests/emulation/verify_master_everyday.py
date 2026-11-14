@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exact release image (0.3.0, experiment 41): the take chain with its on/off
+"""Exact release image (0.3.1, experiment 43): the take chain with its on/off
 switch, take history, the switchable stereo AUX, the anchors written by the
 firmware and the linked AUX output limiters, without diagnostics. Original
 reset and scatter expand it; the Editor parser and the ring size stay stock,
@@ -37,6 +37,7 @@ EXPERIMENT35='824e37c69c2086b4c4464b14ab5b698c32d154352b0aa1537095fd6cb5134932'
 EXPERIMENT36='c796f4e6bd0f2b5f3d11b2594cdc882a40765af43e3d0b0b41eb4c2f6d08d5af'
 EXPERIMENT38='99ded4b1fcefa1d968a7317e5df4ee65c670018c4a495cfc1ed903aa5aa70bb0'   # release 0.1.0
 EXPERIMENT40='0c72755eaa9e24854ddd60187765b4ff05d0f86df3edd76ef2b08423a775f0af'   # release 0.2.0
+EXPERIMENT41='34df789bc9eabf0b6060a12700cbd889d39ef4b8833f2c34db05b3bf72f3e90b'   # release 0.3.0
 
 def boot():
     m=Emulator(cpu_model=A.UC_CPU_ARM_CORTEX_M7,mclass=True);u=m.uc
@@ -60,7 +61,7 @@ def main():
                      ('daily',EXPERIMENT29),('stereo',EXPERIMENT30),('daily_stereo',EXPERIMENT31),
                      ('switch',EXPERIMENT32),('daily_switch',EXPERIMENT33),('review',EXPERIMENT34),
                      ('chain_switch',EXPERIMENT35),('tolerant',EXPERIMENT36),('release_0_1_0',EXPERIMENT38),
-                     ('release_0_2_0',EXPERIMENT40)):
+                     ('release_0_2_0',EXPERIMENT40),('release_0_3_0',EXPERIMENT41)):
         assert digest(trial(mode)[0])==sha==MODES[mode]['sha'],mode
         local=MODES[mode]['out']/MODES[mode]['image']/'L6.BIN'   # an installed image kept locally
         assert not local.exists() or digest(local.read_bytes())==sha,mode
@@ -73,7 +74,7 @@ def main():
     q=QUERY_SPEC['site']-BIAS;assert DATA[q:q+4]==IMAGE[q:q+4]==bytes.fromhex(QUERY_SPEC['original'])
     assert DATA[SIZE_SITE-BIAS:SIZE_SITE-BIAS+4]==IMAGE[SIZE_SITE-BIAS:SIZE_SITE-BIAS+4]
     assert not any(n in TN for n in ('mr_query','health_parser','mr_stack_low'))
-    assert MANIFEST['experiment']==41 and MANIFEST['version']=='0.3.0' and MANIFEST['chain_switch'] and not MANIFEST['diagnostics'] and MANIFEST['minimum_take_seconds']==2
+    assert MANIFEST['experiment']==43 and MANIFEST['version']=='0.3.1' and MANIFEST['chain_switch'] and not MANIFEST['diagnostics'] and MANIFEST['minimum_take_seconds']==2
     assert MANIFEST['anchors_written'] and 'mr_main_waits' in TN
     # The DSP code differs from stock only at the two limiter detector call sites (12 bytes each).
     stock_dsp=IMAGE[SCATTER[0]-BIAS:SCATTER[0]-BIAS+SCATTER[2]];dsp=TP['dsp'];assert len(dsp)==len(stock_dsp)
@@ -92,7 +93,8 @@ def main():
                         experiment29=EXPERIMENT29,experiment30=EXPERIMENT30,
                         experiment31=EXPERIMENT31,experiment32=EXPERIMENT32,experiment33=EXPERIMENT33,
                         experiment34=EXPERIMENT34,experiment35=EXPERIMENT35,
-                        experiment36=EXPERIMENT36,experiment38=EXPERIMENT38,experiment40=EXPERIMENT40))
+                        experiment36=EXPERIMENT36,experiment38=EXPERIMENT38,experiment40=EXPERIMENT40,
+                        experiment41=EXPERIMENT41))
     boot()
     passed('original_reset_and_scatter_expand_the_image_with_the_DSP_code_patched_only_at_the_two_limiter_sites')
     # The browser patcher's recipe rebuilds this image from stock (make()

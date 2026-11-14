@@ -12,6 +12,11 @@ installed with the browser patcher (which makes the image from Zoom's file
 and can send it to the mixer) and passed the same day; 0.1.0 (experiment 38)
 passed on 16 October. The features have run daily on one mixer since
 12 October.
+**0.3.1** ([experiment 43](../experiments/43-release/README.md)) is built
+and not yet installed. On 0.3.0 the two-button holds stop responding after
+24.9 days of continuous power, until the mixer is restarted; 0.3.1 fixes
+that. The build makes the 0.3.1 image, and the patcher still offers 0.3.0.
+
 Recovery from an image that hangs at startup was shown on 16 October 2026
 ([experiment 18](../experiments/18-recovery-hang/README.md)): the bootloader
 runs the PLAY/STOP update before the firmware starts.
@@ -90,6 +95,7 @@ Open work: [future work](future-work.md). The detailed log up to 0.1.0 is in
 | 40 | [Release 0.2.0](../experiments/40-release/README.md) | Installed 17 October; passed; release 0.2.0 |
 | 41 | [Linked AUX limiters](../experiments/41-linked-limiters/README.md) | Installed 17 October; passed on the jacks; this is 0.3.0 |
 | 42 | [Task stack headroom](../experiments/42-stack-headroom/README.md) | Built 17 October; not installed |
+| 43 | [Release 0.3.1: holds after weeks of power](../experiments/43-release/README.md) | Built 15 November; not installed |
 
 ## Checks
 

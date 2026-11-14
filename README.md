@@ -226,11 +226,15 @@ The test is written up in
   simulation of the mixer, not on a real one.
 - The stereo switch also works in the L6's settings and test modes; that has
   not been tried.
+- After 24.9 days of continuous power, the AUX 1 + AUX 2 and EFX + PAN holds
+  stop responding. Restart the mixer to get them back. Recording, the pads
+  and the current chain and stereo settings are not affected.
 
 ## Building and developing
 
 - **[Build from source](docs/setup.md).** macOS or Linux, git and Python 3.12
-  or newer; the build produces `release/0.3.0/L6.BIN`.
+  or newer; the build produces `release/0.3.1/L6.BIN`, a fix for the holds
+  that has not been installed on a mixer yet.
 - **Installer script.** With the mixer's card mounted,
   `python tools/device/install_release.py --eject` copies the built `L6.BIN`
   to it (after backing up the card's existing `L6.BIN` and settings file) and

@@ -3,10 +3,10 @@
 experiment, byte for byte. No device access.
 
 Every installed mode must reproduce its image's hash exactly and is pinned
-to the commit or tag its image was built from (24-26, 28-30, 32-40 were
+to the commit or tag its image was built from (24-26, 28-30, 32-41 were
 installed, 37 and 39 being diagnostic builds; 27 and 31 were prepared and
-superseded before installation). `release` is pinned to v0.3.0; a new
-release builds the current sources until its image is installed and pinned.
+superseded before installation). `release` (0.3.1) builds the current
+sources until its image is installed and pinned.
 
 reference    (24) pad 1 plays the last take's master
 chain        (25) pads 1-4 play the last four takes, newest on pad 1
@@ -25,8 +25,9 @@ panel_diag   (37) diagnostic: 36 with the status query and switch diagnostics
 release_0_1_0 (38) version 0.1.0: 36 with EFX + PAN for the chain, armed ~4 s after power-on
 flash_diag   (39) diagnostic: firmware-written anchors, the status query and flash reads
 release_0_2_0 (40) version 0.2.0: 38 with the anchors written by the firmware
-release      (41) version 0.3.0: 40 with the two AUX output limiters linked in stereo (two DSP call sites) (default)
-stack_diag   (42) diagnostic: 41 with the status query and the task stack headroom (schema 8)
+release_0_3_0 (41) version 0.3.0: 40 with the two AUX output limiters linked in stereo (two DSP call sites)
+stack_diag   (42) diagnostic: the release with the status query and the task stack headroom (schema 8)
+release      (43) version 0.3.1: 41 with the switch holds staying armed past 24.9 days of uptime (default)
 
 Writes the trial image and the anchor file: a short silent 48 kHz stereo
 32-bit float WAV with the same 512-byte header layout as the extra files the
@@ -108,11 +109,15 @@ MODES=dict(
     # Release 0.3.0: 0.2.0 with the two AUX output limiters linked in stereo
     # (the detectors read the louder side), two call sites in the DSP code;
     # installed and measured on the jacks 17 October 2026. Pinned to the
-    # v0.3.0 tag; without git history (a ZIP download, a shallow clone) it
-    # builds from the working tree instead, held to the same published hash.
-    release=dict(experiment=41,out=ROOT/D/'41_linked',image='linked',pin='v0.3.0',tree_fallback=True,pads=4,trial=False,
-                 minimum=True,history=True,stereo=True,switch=True,chain_switch=True,anchors=True,link=True,version='0.3.0',
-                 sha='34df789bc9eabf0b6060a12700cbd889d39ef4b8833f2c34db05b3bf72f3e90b'),
+    # v0.3.0 tag (needs git history with tags: git fetch --tags).
+    release_0_3_0=dict(experiment=41,out=ROOT/D/'41_linked',image='linked',pin='v0.3.0',pads=4,trial=False,
+                       minimum=True,history=True,stereo=True,switch=True,chain_switch=True,anchors=True,link=True,version='0.3.0',
+                       sha='34df789bc9eabf0b6060a12700cbd889d39ef4b8833f2c34db05b3bf72f3e90b'),
+    # Release 0.3.1: 0.3.0 with the switch holds' arming latched, so the
+    # holds keep working past 24.9 days of uptime. Built from the current
+    # sources (so a ZIP download builds it too) until installed and pinned.
+    release=dict(experiment=43,out=ROOT/D/'43_release',image='release',pads=4,trial=False,
+                 minimum=True,history=True,stereo=True,switch=True,chain_switch=True,anchors=True,link=True,version='0.3.1'),
     # Diagnostic: the release with the status query, which reports the stack
     # headroom of the stock recorder, Main and MIDI tasks and of the worker,
     # and the least stack each hook found free. Built from the current
